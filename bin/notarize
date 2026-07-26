@@ -1,0 +1,52 @@
+#!/bin/bash
+# Notarize Accomplice.app so Gatekeeper stops treating it as unverified.
+#
+# Why it matters here beyond the usual: documents carry a per-file LaunchServices
+# binding pointing at this app (see LaunchBinding.swift). If the app can't be
+# verified, macOS challenges the DOCUMENT on open and offers to trash it. A
+# Developer ID signature is enough for local opens; notarization is what makes that
+# hold on a machine where the app arrived with a quarantine flag — i.e. anywhere it
+# gets distributed.
+#
+# ONE-TIME SETUP (already done on this machine as "pelocan-notary"):
+#   xcrun notarytool store-credentials "accomplice-notary" \
+#     --apple-id adamhowell@gmail.com --team-id P43WEHWKP5
+#   (password = an app-specific password from appleid.apple.com)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Any profile for the same Apple ID / team works; reuse the existing one by default.
+PROFILE="${NOTARY_PROFILE:-pelocan-notary}"
+APP="build/Build/Products/Release/Accomplice.app"
+ZIP="build/Accomplice.zip"
+
+echo "→ building (Developer ID, hardened runtime)…"
+bin/build >/dev/null
+
+echo "→ zipping…"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
+echo "→ notarizing (a minute or three)…"
+# notarytool --wait exits 0 even when the verdict is Invalid, so check explicitly —
+# otherwise the run sails on to stapling and fails there with a confusing error.
+SUBMIT=$(xcrun notarytool submit "$ZIP" --keychain-profile "$PROFILE" --wait 2>&1)
+echo "$SUBMIT"
+ID=$(echo "$SUBMIT" | awk '/^  id: /{print $2; exit}')
+if ! echo "$SUBMIT" | grep -q "status: Accepted"; then
+  echo
+  echo "notarization FAILED — log follows:"
+  xcrun notarytool log "$ID" --keychain-profile "$PROFILE" 2>&1 | head -40
+  exit 1
+fi
+
+echo "→ stapling…"
+xcrun stapler staple "$APP"
+
+echo "→ Gatekeeper verify…"
+spctl -a -vv -t exec "$APP"
+
+# Re-zip so any copy handed to someone else carries the stapled ticket.
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+echo "→ done: $APP (and $ZIP for distribution)"
