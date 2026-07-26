@@ -37,11 +37,41 @@ final class PageCanvas: NSView {
     private var composed: [Drawable] = []
     private var composedFor: String?
 
+    /// Artboard name labels, in page space. Sketch and Figma both put the name above
+    /// the top-left corner and make it the handle for selecting the board itself —
+    /// otherwise the only way to select an artboard is the layer list, since clicking
+    /// inside it hits whatever art is on top.
+    private struct ArtboardLabel {
+        let id: String
+        let name: String
+        let frame: CGRect      // the artboard itself
+        var hit: CGRect = .zero // the clickable label rect, filled in while drawing
+    }
+    private var artboards: [ArtboardLabel] = []
+
+    private func collectArtboards(_ layers: [Layer], _ base: CGAffineTransform,
+                                  _ out: inout [ArtboardLabel]) {
+        for l in layers where l.isVisible {
+            let t = Compose.transform(l).concatenating(base)
+            if l.isArtboard {
+                out.append(ArtboardLabel(id: l.id, name: l.name.isEmpty ? "Artboard" : l.name,
+                                         frame: CGRect(origin: .zero, size: l.frame.size).applying(t)))
+            }
+            switch l.kind {
+            case .group(let k), .shapeGroup(let k, _):
+                collectArtboards(k, t, &out)
+            default: break
+            }
+        }
+    }
+
     private func recompose() {
         guard let page else { composed = []; composedFor = nil; return }
         guard composedFor != page.name || composed.isEmpty else { return }
         composed = Compose.flatten(page.layers)
         composedFor = page.name
+        artboards = []
+        collectArtboards(page.layers, .identity, &artboards)
     }
 
     private func resize() {
@@ -83,7 +113,37 @@ final class PageCanvas: NSView {
             ctx.setLineDash(phase: 0, lengths: [4 / max(0.01, currentScale), 3 / max(0.01, currentScale)])
             ctx.stroke(rect.insetBy(dx: -1, dy: -1))
         }
+
+        drawArtboardLabels()
         ctx.restoreGState()
+    }
+
+    /// Labels stay a constant size on screen, so they read the same at any zoom —
+    /// which means sizing them in page units as 11 / magnification.
+    private func drawArtboardLabels() {
+        guard !artboards.isEmpty else { return }
+        let scale = max(0.01, currentScale)
+        let size = 11 / scale
+        let gap = 5 / scale
+
+        for i in artboards.indices {
+            let ab = artboards[i]
+            let selected = ab.id == selectedID
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: size, weight: selected ? .semibold : .regular),
+                .foregroundColor: selected ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
+            ]
+            let str = NSAttributedString(string: ab.name, attributes: attrs)
+            let sz = str.size()
+            var origin = CGPoint(x: ab.frame.minX, y: ab.frame.minY - sz.height - gap)
+            if dragging && dragSet.contains(ab.id) {
+                origin.x += dragOffset.width
+                origin.y += dragOffset.height
+            }
+            str.draw(at: origin)
+            // Generous hit area: the text is small on screen at low zoom.
+            artboards[i].hit = CGRect(origin: origin, size: sz).insetBy(dx: -gap, dy: -gap / 2)
+        }
     }
 
     private var currentScale: CGFloat {
@@ -112,6 +172,12 @@ final class PageCanvas: NSView {
     /// Hit-tests against the cached composition rather than recomposing per click.
     /// Named distinctly because NSView already has `hitTest(_:) -> NSView?`.
     func layerHit(_ point: CGPoint) -> Layer? {
+        // Labels win over content: they sit outside the board, and they're the only
+        // way to grab the artboard rather than the art sitting on it.
+        if let ab = artboards.first(where: { $0.hit.contains(point) }),
+           let page, let l = page.layer(ab.id) {
+            return l
+        }
         for d in composed.reversed() {
             if let p = d.path, p.contains(point) { return d.layer }
             if d.path == nil {
