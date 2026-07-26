@@ -27,6 +27,8 @@ func usage() -> Never {
       acmplc png     <file.sketch> [-o dir] [--page N] [--size 1024]
       acmplc convert <file.sketch> [-o out.acmplc.png] [--cover N]
       acmplc verify  <file.acmplc.png>
+      acmplc claim   <file|dir>...        bind files to Accomplice for double-click
+      acmplc bench   <file.acmplc.png>
     """)
     exit(0)
 }
@@ -133,6 +135,7 @@ case "convert":
     do {
         let data = try AcmplcFile.write(document: doc, images: images, options: opts)
         try data.write(to: out)
+        LaunchBinding.claim(out)
         let kb = Double(data.count) / 1024
         print(String(format: "wrote %@  (%.0f KB, %d pages)", out.lastPathComponent, kb, doc.pages.count))
         // Immediately re-open it both ways. A format that claims to be two things
@@ -208,6 +211,31 @@ case "roundtrip":
         fail("\(error)")
     }
     warnFonts()
+
+case "claim":
+    // Re-stamp the per-file Open With binding, e.g. across a library converted
+    // before this existed, or after extended attributes were stripped in transit.
+    var claimed = 0, skipped = 0
+    let targets = args.dropFirst(2).filter { !$0.hasPrefix("-") }
+    for path in targets {
+        let u = URL(fileURLWithPath: path)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) else { continue }
+        let files: [URL]
+        if isDir.boolValue {
+            files = (try? FileManager.default.contentsOfDirectory(at: u, includingPropertiesForKeys: nil))?
+                .filter { $0.lastPathComponent.hasSuffix(".acmplc.png") || $0.pathExtension == "acmplc" } ?? []
+        } else {
+            files = [u]
+        }
+        for f in files {
+            if LaunchBinding.claim(f) { claimed += 1 } else { skipped += 1 }
+        }
+    }
+    print("bound \(claimed) file\(claimed == 1 ? "" : "s") to Accomplice\(skipped > 0 ? " (\(skipped) failed)" : "")")
+    if claimed > 0 {
+        print("double-clicking these now opens Accomplice; every other PNG still opens in Preview")
+    }
 
 case "verify":
     let data: Data

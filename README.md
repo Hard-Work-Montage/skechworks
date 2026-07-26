@@ -36,6 +36,18 @@ entire point.
 This is the Fireworks `.fw.png` trick, which nobody has shipped since Adobe killed
 Fireworks in 2013.
 
+**Double-clicking opens Accomplice**, while every other PNG on the machine still
+belongs to Preview. LaunchServices resolves a file's type from the last extension
+component only, so a `.acmplc.png` is a `public.png` and a third-party type cannot
+outrank an Apple system type — the compound extension is registered but never wins.
+The lever that does work is the per-file binding Finder writes for *Get Info > Open
+With*: an extended attribute naming the handler. Accomplice stamps it on every file it
+writes, and `acmplc claim <file|dir>` re-applies it in bulk.
+
+That binding is a pure enhancement. Extended attributes don't survive zipping, email,
+or most upload round trips; when it's lost the file just opens in Preview again, which
+is what it did before. Nothing breaks.
+
 **One caution:** the editable half lives in bytes appended after the PNG. Run the file
 through an image optimizer, or re-save it from another image editor, and that half is
 stripped — you keep the picture and lose the document. `acmplc verify` detects this.
