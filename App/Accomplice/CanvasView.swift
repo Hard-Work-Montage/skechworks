@@ -6,7 +6,7 @@ import SwiftUI
 /// Screen and output can't disagree, which is the whole reason geometry lives in one place.
 final class PageCanvas: NSView {
 
-    var page: Page? { didSet { resize(); needsDisplay = true } }
+    var page: Page? { didSet { resize(); recompose(); needsDisplay = true } }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
     var selectedID: String? { didSet { needsDisplay = true } }
     var onClick: ((CGPoint) -> Void)?
@@ -15,6 +15,17 @@ final class PageCanvas: NSView {
     override var isFlipped: Bool { true }
 
     private var bounds1: CGRect = .zero
+
+    /// Composed once per page, not once per frame. See Renderer.draw(drawables:in:).
+    private var composed: [Drawable] = []
+    private var composedFor: String?
+
+    private func recompose() {
+        guard let page else { composed = []; composedFor = nil; return }
+        guard composedFor != page.name || composed.isEmpty else { return }
+        composed = Compose.flatten(page.layers)
+        composedFor = page.name
+    }
 
     private func resize() {
         guard let page else { bounds1 = .zero; return }
@@ -34,7 +45,7 @@ final class PageCanvas: NSView {
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
         ctx.translateBy(x: -bounds1.minX, y: -bounds1.minY)
-        Renderer(images: images).draw(page: page, in: ctx)
+        Renderer(images: images).draw(drawables: composed, in: ctx)
 
         if let id = selectedID, let rect = frameOf(id, in: page.layers, base: .identity) {
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
@@ -64,6 +75,18 @@ final class PageCanvas: NSView {
             default: kids = []
             }
             if let r = frameOf(id, in: kids, base: t) { return r }
+        }
+        return nil
+    }
+
+    /// Hit-tests against the cached composition rather than recomposing per click.
+    func hitTest(_ point: CGPoint) -> Layer? {
+        for d in composed.reversed() {
+            if let p = d.path, p.contains(point) { return d.layer }
+            if d.path == nil {
+                let r = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
+                if r.contains(point) { return d.layer }
+            }
         }
         return nil
     }
@@ -104,9 +127,8 @@ struct CanvasRepresentable: NSViewRepresentable {
         scroll.backgroundColor = .underPageBackgroundColor
 
         let canvas = PageCanvas()
-        canvas.onClick = { pt in
-            guard let page else { return }
-            selectedID = Renderer().hitTest(page: page, at: pt)?.id
+        canvas.onClick = { [weak canvas] pt in
+            selectedID = canvas?.hitTest(pt)?.id
         }
         scroll.documentView = canvas
         context.coordinator.canvas = canvas
@@ -120,9 +142,8 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.images = images
         canvas.page = page
         canvas.selectedID = selectedID
-        canvas.onClick = { pt in
-            guard let page else { return }
-            selectedID = Renderer().hitTest(page: page, at: pt)?.id
+        canvas.onClick = { [weak canvas] pt in
+            selectedID = canvas?.hitTest(pt)?.id
         }
         if pageChanged, let page {
             context.coordinator.lastPageName = page.name

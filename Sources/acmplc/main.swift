@@ -145,6 +145,35 @@ case "convert":
     }
     warnFonts()
 
+case "bench":
+    // What the app pays before it can show you anything.
+    let t0 = Date()
+    guard let src = try? DocumentSource.acmplc(url: input) else { fail("not an .acmplc.png") }
+    let indexed = Date().timeIntervalSince(t0)
+    let t1 = Date()
+    _ = src.page(at: 0)
+    let firstPage = Date().timeIntervalSince(t1)
+    let t2 = Date()
+    for i in 0..<src.pageCount { _ = src.page(at: i) }
+    let allPages = Date().timeIntervalSince(t2)
+    print(String(format: "index (open)      %6.2fs   %d pages listed", indexed, src.pageCount))
+    print(String(format: "first page        %6.2fs", firstPage))
+    print(String(format: "remaining %-3d     %6.2fs", src.pageCount - 1, allPages))
+    print(String(format: "-- parse to usable window: %.2fs (vs %.2fs eagerly)",
+                 indexed + firstPage, indexed + firstPage + allPages))
+
+    // Parsing turned out not to be the cost. Composition is: every shapeGroup runs
+    // CGPath boolean ops over its children, and the canvas was redoing that on every
+    // single redraw — so scrolling paid the same price as opening.
+    let cover = value("--page").flatMap(Int.init) ?? 0
+    if let p = src.page(at: cover) {
+        let t3 = Date()
+        let drawables = Compose.flatten(p.layers)
+        let flat = Date().timeIntervalSince(t3)
+        print(String(format: "\ncompose page %-2d   %6.2fs   %d drawables", cover, flat, drawables.count))
+        print(String(format: "-- that cost was paid on EVERY redraw before caching"))
+    }
+
 case "roundtrip":
     // Proves the format is lossless: read the .acmplc.png back into the model, render
     // it, and diff against a render straight from the .sketch original.

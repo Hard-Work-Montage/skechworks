@@ -9,40 +9,44 @@ import Foundation
 @MainActor
 final class DocumentStore: ObservableObject {
 
-    @Published var document: Document?
-    @Published var images: [String: Data] = [:]
+    @Published var source: DocumentSource?
     @Published var url: URL?
-    @Published var pageIndex = 0
+    @Published var pageIndex = 0 { didSet { loadCurrentPage() } }
     @Published var selectedLayerID: String?
     @Published var status: String = "Open an .acmplc.png or a .sketch file"
     @Published var isLoading = false
+    @Published var isPageLoading = false
     @Published var fontWarnings: [(String, String)] = []
 
-    var page: Page? {
-        guard let d = document, d.pages.indices.contains(pageIndex) else { return nil }
-        return d.pages[pageIndex]
-    }
+    /// The page currently on screen, once parsed. Nil while a page is still being read.
+    @Published private(set) var page: Page?
+
+    var images: [String: Data] { source?.images ?? [:] }
+    var pageCount: Int { source?.pageCount ?? 0 }
 
     func open(_ url: URL) {
         isLoading = true
+        page = nil
+        source = nil
         status = "Opening \(url.lastPathComponent)…"
         MissingFonts.reset()
 
         Task.detached(priority: .userInitiated) {
-            var result: (Document, [String: Data])?
+            var made: DocumentSource?
             var failure: String?
 
-            // .acmplc.png first — it's the native format. A .sketch will fail this and
-            // fall through, which is also how a PNG whose payload was stripped behaves,
-            // so the message has to distinguish them.
+            // .acmplc.png first — it's the native format, and it only parses
+            // document.json here, so this is fast regardless of document size. A
+            // .sketch fails that and falls through; so does a PNG whose payload was
+            // stripped, which is why the error has to distinguish them.
             do {
-                result = try AcmplcFile.read(url: url)
+                made = try DocumentSource.acmplc(url: url)
             } catch {
                 if url.pathExtension.lowercased() == "sketch" {
                     var reader = SketchReader()
                     do {
                         let doc = try reader.read(url: url)
-                        result = (doc, reader.images)
+                        made = DocumentSource.eager(doc, images: reader.images)
                     } catch {
                         failure = "\(error)"
                     }
@@ -52,21 +56,44 @@ final class DocumentStore: ObservableObject {
             }
 
             let warnings = MissingFonts.all
-            await MainActor.run { [result, failure] in
+            await MainActor.run { [made, failure] in
                 self.isLoading = false
                 self.fontWarnings = warnings
-                guard let (doc, imgs) = result else {
+                guard let src = made else {
                     self.status = failure ?? "Could not open \(url.lastPathComponent)"
                     NSSound.beep()
                     return
                 }
-                self.document = doc
-                self.images = imgs
+                self.source = src
                 self.url = url
-                self.pageIndex = 0
                 self.selectedLayerID = nil
-                self.status = "\(doc.pages.count) page\(doc.pages.count == 1 ? "" : "s")"
-                    + (doc.sourceApp.map { " · from \($0)" } ?? "")
+                self.status = "\(src.pageCount) page\(src.pageCount == 1 ? "" : "s")"
+                    + (src.sourceApp.map { " · from \($0)" } ?? "")
+                self.pageIndex = 0
+                self.loadCurrentPage()
+            }
+        }
+    }
+
+    /// Parses the selected page off the main thread. Pages already parsed come back
+    /// synchronously, so flipping between visited pages doesn't flicker.
+    private func loadCurrentPage() {
+        guard let src = source else { page = nil; return }
+        let i = pageIndex
+        if src.isLoaded(i) {
+            page = src.page(at: i)
+            isPageLoading = false
+            return
+        }
+        isPageLoading = true
+        Task.detached(priority: .userInitiated) {
+            let p = src.page(at: i)
+            let warnings = MissingFonts.all
+            await MainActor.run {
+                guard self.pageIndex == i, self.source === src else { return }
+                self.page = p
+                self.isPageLoading = false
+                if !warnings.isEmpty { self.fontWarnings = warnings }
             }
         }
     }
@@ -84,7 +111,7 @@ final class DocumentStore: ObservableObject {
     // MARK: - Export
 
     func exportCurrentPage() {
-        guard let page, let doc = document else { return }
+        guard let page else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = slug(page.name) + ".svg"
         panel.message = "Export “\(page.name)” as SVG"
@@ -96,32 +123,45 @@ final class DocumentStore: ObservableObject {
         } catch {
             status = "Export failed: \(error.localizedDescription)"
         }
-        _ = doc
     }
 
     func exportAllPages() {
-        guard let doc = document else { return }
+        guard let src = source else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = "Export Here"
-        panel.message = "Export all \(doc.pages.count) pages as SVG"
+        panel.message = "Export all \(src.pageCount) pages as SVG"
         guard panel.runModal() == .OK, let dir = panel.url else { return }
-        let w = SVGWriter(images: images)
-        var n = 0
-        for (i, p) in doc.pages.enumerated() {
-            let f = dir.appendingPathComponent(String(format: "%03d-%@.svg", i, slug(p.name)))
-            if (try? Data(w.svg(page: p).utf8).write(to: f)) != nil { n += 1 }
+
+        // The one operation that legitimately needs every page, so it's also the one
+        // that pays the parse cost — off the main thread, with progress.
+        isLoading = true
+        status = "Exporting \(src.pageCount) pages…"
+        let images = src.images
+        Task.detached(priority: .userInitiated) {
+            let w = SVGWriter(images: images)
+            var n = 0
+            for i in 0..<src.pageCount {
+                guard let p = src.page(at: i) else { continue }
+                let f = dir.appendingPathComponent(String(format: "%03d-%@.svg", i, Self.slugify(p.name)))
+                if (try? Data(w.svg(page: p).utf8).write(to: f)) != nil { n += 1 }
+            }
+            await MainActor.run {
+                self.isLoading = false
+                self.status = "Exported \(n) SVG\(n == 1 ? "" : "s")"
+            }
         }
-        status = "Exported \(n) SVG\(n == 1 ? "" : "s")"
     }
 
-    private func slug(_ s: String) -> String {
+    nonisolated static func slugify(_ s: String) -> String {
         let base = String(s.lowercased().map { ($0.isLetter || $0.isNumber) ? $0 : "-" })
             .split(separator: "-").joined(separator: "-")
         return base.isEmpty ? "page" : base
     }
+
+    private func slug(_ s: String) -> String { Self.slugify(s) }
 }
 
 // MARK: - Layer tree for display

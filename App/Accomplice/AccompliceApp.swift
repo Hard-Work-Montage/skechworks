@@ -21,10 +21,10 @@ struct AccompliceApp: App {
                 Divider()
                 Button("Export Page as SVG…") { store.exportCurrentPage() }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(store.document == nil)
+                    .disabled(store.source == nil)
                 Button("Export All Pages as SVG…") { store.exportAllPages() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
-                    .disabled(store.document == nil)
+                    .disabled(store.source == nil)
             }
         }
     }

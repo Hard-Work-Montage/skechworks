@@ -9,13 +9,17 @@ import Foundation
 // This is the small model the renderer and the editor both want, and the Sketch
 // reader's job is to collapse Sketch's shapes down into it.
 
-public struct Document {
+// The model crosses threads: pages parse on a background task and land on the main
+// actor. Everything here is a value type over immutable CGPaths — we always `.copy()`
+// a path before storing it and never mutate one afterwards — so this is sound, but
+// CGPath is a CF type the compiler can't reason about. Hence `@unchecked`.
+public struct Document: @unchecked Sendable {
     public var pages: [Page] = []
     public var sourceApp: String?          // e.g. "Sketch 2026.2" — provenance, for the record
     public init() {}
 }
 
-public struct Page {
+public struct Page: @unchecked Sendable {
     public var name: String
     public var layers: [Layer] = []        // index 0 == BACK-most (Sketch's own order)
     public init(name: String) { self.name = name }
@@ -28,15 +32,15 @@ public struct Page {
     }
 }
 
-public enum BooleanOp: Int {
+public enum BooleanOp: Int, Sendable {
     case none = -1, union = 0, subtract = 1, intersect = 2, difference = 3
 }
 
-public enum WindingRule: Int {
+public enum WindingRule: Int, Sendable {
     case nonZero = 0, evenOdd = 1
 }
 
-public indirect enum LayerKind {
+public indirect enum LayerKind: @unchecked Sendable {
     case group([Layer])
     /// A set of child shapes combined by boolean ops. This is where Sketch puts the style.
     case shapeGroup([Layer], WindingRule)
@@ -46,7 +50,7 @@ public indirect enum LayerKind {
     case bitmap(imageRef: String)
 }
 
-public struct Layer {
+public struct Layer: @unchecked Sendable {
     public var id: String = UUID().uuidString
     public var name: String = ""
     public var frame: CGRect = .zero
@@ -82,9 +86,9 @@ public struct Color: Sendable {
     }
 }
 
-public enum GradientKind: Int { case linear = 0, radial = 1, angular = 2 }
+public enum GradientKind: Int, Sendable { case linear = 0, radial = 1, angular = 2 }
 
-public struct Gradient {
+public struct Gradient: Sendable {
     public var kind: GradientKind = .linear
     public var from: CGPoint = .init(x: 0.5, y: 0)   // unit space within the layer
     public var to: CGPoint = .init(x: 0.5, y: 1)
@@ -92,20 +96,20 @@ public struct Gradient {
     public init() {}
 }
 
-public enum Paint {
+public enum Paint: Sendable {
     case color(Color)
     case gradient(Gradient)
 }
 
-public struct Fill {
+public struct Fill: Sendable {
     public var paint: Paint
     public var opacity: CGFloat = 1
     public init(paint: Paint, opacity: CGFloat = 1) { self.paint = paint; self.opacity = opacity }
 }
 
-public enum BorderPosition: Int { case center = 0, inside = 1, outside = 2 }
+public enum BorderPosition: Int, Sendable { case center = 0, inside = 1, outside = 2 }
 
-public struct Border {
+public struct Border: Sendable {
     public var color: Color = .black
     public var thickness: CGFloat = 1
     public var position: BorderPosition = .center
@@ -113,7 +117,7 @@ public struct Border {
     public init() {}
 }
 
-public struct Shadow {
+public struct Shadow: Sendable {
     public var color: Color = Color(r: 0, g: 0, b: 0, a: 0.5)
     public var offset: CGSize = .init(width: 0, height: 2)
     public var blur: CGFloat = 4
@@ -121,7 +125,7 @@ public struct Shadow {
     public init() {}
 }
 
-public struct Style {
+public struct Style: Sendable {
     public var fills: [Fill] = []
     public var borders: [Border] = []
     public var shadows: [Shadow] = []
@@ -131,7 +135,7 @@ public struct Style {
 
 // MARK: - Text
 
-public struct TextRun {
+public struct TextRun: @unchecked Sendable {
     public var string: String = ""
     public var fontName: String = "Helvetica"
     public var fontSize: CGFloat = 12

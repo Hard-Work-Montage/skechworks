@@ -30,7 +30,7 @@ struct ContentView: View {
                     Button("Export This Page as SVG…") { store.exportCurrentPage() }
                     Button("Export All Pages as SVG…") { store.exportAllPages() }
                 } label: { Label("Export", systemImage: "square.and.arrow.up") }
-                    .disabled(store.document == nil)
+                    .disabled(store.source == nil)
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -46,17 +46,19 @@ struct ContentView: View {
 
     private var pageList: some View {
         VStack(spacing: 0) {
-            if let doc = store.document {
+            if let src = store.source {
                 List(selection: Binding(
                     get: { store.pageIndex },
                     set: { store.pageIndex = $0 ?? 0; store.selectedLayerID = nil }
                 )) {
                     Section("Pages") {
-                        ForEach(Array(doc.pages.enumerated()), id: \.offset) { i, p in
+                        // Names and layer counts come from document.json, so the whole
+                        // sidebar is available before a single page has been parsed.
+                        ForEach(Array(src.pages.enumerated()), id: \.offset) { i, p in
                             HStack {
                                 Text(p.name).lineLimit(1)
                                 Spacer()
-                                Text("\(p.layers.count)")
+                                Text("\(p.layerCount)")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
@@ -88,7 +90,7 @@ struct ContentView: View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
                                 selectedID: $store.selectedLayerID, zoomToken: zoomToken)
-            if store.isLoading {
+            if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             }

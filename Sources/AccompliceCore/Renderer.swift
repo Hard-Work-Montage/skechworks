@@ -46,7 +46,17 @@ public struct Renderer {
     /// The editor's canvas view calls this directly, so what's on screen and what gets
     /// exported come out of exactly the same code.
     public func draw(page: Page, in ctx: CGContext) {
-        for d in Compose.flatten(page.layers) { draw(d, in: ctx) }
+        draw(drawables: Compose.flatten(page.layers), in: ctx)
+    }
+
+    /// Draws an already-composed drawable list.
+    ///
+    /// Composition runs every shapeGroup's children through CGPath boolean ops, which
+    /// costs ~0.6s on a busy coin page. An interactive canvas redraws on every scroll
+    /// and zoom tick, so it must flatten once per page and reuse the result — not
+    /// recompute it per frame.
+    public func draw(drawables: [Drawable], in ctx: CGContext) {
+        for d in drawables { draw(d, in: ctx) }
     }
 
     /// Hit-test: the topmost drawable whose geometry contains `point` (page space).

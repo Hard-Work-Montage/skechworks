@@ -40,11 +40,28 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
         NSHumanReadableCopyright: ""
+        # Our own type, declared as a *compound* extension. LaunchServices matches the
+        # longest extension it knows, so `foo.acmplc.png` resolves to us while a plain
+        # `foo.png` still belongs to Preview. Conforming to public.png is what keeps
+        # Finder thumbnails and Quick Look working for free.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.accomplice.document
+            UTTypeDescription: Accomplice Document
+            UTTypeConformsTo:
+              - public.png
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - acmplc
+                - acmplc.png
         CFBundleDocumentTypes:
-          # .acmplc.png is a compound extension: the OS matches on "png", so we
-          # declare the PNG type and disambiguate by reading the payload.
           - CFBundleTypeName: Accomplice Document
             CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.accomplice.document
+          # Plain PNGs: we can open them, but Preview stays the default.
+          - CFBundleTypeName: PNG Image
+            CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - public.png

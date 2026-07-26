@@ -113,9 +113,7 @@ public struct AcmplcFile {
         doc.sourceApp = dj["importedFrom"] as? String
         for entry in dj["pages"] as? [[String: Any]] ?? [] {
             guard let file = entry["file"] as? String, let pd = z[file],
-                  let pj = try? JSONSerialization.jsonObject(with: pd) as? [String: Any] else { continue }
-            var page = Page(name: pj["name"] as? String ?? "Page")
-            page.layers = (pj["layers"] as? [[String: Any]] ?? []).compactMap(readLayer)
+                  let page = parsePage(pd) else { continue }
             doc.pages.append(page)
         }
 
@@ -128,6 +126,15 @@ public struct AcmplcFile {
 
     public static func read(url: URL) throws -> (document: Document, images: [String: Data]) {
         try read(try Data(contentsOf: url, options: .mappedIfSafe))
+    }
+
+    /// Parses one `pages/*.json` blob. Split out so `DocumentSource` can call it
+    /// per page instead of the whole document being parsed at open time.
+    public static func parsePage(_ data: Data) -> Page? {
+        guard let pj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var page = Page(name: pj["name"] as? String ?? "Page")
+        page.layers = (pj["layers"] as? [[String: Any]] ?? []).compactMap(readLayer)
+        return page
     }
 
     private static func readLayer(_ j: [String: Any]) -> Layer? {
