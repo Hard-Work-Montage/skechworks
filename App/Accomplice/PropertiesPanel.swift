@@ -14,7 +14,7 @@ struct PropertiesPanel: View {
         Group {
             if let layer {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 18) {
                         header(layer)
                         Divider()
                         geometry(layer)
@@ -60,25 +60,34 @@ struct PropertiesPanel: View {
     }
 
     private func geometry(_ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Position & Size")
-            HStack(spacing: 10) {
-                editable("X", l.frame.minX, l) { layer, v in layer.frame.origin.x = v }
-                editable("Y", l.frame.minY, l) { layer, v in layer.frame.origin.y = v }
-            }
-            HStack(spacing: 10) {
-                editable("W", l.frame.width, l) { layer, v in
-                    layer.resize(to: CGSize(width: max(1, v), height: layer.frame.height))
+            // Two even columns throughout, so every field lines up regardless of how
+            // long its label is. A fixed label column is what stops "Opacity" wrapping
+            // onto a second line and shoving its field out of alignment.
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    editable("X", l.frame.minX, l) { layer, v in layer.frame.origin.x = v }
+                    editable("Y", l.frame.minY, l) { layer, v in layer.frame.origin.y = v }
                 }
-                editable("H", l.frame.height, l) { layer, v in
-                    layer.resize(to: CGSize(width: layer.frame.width, height: max(1, v)))
+                GridRow {
+                    editable("W", l.frame.width, l) { layer, v in
+                        layer.resize(to: CGSize(width: max(1, v), height: layer.frame.height))
+                    }
+                    editable("H", l.frame.height, l) { layer, v in
+                        layer.resize(to: CGSize(width: layer.frame.width, height: max(1, v)))
+                    }
                 }
-            }
-            HStack(spacing: 10) {
-                editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in
-                    layer.style.opacity = max(0, min(1, v / 100))
+                GridRow {
+                    editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in
+                        layer.style.opacity = max(0, min(1, v / 100))
+                    }
+                    if l.rotation != 0 {
+                        field("Angle", l.rotation, suffix: "°")
+                    } else {
+                        Color.clear.frame(height: 1)
+                    }
                 }
-                if l.rotation != 0 { field("Rotation", l.rotation, suffix: "°") }
             }
             Toggle("Visible", isOn: Binding(
                 get: { l.isVisible },
@@ -87,7 +96,7 @@ struct PropertiesPanel: View {
                     store.edit(l.id, actionName: on ? "Show Layer" : "Hide Layer") { $0.isVisible = on }
                 }
             ))
-            .toggleStyle(.checkbox).font(.callout)
+            .toggleStyle(.checkbox).font(.callout).padding(.top, 2)
             if l.flipH || l.flipV {
                 Text([l.flipH ? "Flipped horizontally" : nil,
                       l.flipV ? "Flipped vertically" : nil]
@@ -220,6 +229,7 @@ struct PropertiesPanel: View {
     private func sectionTitle(_ s: String) -> some View {
         Text(s.uppercased()).font(.caption2.weight(.semibold))
             .foregroundStyle(.tertiary).tracking(0.6)
+            .padding(.bottom, 1)
     }
 
     private func row(_ k: String, _ v: String) -> some View {
@@ -242,10 +252,14 @@ struct PropertiesPanel: View {
     }
 
     private func field(_ label: String, _ value: CGFloat, suffix: String = "") -> some View {
-        HStack(spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 22, alignment: .leading)
+        HStack(spacing: 5) {
+            Text(label)
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: FieldMetrics.labelWidth, alignment: .leading)
+                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             Text(trim(value) + suffix)
                 .font(.system(.callout, design: .monospaced))
+                .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 3).padding(.horizontal, 6)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
@@ -319,6 +333,11 @@ enum LayerLookup {
 
 /// Text field that only reports a value when it's actually committed, and that
 /// re-syncs from the model when the selection or an undo changes it underneath.
+/// Shared so typed fields and read-only ones line up on the same grid.
+enum FieldMetrics {
+    static let labelWidth: CGFloat = 46
+}
+
 private struct NumberField: View {
     let label: String
     let value: CGFloat
@@ -329,9 +348,11 @@ private struct NumberField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .leading)
+        HStack(spacing: 5) {
+            Text(label)
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: FieldMetrics.labelWidth, alignment: .leading)
+                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))

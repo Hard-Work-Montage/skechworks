@@ -227,7 +227,9 @@ final class PageCanvas: NSView {
             ctx.fill(m)
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
             ctx.setLineWidth(1 / sc)
+            ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
             ctx.stroke(m)
+            ctx.setLineDash(phase: 0, lengths: [])
         }
 
         drawHandles(ctx)
@@ -442,11 +444,22 @@ final class PageCanvas: NSView {
 /// empty space, not just the parts that happen to be inside the document view.
 final class CenteringClipView: NSClipView {
 
-    var onBackgroundClick: (() -> Void)?
-
-    override func mouseDown(with event: NSEvent) {
-        onBackgroundClick?()
-        super.mouseDown(with: event)
+    /// Route every click inside the scroll area to the canvas, even the bare space
+    /// beyond the page.
+    ///
+    /// The document view is only as big as the page plus a margin, so when a page is
+    /// fitted by height the gray either side belongs to the clip view. That made
+    /// deselect-by-clicking work above and below but not left or right, and made
+    /// marquee-dragging impossible from exactly the empty space you'd naturally start
+    /// a marquee in. Handing those points to the canvas fixes both at the source
+    /// rather than patching each symptom — the canvas converts to page coordinates
+    /// the same way regardless of whether the point is inside its frame.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let doc = documentView, let sup = superview,
+           convert(bounds, to: sup).contains(point) {
+            return doc
+        }
+        return super.hitTest(point)
     }
 
     override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
@@ -468,9 +481,7 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
-        let clip = CenteringClipView()
-        clip.onBackgroundClick = { selection = [] }
-        scroll.contentView = clip
+        scroll.contentView = CenteringClipView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.allowsMagnification = true
