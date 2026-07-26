@@ -1,0 +1,171 @@
+import AccompliceCore
+import CoreGraphics
+import Foundation
+
+// acmplc — the liberator.
+//
+//   acmplc info     <file.sketch>              what's in it
+//   acmplc svg      <file.sketch> -o <dir>     every page as SVG
+//   acmplc png      <file.sketch> -o <dir>     every page as PNG
+//   acmplc convert  <file.sketch> -o <out>     -> .acmplc.png
+//   acmplc verify   <file.acmplc.png>          prove the polyglot holds
+
+let args = CommandLine.arguments
+func fail(_ m: String) -> Never { FileHandle.standardError.write(Data("error: \(m)\n".utf8)); exit(1) }
+
+func value(_ flag: String) -> String? {
+    guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+    return args[i + 1]
+}
+
+func usage() -> Never {
+    print("""
+    acmplc — liberate .sketch files
+
+      acmplc info    <file.sketch>
+      acmplc svg     <file.sketch> [-o dir] [--page N]
+      acmplc png     <file.sketch> [-o dir] [--page N] [--size 1024]
+      acmplc convert <file.sketch> [-o out.acmplc.png] [--cover N]
+      acmplc verify  <file.acmplc.png>
+    """)
+    exit(0)
+}
+
+guard args.count >= 3 else { usage() }
+let command = args[1]
+let input = URL(fileURLWithPath: args[2])
+
+func load() -> (Document, [String: Data]) {
+    var reader = SketchReader()
+    do {
+        let doc = try reader.read(url: input)
+        return (doc, reader.images)
+    } catch {
+        fail("\(input.lastPathComponent): \(error)")
+    }
+}
+
+func outDir(_ fallback: String) -> URL {
+    let u = URL(fileURLWithPath: value("-o") ?? fallback)
+    try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+    return u
+}
+
+func slug(_ s: String, _ i: Int) -> String {
+    let base = String(s.lowercased().map { ($0.isLetter || $0.isNumber) ? $0 : "-" })
+        .split(separator: "-").joined(separator: "-")
+    return String(format: "%03d-%@", i, base.isEmpty ? "page" : base)
+}
+
+func warnFonts() {
+    let m = MissingFonts.all
+    guard !m.isEmpty else { return }
+    FileHandle.standardError.write(Data("\nfont substitutions (text will not match Sketch):\n".utf8))
+    for (want, got) in m {
+        FileHandle.standardError.write(Data("  \(want) -> \(got)\n".utf8))
+    }
+}
+
+switch command {
+
+case "info":
+    let (doc, images) = load()
+    print("\(input.lastPathComponent)")
+    print("  imported from : \(doc.sourceApp ?? "unknown")")
+    print("  pages         : \(doc.pages.count)")
+    print("  embedded imgs : \(images.count)")
+    var shapes = 0, texts = 0, bitmaps = 0, groups = 0
+    func count(_ ls: [Layer]) {
+        for l in ls {
+            switch l.kind {
+            case .group(let k):        groups += 1; count(k)
+            case .shapeGroup(let k, _): shapes += 1; count(k)
+            case .path:                shapes += 1
+            case .text:                texts += 1
+            case .bitmap:              bitmaps += 1
+            }
+        }
+    }
+    for p in doc.pages { count(p.layers) }
+    print("  shapes/text/bitmaps/groups : \(shapes)/\(texts)/\(bitmaps)/\(groups)")
+    print()
+    for (i, p) in doc.pages.enumerated() {
+        let b = p.contentBounds()
+        print(String(format: "  %3d  %-24s %4d layers   %.0fx%.0f",
+                     i, (p.name as NSString).utf8String!, p.layers.count, b.width, b.height))
+    }
+
+case "svg":
+    let (doc, images) = load()
+    let dir = outDir(input.deletingPathExtension().lastPathComponent + "-svg")
+    let w = SVGWriter(images: images)
+    let only = value("--page").flatMap(Int.init)
+    var n = 0
+    for (i, p) in doc.pages.enumerated() where only == nil || only == i {
+        let f = dir.appendingPathComponent(slug(p.name, i) + ".svg")
+        try? Data(w.svg(page: p).utf8).write(to: f)
+        n += 1
+    }
+    print("wrote \(n) SVG\(n == 1 ? "" : "s") to \(dir.path)")
+    warnFonts()
+
+case "png":
+    let (doc, images) = load()
+    let dir = outDir(input.deletingPathExtension().lastPathComponent + "-png")
+    let size = CGFloat(value("--size").flatMap(Double.init) ?? 1024)
+    let r = Renderer(images: images, background: Color(r: 1, g: 1, b: 1, a: 1))
+    let only = value("--page").flatMap(Int.init)
+    var n = 0
+    for (i, p) in doc.pages.enumerated() where only == nil || only == i {
+        guard let img = r.render(page: p, maxDimension: size), let d = Renderer.png(img) else { continue }
+        try? d.write(to: dir.appendingPathComponent(slug(p.name, i) + ".png"))
+        n += 1
+    }
+    print("wrote \(n) PNG\(n == 1 ? "" : "s") to \(dir.path)")
+    warnFonts()
+
+case "convert":
+    let (doc, images) = load()
+    var opts = AcmplcFile.Options()
+    if let c = value("--cover").flatMap(Int.init) { opts.coverPage = c }
+    let out = URL(fileURLWithPath: value("-o")
+        ?? input.deletingPathExtension().lastPathComponent + ".acmplc.png")
+    do {
+        let data = try AcmplcFile.write(document: doc, images: images, options: opts)
+        try data.write(to: out)
+        let kb = Double(data.count) / 1024
+        print(String(format: "wrote %@  (%.0f KB, %d pages)", out.lastPathComponent, kb, doc.pages.count))
+        // Immediately re-open it both ways. A format that claims to be two things
+        // should have to prove it on every single write.
+        let back = try Zip.read(try Data(contentsOf: out))
+        let svgs = back.keys.filter { $0.hasPrefix("exports/") }.count
+        print("  verified: PNG cover + ZIP payload (\(back.count) entries, \(svgs) SVG exports)")
+    } catch {
+        fail("\(error)")
+    }
+    warnFonts()
+
+case "verify":
+    let data: Data
+    do { data = try Data(contentsOf: input) } catch { fail("\(error)") }
+    let isPNG = data.prefix(8).elementsEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    print("\(input.lastPathComponent)  (\(data.count) bytes)")
+    print("  PNG signature : \(isPNG ? "ok" : "MISSING")")
+    do {
+        let z = try Zip.read(data)
+        print("  ZIP payload   : ok, \(z.count) entries")
+        let exports = z.keys.filter { $0.hasPrefix("exports/") }.sorted()
+        print("  SVG exports   : \(exports.count)")
+        for e in exports.prefix(5) { print("      \(e)") }
+        if exports.count > 5 { print("      … and \(exports.count - 5) more") }
+        if !isPNG || z.isEmpty { exit(2) }
+    } catch {
+        print("  ZIP payload   : MISSING — \(error)")
+        print("\n  This file's editable data was stripped, probably by an image optimizer")
+        print("  or a re-save from another editor. The picture survives; the document does not.")
+        exit(2)
+    }
+
+default:
+    usage()
+}

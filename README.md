@@ -1,0 +1,89 @@
+# Accomplice
+
+A bitmap + vector design tool for macOS, in the spirit of Fireworks. Local, no
+subscription, no cloud, no account.
+
+This repo currently contains **the liberator** — the piece that comes first, because
+insurance should not wait on an editor.
+
+## Why
+
+240 of the 393 `.sketch` files on this machine are already unreadable by any modern
+tool: 209 in the old Sketch 2/3 bundle format, 31 in the SQLite format Sketch used
+before that. All dated 2013–2017. Design tools orphan their formats, and the work
+goes with them.
+
+Sketch itself is alive and shipping, but its roadmap is Variants, Sections, Stacks
+and Slack integration — component-system features for product-design teams. There is
+nothing on it about vector editing, bitmap editing, or export. The risk was never
+that Sketch dies. It's that it keeps working for a decade while never again shipping
+anything this workflow needs.
+
+## The format: `.acmplc.png`
+
+An Accomplice document is a PNG **and** a ZIP, at the same time. PNG readers stop at
+`IEND`; ZIP readers scan backward for the central directory. Neither notices the other.
+
+- **Double-click it** — Finder thumbnails it, Preview opens it, any image viewer on
+  any OS shows you the cover page.
+- **`unzip` it** — every page as SVG in `exports/`, the editable document as JSON in
+  `pages/`, placed images in `assets/`.
+
+Geometry is stored as SVG path data, so the document is readable with a text editor.
+There is no step where you need this program to get your artwork back. That is the
+entire point.
+
+This is the Fireworks `.fw.png` trick, which nobody has shipped since Adobe killed
+Fireworks in 2013.
+
+**One caution:** the editable half lives in bytes appended after the PNG. Run the file
+through an image optimizer, or re-save it from another image editor, and that half is
+stripped — you keep the picture and lose the document. `acmplc verify` detects this.
+
+## Usage
+
+```
+acmplc info    <file.sketch>                    # what's in it
+acmplc svg     <file.sketch> [-o dir]           # every page as SVG
+acmplc png     <file.sketch> [-o dir] [--size]  # every page as PNG
+acmplc convert <file.sketch> [-o out] [--cover N]
+acmplc verify  <file.acmplc.png>                # prove both halves are intact
+```
+
+## Status
+
+Verified against the real corpus: **62/62 TAM `.sketch` files read, 172 pages.**
+
+Rendering is checked against Sketch's own embedded `previews/preview.png` as an
+oracle. On the moon-phases coin, after eroding antialiased edges, **2 pixels differ
+out of 250,000** — the geometry is exact and the residual is rasterizer antialiasing.
+
+Supported: multi-page documents, bezier paths, ovals/rectangles, groups, boolean ops
+(union/subtract/intersect/difference), solid and gradient fills, borders with
+inside/center/outside position and dashes, shadows, clipping masks, text (outlined via
+CoreText), placed bitmaps.
+
+Deliberately not supported: symbols, shared styles, libraries, prototyping, Smart
+Layout, resizing constraints. An audit of the corpus found zero usage of any of them.
+
+## Design notes
+
+- **Zero dependencies.** A tool whose job is outliving other software should not
+  inherit anyone else's supply chain. The ZIP reader/writer is hand-rolled against
+  `Compression.framework`.
+- **CoreGraphics does the hard math.** macOS 13 added curve-preserving boolean ops on
+  `CGPath` (`union`, `subtracting`, `intersection`, `symmetricDifference`). Path
+  booleans are the one genuinely difficult piece of a vector editor, and Apple ships it.
+- **One compositor.** `Compose` resolves geometry once; the rasterizer and the SVG
+  writer both consume it, so the preview and the engraving file cannot disagree.
+- **Text is always outlined.** The output goes to a laser cutter, where a live `<text>`
+  element is a liability.
+
+## Build
+
+```
+swift build -c release
+swift test
+```
+
+Requires macOS 13+ (that's where the `CGPath` booleans land).
