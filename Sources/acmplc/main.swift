@@ -28,6 +28,7 @@ func usage() -> Never {
       acmplc convert <file.sketch> [-o out.acmplc.png] [--cover N]
       acmplc verify  <file.acmplc.png>
       acmplc claim   <file|dir>...        bind files to Accomplice for double-click
+      acmplc unclaim <file|dir>...        undo that; files open in Preview again
       acmplc bench   <file.acmplc.png>
     """)
     exit(0)
@@ -212,7 +213,8 @@ case "roundtrip":
     }
     warnFonts()
 
-case "claim":
+case "claim", "unclaim":
+    let removing = command == "unclaim"
     // Re-stamp the per-file Open With binding, e.g. across a library converted
     // before this existed, or after extended attributes were stripped in transit.
     var claimed = 0, skipped = 0
@@ -229,12 +231,16 @@ case "claim":
             files = [u]
         }
         for f in files {
-            if LaunchBinding.claim(f) { claimed += 1 } else { skipped += 1 }
+            let ok = removing ? LaunchBinding.unclaim(f) : LaunchBinding.claim(f)
+            if ok { claimed += 1 } else { skipped += 1 }
         }
     }
-    print("bound \(claimed) file\(claimed == 1 ? "" : "s") to Accomplice\(skipped > 0 ? " (\(skipped) failed)" : "")")
+    let verb = removing ? "unbound" : "bound"
+    print("\(verb) \(claimed) file\(claimed == 1 ? "" : "s")\(skipped > 0 ? " (\(skipped) failed)" : "")")
     if claimed > 0 {
-        print("double-clicking these now opens Accomplice; every other PNG still opens in Preview")
+        print(removing
+            ? "these now open in Preview again, as an ordinary PNG would"
+            : "double-clicking these now opens Accomplice; every other PNG still opens in Preview")
     }
 
 case "verify":

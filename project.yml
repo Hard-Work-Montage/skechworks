@@ -75,10 +75,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
         MARKETING_VERSION: "0.1"
         SWIFT_VERSION: "6.0"
-        # Hardened runtime stays off for local builds: combined with ad-hoc signing it
-        # makes the embedded framework's signature unloadable ("different Team IDs").
-        # Turn it back on with a real Developer ID when this gets notarized.
-        ENABLE_HARDENED_RUNTIME: NO
+        # Required by Developer ID signing (and by notarization later). bin/build
+        # re-signs the whole bundle afterwards with one identity, which is what keeps
+        # the embedded framework loadable.
+        ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
         DEAD_CODE_STRIPPING: YES

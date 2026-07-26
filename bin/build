@@ -1,12 +1,32 @@
 #!/bin/sh
 # Build Accomplice.app (Release) and leave it runnable.
 #
-# The re-sign at the end is not optional: xcodebuild signs the app and the embedded
-# AccompliceCore.framework as separate ad-hoc identities, and dyld then refuses to
-# load the framework ("different Team IDs"). Signing the whole bundle in one pass,
-# outside-in, gives it one consistent identity.
+# Signing matters more than it looks. Two things bite:
+#
+# 1. xcodebuild signs the app and the embedded AccompliceCore.framework as separate
+#    identities, and dyld then refuses to load the framework ("different Team IDs").
+#    Signing the whole bundle in one pass, inside-out, gives it one identity.
+#
+# 2. An ad-hoc signature is rejected by Gatekeeper (`spctl -a` says so). The app still
+#    launches when you point at it directly, but a *document* bound to it via the
+#    per-file LaunchServices binding gets challenged — macOS shows "could not verify
+#    ... free of malware" naming the DOCUMENT, and strips the binding. So the launch
+#    binding is only safe once the app carries a real Developer ID signature.
+#
+# Override the identity with ACMPLC_SIGN_ID; falls back to ad-hoc if no Developer ID
+# is installed, in which case bin/build warns and the binding should stay off.
 set -e
 cd "$(dirname "$0")/.."
+
+SIGN_ID="${ACMPLC_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | grep 'Developer ID Application' | head -1 | sed 's/.*"\(.*\)"/\1/')}"
+
+if [ -z "$SIGN_ID" ]; then
+  SIGN_ID="-"
+  echo "warning: no Developer ID found; signing ad-hoc."
+  echo "         Gatekeeper will reject this build, so documents bound to it will be"
+  echo "         challenged on open. Run 'acmplc unclaim' on your library if that bites."
+fi
 
 xcodegen generate
 
@@ -15,14 +35,19 @@ xcodebuild \
   -scheme Accomplice \
   -configuration Release \
   -derivedDataPath build \
-  "$@" | grep -E "error:|warning:|BUILD" || true
+  "$@" | grep -E "error:|BUILD" || true
 
 APP="build/Build/Products/Release/Accomplice.app"
 [ -d "$APP" ] || { echo "build failed: no app bundle"; exit 1; }
 
-codesign --force --sign - --timestamp=none \
+# Inside-out: framework first, then the app that embeds it.
+codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" \
   "$APP/Contents/Frameworks/AccompliceCore.framework" >/dev/null 2>&1
-codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1
-codesign --verify --deep "$APP" && echo "signed ok"
+codesign --force --options runtime --timestamp=none --sign "$SIGN_ID" \
+  "$APP" >/dev/null 2>&1
+
+codesign --verify --deep --strict "$APP" 2>&1 && echo "signature ok: $SIGN_ID"
+echo -n "gatekeeper: "
+spctl -a -vv -t exec "$APP" 2>&1 | tail -1
 
 echo "built $APP"

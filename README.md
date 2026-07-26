@@ -44,9 +44,15 @@ The lever that does work is the per-file binding Finder writes for *Get Info > O
 With*: an extended attribute naming the handler. Accomplice stamps it on every file it
 writes, and `acmplc claim <file|dir>` re-applies it in bulk.
 
-That binding is a pure enhancement. Extended attributes don't survive zipping, email,
-or most upload round trips; when it's lost the file just opens in Preview again, which
-is what it did before. Nothing breaks.
+**The binding requires a Developer ID signature.** With an ad-hoc signature the app is
+Gatekeeper-rejected, and macOS then challenges any *document* bound to it — the warning
+names the document, not the app, and offers to move it to the Trash. `bin/build` picks
+up a Developer ID automatically and warns loudly if it can't find one. `acmplc unclaim`
+removes the binding if you ever need to.
+
+Otherwise the binding degrades gracefully: extended attributes don't survive zipping,
+email, or most upload round trips, and when it's lost the file just opens in Preview
+again, which is what it did before.
 
 **One caution:** the editable half lives in bytes appended after the PNG. Run the file
 through an image optimizer, or re-save it from another image editor, and that half is

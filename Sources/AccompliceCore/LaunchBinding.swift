@@ -39,6 +39,18 @@ public enum LaunchBinding {
         }
     }
 
+    /// Removes the binding, restoring the system default (Preview for a .acmplc.png).
+    /// Worth having: if the app is ever signed ad-hoc or otherwise can't be verified,
+    /// Gatekeeper challenges documents bound to it and names the *document* in the
+    /// warning. Being able to undo this in one command matters.
+    @discardableResult
+    public static func unclaim(_ url: URL) -> Bool {
+        url.withUnsafeFileSystemRepresentation { path -> Bool in
+            guard let path else { return false }
+            return removexattr(path, attribute, 0) == 0 || errno == ENOATTR
+        }
+    }
+
     public static func isClaimed(_ url: URL) -> Bool {
         url.withUnsafeFileSystemRepresentation { path -> Bool in
             guard let path else { return false }
