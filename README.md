@@ -40,6 +40,24 @@ Fireworks in 2013.
 through an image optimizer, or re-save it from another image editor, and that half is
 stripped — you keep the picture and lose the document. `acmplc verify` detects this.
 
+## The app
+
+```
+./bin/build          # generate the Xcode project, build Release, re-sign
+open build/Build/Products/Release/Accomplice.app
+```
+
+A viewer, for now: open an `.acmplc.png` (or a `.sketch` directly), browse pages,
+inspect the layer tree, click the canvas to select a layer, export one page or all
+pages as SVG. Zoom and pan with the trackpad.
+
+The canvas draws through the same `Renderer.draw(page:in:)` the exporter uses, so what
+is on screen and what lands in the SVG cannot drift apart.
+
+Note `bin/build` re-signs the whole bundle in one pass at the end. Without that,
+xcodebuild gives the app and the embedded `AccompliceCore.framework` separate ad-hoc
+identities and dyld refuses to load the framework with "different Team IDs".
+
 ## Usage
 
 ```

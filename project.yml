@@ -1,0 +1,67 @@
+name: Accomplice
+options:
+  bundleIdPrefix: com.accomplice
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+targets:
+  # Same sources SPM builds for the CLI, wrapped as a framework so the app can
+  # `import AccompliceCore` exactly like the CLI does. One implementation, two
+  # front ends — the renderer must never fork.
+  AccompliceCore:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/AccompliceCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.AccompliceCore
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        GENERATE_INFOPLIST_FILE: YES
+
+  Accomplice:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Accomplice
+    dependencies:
+      - target: AccompliceCore
+        embed: true
+    info:
+      path: App/Accomplice/Info.plist
+      properties:
+        CFBundleDisplayName: Accomplice
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.graphics-design
+        LSMinimumSystemVersion: "14.0"
+        NSHighResolutionCapable: true
+        NSHumanReadableCopyright: ""
+        CFBundleDocumentTypes:
+          # .acmplc.png is a compound extension: the OS matches on "png", so we
+          # declare the PNG type and disambiguate by reading the payload.
+          - CFBundleTypeName: Accomplice Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.png
+          - CFBundleTypeName: Sketch Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            CFBundleTypeExtensions:
+              - sketch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
+        MARKETING_VERSION: "0.1"
+        SWIFT_VERSION: "6.0"
+        # Hardened runtime stays off for local builds: combined with ad-hoc signing it
+        # makes the embedded framework's signature unloadable ("different Team IDs").
+        # Turn it back on with a real Developer ID when this gets notarized.
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        DEAD_CODE_STRIPPING: YES

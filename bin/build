@@ -1,0 +1,28 @@
+#!/bin/sh
+# Build Accomplice.app (Release) and leave it runnable.
+#
+# The re-sign at the end is not optional: xcodebuild signs the app and the embedded
+# AccompliceCore.framework as separate ad-hoc identities, and dyld then refuses to
+# load the framework ("different Team IDs"). Signing the whole bundle in one pass,
+# outside-in, gives it one consistent identity.
+set -e
+cd "$(dirname "$0")/.."
+
+xcodegen generate
+
+xcodebuild \
+  -project Accomplice.xcodeproj \
+  -scheme Accomplice \
+  -configuration Release \
+  -derivedDataPath build \
+  "$@" | grep -E "error:|warning:|BUILD" || true
+
+APP="build/Build/Products/Release/Accomplice.app"
+[ -d "$APP" ] || { echo "build failed: no app bundle"; exit 1; }
+
+codesign --force --sign - --timestamp=none \
+  "$APP/Contents/Frameworks/AccompliceCore.framework" >/dev/null 2>&1
+codesign --force --sign - --timestamp=none "$APP" >/dev/null 2>&1
+codesign --verify --deep "$APP" && echo "signed ok"
+
+echo "built $APP"

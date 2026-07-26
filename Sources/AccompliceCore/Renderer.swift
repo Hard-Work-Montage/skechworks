@@ -38,8 +38,28 @@ public struct Renderer {
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
 
-        for d in Compose.flatten(page.layers) { draw(d, in: ctx) }
+        draw(page: page, in: ctx)
         return ctx.makeImage()
+    }
+
+    /// Draws into a context already set up in the page's own coordinate space (y-down).
+    /// The editor's canvas view calls this directly, so what's on screen and what gets
+    /// exported come out of exactly the same code.
+    public func draw(page: Page, in ctx: CGContext) {
+        for d in Compose.flatten(page.layers) { draw(d, in: ctx) }
+    }
+
+    /// Hit-test: the topmost drawable whose geometry contains `point` (page space).
+    public func hitTest(page: Page, at point: CGPoint) -> Layer? {
+        for d in Compose.flatten(page.layers).reversed() {
+            if let p = d.path, p.contains(point) { return d.layer }
+            if d.path == nil {
+                let f = d.layer.frame
+                let local = CGRect(origin: .zero, size: f.size).applying(d.transform)
+                if local.contains(point) { return d.layer }
+            }
+        }
+        return nil
     }
 
     private func draw(_ d: Drawable, in ctx: CGContext) {
