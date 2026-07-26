@@ -271,7 +271,21 @@ final class PageCanvas: NSView {
 
 /// Keeps the page centred when it's smaller than the viewport. NSScrollView pins content
 /// to the top-left otherwise, which reads as broken on a canvas.
+///
+/// It also has to catch clicks. When the page is fitted by height, the bare space to its
+/// left and right belongs to the clip view, not the canvas — so clicking there never
+/// reached PageCanvas and the selection wouldn't clear, while clicking above or below
+/// (inside the canvas's own label margin) did. Deselecting has to work on every piece of
+/// empty space, not just the parts that happen to be inside the document view.
 final class CenteringClipView: NSClipView {
+
+    var onBackgroundClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onBackgroundClick?()
+        super.mouseDown(with: event)
+    }
+
     override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposed)
         guard let doc = documentView else { return rect }
@@ -291,7 +305,9 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
-        scroll.contentView = CenteringClipView()
+        let clip = CenteringClipView()
+        clip.onBackgroundClick = { selectedID = nil }
+        scroll.contentView = clip
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.allowsMagnification = true
