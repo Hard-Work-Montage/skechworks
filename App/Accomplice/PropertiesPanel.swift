@@ -80,7 +80,10 @@ struct PropertiesPanel: View {
             }
             Toggle("Visible", isOn: Binding(
                 get: { l.isVisible },
-                set: { on in store.edit(l.id, actionName: on ? "Show Layer" : "Hide Layer") { $0.isVisible = on } }
+                set: { on in
+                    guard on != l.isVisible else { return }   // no-op sets must not dirty the document
+                    store.edit(l.id, actionName: on ? "Show Layer" : "Hide Layer") { $0.isVisible = on }
+                }
             ))
             .toggleStyle(.checkbox).font(.callout)
             if l.flipH || l.flipV {
@@ -108,6 +111,7 @@ struct PropertiesPanel: View {
                 Toggle("Include fill in export", isOn: Binding(
                     get: { l.backgroundInExport },
                     set: { on in
+                        guard on != l.backgroundInExport else { return }
                         store.edit(l.id, actionName: on ? "Include Artboard Fill" : "Exclude Artboard Fill") {
                             $0.backgroundInExport = on
                         }

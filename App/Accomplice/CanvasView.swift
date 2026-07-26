@@ -74,10 +74,41 @@ final class PageCanvas: NSView {
         collectArtboards(page.layers, .identity, &artboards)
     }
 
+    /// The view's frame is the page content plus a margin.
+    ///
+    /// Artboard labels are drawn ABOVE their board, which for the topmost row means
+    /// outside the content bounds. AppKit will happily draw there, but hit-testing
+    /// stops at the view's frame — so those labels rendered fine and were unclickable,
+    /// while labels lower down (sitting in the gap between rows) worked. The margin has
+    /// to grow as you zoom out, because a label sized 11/magnification in page units
+    /// gets larger the further out you go.
     private func resize() {
         guard let page else { bounds1 = .zero; return }
-        bounds1 = page.contentBounds()
+        let content = page.contentBounds()
+        let margin = labelMargin
+        bounds1 = content.insetBy(dx: -margin, dy: -margin)
         setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
+    }
+
+    /// Deliberately NOT scale-dependent.
+    ///
+    /// Tying it to magnification created a feedback loop — smaller scale grew the
+    /// margin, which grew the frame, which shrank the fit again. A margin proportional
+    /// to the page has no such coupling, needs no notifications, and is plenty of room
+    /// for a label at any zoom you'd actually click at.
+    private var labelMargin: CGFloat {
+        guard let page else { return 0 }
+        let c = page.contentBounds()
+        return max(40, max(c.width, c.height) * 0.05)
+    }
+
+    /// Where the actual artwork sits inside the padded frame. Fitting to THIS rather
+    /// than the whole view is what keeps zoom-to-fit stable.
+    var contentRectInView: CGRect {
+        guard let page else { return bounds }
+        let c = page.contentBounds()
+        return CGRect(x: c.minX - bounds1.minX, y: c.minY - bounds1.minY,
+                      width: c.width, height: c.height)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -197,14 +228,16 @@ final class PageCanvas: NSView {
         dragOffset = .zero
 
         // Clicking inside the current selection starts a drag; clicking elsewhere
-        // re-selects first, so a single press can select and then move.
+        // re-selects first, so a single press can select and then move. Clicking bare
+        // canvas clears the selection, which is also how you get out of one picked
+        // from the layer list.
         let hit = layerHit(p)
         if hit?.id != selectedID { onClick?(p) }
         window?.makeFirstResponder(self)
 
-        if let id = hit?.id ?? selectedID, dragSet.contains(id) || hit != nil {
+        if let h = hit {
             dragging = true
-            onDragBegin?(hit?.id ?? id)
+            onDragBegin?(h.id)
         }
     }
 
@@ -270,6 +303,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         wire(canvas)
         scroll.documentView = canvas
         context.coordinator.canvas = canvas
+
         return scroll
     }
 
@@ -292,8 +326,12 @@ struct CanvasRepresentable: NSViewRepresentable {
                 // magnify(toFit:) both scales and scrolls, so the page lands centred
                 // rather than jammed against the top-left.
                 canvas.layoutSubtreeIfNeeded()
-                scroll.magnify(toFit: canvas.bounds.insetBy(dx: -b.width * 0.04,
-                                                           dy: -b.height * 0.04))
+                // Fit, settle the scale-dependent label margin, fit again. The two
+                // depend on each other, so one pass leaves the page slightly cropped.
+                // A little past the content so the leftmost/topmost labels aren't
+                // flush against the edge. Safe now that the margin is fixed.
+                scroll.magnify(toFit: canvas.contentRectInView.insetBy(dx: -b.width * 0.03,
+                                                                       dy: -b.height * 0.03))
             }
         }
     }
