@@ -116,6 +116,62 @@ public struct Layer: @unchecked Sendable {
     public init(kind: LayerKind) { self.kind = kind }
 
     public var bounds: CGRect { frame }
+
+    /// Resizes the layer, scaling its contents to match.
+    ///
+    /// Paths are stored in absolute units inside the layer's own space, not normalized
+    /// to the frame the way Sketch stores them. That makes rendering cheap but means a
+    /// frame can't just be stretched — do that and the art stays put while its box
+    /// grows, silently detaching the two. So the geometry is scaled here, and groups
+    /// recurse: each child's origin and size scale, then the child rescales its own
+    /// contents.
+    public mutating func resize(to newSize: CGSize) {
+        let old = frame.size
+        guard old.width > 0, old.height > 0,
+              newSize.width > 0, newSize.height > 0 else {
+            frame.size = newSize
+            return
+        }
+        let sx = newSize.width / old.width
+        let sy = newSize.height / old.height
+        guard sx != 1 || sy != 1 else { return }
+        let scale = CGAffineTransform(scaleX: sx, y: sy)
+
+        switch kind {
+        case .path(let p, let closed):
+            kind = .path(p.transformed(by: scale), closed: closed)
+
+        case .group(var kids):
+            Layer.scaleChildren(&kids, sx, sy)
+            kind = .group(kids)
+
+        case .shapeGroup(var kids, let rule):
+            Layer.scaleChildren(&kids, sx, sy)
+            kind = .shapeGroup(kids, rule)
+
+        case .text(var t):
+            // Scaling type non-uniformly would distort the glyphs, which no text tool
+            // does — an uneven drag resizes the text box and lets the copy re-wrap.
+            if abs(sx - sy) < 0.0001 {
+                t.fontSize *= sx
+                t.lineHeight *= sx
+                t.kerning *= sx
+                kind = .text(t)
+            }
+
+        case .bitmap:
+            break   // the image is drawn to fit the frame, so the frame change is enough
+        }
+        frame.size = newSize
+    }
+
+    private static func scaleChildren(_ kids: inout [Layer], _ sx: CGFloat, _ sy: CGFloat) {
+        for i in kids.indices {
+            let f = kids[i].frame
+            kids[i].frame.origin = CGPoint(x: f.minX * sx, y: f.minY * sy)
+            kids[i].resize(to: CGSize(width: f.width * sx, height: f.height * sy))
+        }
+    }
 }
 
 // MARK: - Style

@@ -65,10 +65,12 @@ struct PropertiesPanel: View {
                 editable("Y", l.frame.minY, l) { layer, v in layer.frame.origin.y = v }
             }
             HStack(spacing: 10) {
-                // W/H stay read-only until resizing rescales the geometry inside the
-                // frame. Paths are stored in absolute local units, so moving the box
-                // without scaling its contents would silently detach art from its frame.
-                field("W", l.frame.width); field("H", l.frame.height)
+                editable("W", l.frame.width, l) { layer, v in
+                    layer.resize(to: CGSize(width: max(1, v), height: layer.frame.height))
+                }
+                editable("H", l.frame.height, l) { layer, v in
+                    layer.resize(to: CGSize(width: layer.frame.width, height: max(1, v)))
+                }
             }
             HStack(spacing: 10) {
                 editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in

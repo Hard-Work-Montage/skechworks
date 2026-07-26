@@ -160,6 +160,28 @@ case "convert":
     }
     warnFonts()
 
+case "resize":
+    // Renders a page before and after resizing one layer, so the geometry-scaling
+    // behaviour can be checked against real artwork rather than synthetic shapes.
+    let (doc, images) = load()
+    let idx = value("--page").flatMap(Int.init) ?? 0
+    guard doc.pages.indices.contains(idx) else { fail("no page \(idx)") }
+    var page = doc.pages[idx]
+    guard let target = page.layers.first else { fail("page has no layers") }
+    let factor = CGFloat(value("--scale").flatMap(Double.init) ?? 0.5)
+    let r = Renderer(images: images, background: Color(r: 1, g: 1, b: 1, a: 1))
+    let dir = URL(fileURLWithPath: value("-o") ?? ".")
+    if let img = r.render(page: page, maxDimension: 600), let d = Renderer.png(img) {
+        try? d.write(to: dir.appendingPathComponent("resize_before.png"))
+    }
+    page.updateLayer(target.id) {
+        $0.resize(to: CGSize(width: $0.frame.width * factor, height: $0.frame.height))
+    }
+    if let img = r.render(page: page, maxDimension: 600), let d = Renderer.png(img) {
+        try? d.write(to: dir.appendingPathComponent("resize_after.png"))
+    }
+    print("resized '\(target.name)' width x\(factor); wrote resize_before.png / resize_after.png")
+
 case "bench":
     // What the app pays before it can show you anything.
     let t0 = Date()

@@ -161,3 +161,49 @@ import Testing
     #expect(reloaded.style.opacity == 0.5)
     #expect(reloaded.isVisible == false)
 }
+
+@Test func resizeScalesGeometryNotJustTheFrame() throws {
+    // Stretching a frame must take the art with it. Paths live in absolute local
+    // units, so a naive frame change would leave the geometry behind.
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 50), transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 50)
+
+    l.resize(to: CGSize(width: 200, height: 50))
+    #expect(l.frame.width == 200)
+    let p = try #require(Compose.resolvedPath(l))
+    #expect(p.boundingBox.width == 200)      // geometry followed the frame
+    #expect(p.boundingBox.height == 50)      // untouched axis stayed put
+}
+
+@Test func resizeRecursesThroughGroups() throws {
+    var dot = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    dot.frame = CGRect(x: 40, y: 40, width: 10, height: 10)
+    var group = Layer(kind: .group([dot]))
+    group.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+
+    group.resize(to: CGSize(width: 50, height: 100))   // half as wide
+
+    guard case .group(let kids) = group.kind else { Issue.record("expected group"); return }
+    #expect(kids[0].frame.minX == 20)     // origin scaled
+    #expect(kids[0].frame.width == 5)     // size scaled
+    let p = try #require(Compose.resolvedPath(kids[0]))
+    #expect(p.boundingBox.width == 5)     // and the child's own geometry too
+}
+
+@Test func uniformResizeScalesTypeButUnevenDoesNot() {
+    var run = TextRun()
+    run.fontSize = 20
+    var l = Layer(kind: .text(run))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+
+    var uniform = l
+    uniform.resize(to: CGSize(width: 200, height: 200))
+    guard case .text(let a) = uniform.kind else { Issue.record("expected text"); return }
+    #expect(a.fontSize == 40)
+
+    var uneven = l
+    uneven.resize(to: CGSize(width: 200, height: 100))
+    guard case .text(let b) = uneven.kind else { Issue.record("expected text"); return }
+    #expect(b.fontSize == 20)             // box re-wraps; glyphs are never distorted
+    #expect(uneven.frame.width == 200)
+}
