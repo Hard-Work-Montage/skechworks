@@ -19,6 +19,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
         }
         .navigationTitle(store.url?.lastPathComponent ?? "Accomplice")
+        .navigationSubtitle(store.isDirty ? "Edited" : "")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { store.openPanel() } label: { Label("Open", systemImage: "folder") }
@@ -28,6 +29,14 @@ struct ContentView: View {
                 Button { zoomToken += 1 } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
                     .help("Fit page to window")
                     .disabled(store.page == nil)
+            }
+            ToolbarItem {
+                Button { store.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                    .help("Undo").disabled(!store.canUndo)
+            }
+            ToolbarItem {
+                Button { store.save() } label: { Label("Save", systemImage: "square.and.arrow.down") }
+                    .help("Save").disabled(!store.isDirty)
             }
             ToolbarItem {
                 Menu {

@@ -119,3 +119,45 @@ import Testing
     wrapper.frame = CGRect(x: 40, y: 40, width: 20, height: 20)
     #expect(Compose.resolvedPath(wrapper) != nil)
 }
+
+@Test func updateLayerReachesNestedLayers() {
+    var inner = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    inner.id = "target"
+    inner.frame = CGRect(x: 5, y: 5, width: 10, height: 10)
+    let mid = Layer(kind: .shapeGroup([inner], .nonZero))
+    var outer = Layer(kind: .group([mid]))
+    outer.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+
+    var page = Page(name: "P")
+    page.layers = [outer]
+
+    #expect(page.updateLayer("target") { $0.frame.origin.x = 42 })
+    #expect(page.layer("target")?.frame.minX == 42)
+    #expect(!page.updateLayer("nope") { _ in })   // reports misses rather than silently no-op'ing
+}
+
+@Test func editsSurviveSaveAndReload() throws {
+    // The whole point of the edit path: a change has to still be there after the
+    // document round-trips through .acmplc.png.
+    var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 50, height: 50), transform: nil), closed: true))
+    l.id = "moveme"
+    l.frame = CGRect(x: 10, y: 10, width: 50, height: 50)
+    l.style.fills = [Fill(paint: .color(.black))]
+    var page = Page(name: "One")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+
+    doc.pages[0].updateLayer("moveme") {
+        $0.frame.origin = CGPoint(x: 123, y: 456)
+        $0.style.opacity = 0.5
+        $0.isVisible = false
+    }
+
+    let (back, _) = try AcmplcFile.read(try AcmplcFile.write(document: doc, images: [:]))
+    let reloaded = try #require(back.pages.first?.layer("moveme"))
+    #expect(reloaded.frame.minX == 123)
+    #expect(reloaded.frame.minY == 456)
+    #expect(reloaded.style.opacity == 0.5)
+    #expect(reloaded.isVisible == false)
+}

@@ -5,6 +5,7 @@ import SwiftUI
 /// once these become fields — one row per property, grouped the way Sketch and Figma
 /// group them, so editing drops in without a redesign.
 struct PropertiesPanel: View {
+    @EnvironmentObject var store: DocumentStore
     let layer: Layer?
     let pageName: String?
 
@@ -60,27 +61,39 @@ struct PropertiesPanel: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Position & Size")
             HStack(spacing: 10) {
-                field("X", l.frame.minX); field("Y", l.frame.minY)
+                editable("X", l.frame.minX, l) { layer, v in layer.frame.origin.x = v }
+                editable("Y", l.frame.minY, l) { layer, v in layer.frame.origin.y = v }
             }
             HStack(spacing: 10) {
+                // W/H stay read-only until resizing rescales the geometry inside the
+                // frame. Paths are stored in absolute local units, so moving the box
+                // without scaling its contents would silently detach art from its frame.
                 field("W", l.frame.width); field("H", l.frame.height)
             }
-            if l.rotation != 0 || l.flipH || l.flipV || l.style.opacity != 1 {
-                HStack(spacing: 10) {
-                    if l.rotation != 0 { field("Rotation", l.rotation, suffix: "°") }
-                    if l.style.opacity != 1 { field("Opacity", l.style.opacity * 100, suffix: "%") }
+            HStack(spacing: 10) {
+                editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in
+                    layer.style.opacity = max(0, min(1, v / 100))
                 }
-                if l.flipH || l.flipV {
-                    Text([l.flipH ? "Flipped horizontally" : nil,
-                          l.flipV ? "Flipped vertically" : nil]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                if l.rotation != 0 { field("Rotation", l.rotation, suffix: "°") }
+            }
+            Toggle("Visible", isOn: Binding(
+                get: { l.isVisible },
+                set: { on in store.edit(l.id, actionName: on ? "Show Layer" : "Hide Layer") { $0.isVisible = on } }
+            ))
+            .toggleStyle(.checkbox).font(.callout)
+            if l.flipH || l.flipV {
+                Text([l.flipH ? "Flipped horizontally" : nil,
+                      l.flipV ? "Flipped vertically" : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if l.booleanOp != .none {
                 row("Boolean", boolName(l.booleanOp))
             }
             if l.hasClippingMask { row("Mask", "Clips layers above") }
+            if l.isArtboard {
+                row("Artboard", l.backgroundColor == nil ? "Clips contents" : "Clips contents · background")
+            }
         }
     }
 
@@ -190,6 +203,16 @@ struct PropertiesPanel: View {
         .font(.callout)
     }
 
+    /// A number you can type into. Commits on Return or focus loss, and each commit
+    /// is one undo step — so holding a key in the field doesn't bury the undo stack.
+    private func editable(_ label: String, _ value: CGFloat, _ l: Layer,
+                          suffix: String = "",
+                          apply: @escaping (inout Layer, CGFloat) -> Void) -> some View {
+        NumberField(label: label, value: value, suffix: suffix) { newValue in
+            store.edit(l.id, actionName: "Change \(label)") { apply(&$0, newValue) }
+        }
+    }
+
     private func field(_ label: String, _ value: CGFloat, suffix: String = "") -> some View {
         HStack(spacing: 4) {
             Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 22, alignment: .leading)
@@ -227,7 +250,7 @@ struct PropertiesPanel: View {
 
     private func kind(_ l: Layer) -> String {
         switch l.kind {
-        case .group: return "Group"
+        case .group: return l.isArtboard ? "Artboard" : "Group"
         case .shapeGroup: return "Combined Shape"
         case .path(_, let closed): return closed ? "Path" : "Open Path"
         case .text: return "Text"
@@ -237,7 +260,7 @@ struct PropertiesPanel: View {
 
     private func icon(_ l: Layer) -> String {
         switch l.kind {
-        case .group: return "folder"
+        case .group: return l.isArtboard ? "rectangle.dashed" : "folder"
         case .shapeGroup: return "square.on.circle"
         case .path: return "scribble"
         case .text: return "textformat"
@@ -262,5 +285,46 @@ enum LayerLookup {
             if let hit = find(id, in: kids) { return hit }
         }
         return nil
+    }
+}
+
+
+/// Text field that only reports a value when it's actually committed, and that
+/// re-syncs from the model when the selection or an undo changes it underneath.
+private struct NumberField: View {
+    let label: String
+    let value: CGFloat
+    var suffix: String = ""
+    let onCommit: (CGFloat) -> Void
+
+    @State private var text: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .leading)
+            TextField("", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.callout, design: .monospaced))
+                .focused($focused)
+                .onSubmit(commit)
+                .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+                .onChange(of: value) { _, _ in if !focused { text = format(value) } }
+                .onAppear { text = format(value) }
+        }
+    }
+
+    private func commit() {
+        guard let v = Double(text.replacingOccurrences(of: suffix, with: "")
+            .trimmingCharacters(in: .whitespaces)) else {
+            text = format(value); return          // reject junk, restore what was there
+        }
+        if CGFloat(v) != value { onCommit(CGFloat(v)) }
+        text = format(CGFloat(v))
+    }
+
+    private func format(_ v: CGFloat) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
     }
 }

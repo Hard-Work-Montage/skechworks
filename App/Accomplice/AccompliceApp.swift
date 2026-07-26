@@ -15,6 +15,21 @@ struct AccompliceApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
+            // Replace the stock undo items: SwiftUI's environment UndoManager isn't
+            // the one driving document edits, so the built-ins would be inert.
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { store.undo() }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(!store.canUndo)
+                Button("Redo") { store.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(!store.canRedo)
+            }
+            CommandGroup(replacing: .saveItem) {
+                Button("Save") { store.save() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(store.source == nil || !store.isDirty)
+            }
             CommandGroup(after: .newItem) {
                 Button("Open…") { store.openPanel() }
                     .keyboardShortcut("o", modifiers: .command)

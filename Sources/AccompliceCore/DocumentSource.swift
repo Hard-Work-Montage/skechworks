@@ -21,6 +21,7 @@ public final class DocumentSource: @unchecked Sendable {
     public let sourceApp: String?
     public let images: [String: Data]
     public let pages: [PageRef]
+    public let coverPage: Int
 
     private let resolve: @Sendable (Int) -> Page?
     private var cache: [Int: Page] = [:]
@@ -45,6 +46,15 @@ public final class DocumentSource: @unchecked Sendable {
     public func isLoaded(_ i: Int) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return cache[i] != nil
+    }
+
+    /// Writes an edited page back over the cache, so lazy loading and editing coexist:
+    /// pages you've touched come from here, pages you haven't are still parsed on demand.
+    public func replacePage(_ page: Page, at i: Int) {
+        guard pages.indices.contains(i) else { return }
+        lock.lock()
+        cache[i] = page
+        lock.unlock()
     }
 
     /// Forces everything. Only for operations that genuinely need the whole document,
@@ -80,7 +90,8 @@ public final class DocumentSource: @unchecked Sendable {
         }
 
         return DocumentSource(sourceApp: dj["importedFrom"] as? String,
-                              images: images, pages: refs) { i in
+                              images: images, pages: refs,
+                              coverPage: dj["coverPage"] as? Int ?? 0) { i in
             guard let d = z[files[i]] else { return nil }
             return AcmplcFile.parsePage(d)
         }
@@ -89,16 +100,18 @@ public final class DocumentSource: @unchecked Sendable {
     /// Wraps an already-parsed document, so callers have one type to handle.
     public static func eager(_ doc: Document, images: [String: Data]) -> DocumentSource {
         let refs = doc.pages.map { PageRef(name: $0.name, layerCount: $0.layers.count) }
-        return DocumentSource(sourceApp: doc.sourceApp, images: images, pages: refs) { i in
+        return DocumentSource(sourceApp: doc.sourceApp, images: images, pages: refs,
+                              coverPage: 0) { i in
             doc.pages.indices.contains(i) ? doc.pages[i] : nil
         }
     }
 
     private init(sourceApp: String?, images: [String: Data], pages: [PageRef],
-                 resolve: @escaping @Sendable (Int) -> Page?) {
+                 coverPage: Int, resolve: @escaping @Sendable (Int) -> Page?) {
         self.sourceApp = sourceApp
         self.images = images
         self.pages = pages
+        self.coverPage = coverPage
         self.resolve = resolve
     }
 }

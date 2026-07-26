@@ -53,18 +53,27 @@ public struct SVGWriter {
                 continue
             }
 
-            if let ref = d.imageRef, images[ref] != nil {
+            if let ref = d.imageRef, let data = images[ref] {
                 let r = d.layer.frame
-                let m = d.transform
+                // SVG renderers don't reliably honour EXIF orientation, so bake it into
+                // the element transform instead of re-encoding the image. Original bytes
+                // stay exactly as they were.
+                let o = BitmapImage.load(data)
+                let display = o?.displaySize ?? r.size
+                let native = o?.nativeSize ?? r.size
+                var m = CGAffineTransform(scaleX: r.width / max(1, display.width),
+                                          y: r.height / max(1, display.height))
+                if let o { m = o.transform.concatenating(m) }
+                m = m.concatenating(d.transform)
                 let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
                 let href: String
                 switch assetMode {
                 case .embed:
-                    href = "data:image/png;base64,\(images[ref]!.base64EncodedString())"
+                    href = "data:image/png;base64,\(data.base64EncodedString())"
                 case .link(let prefix):
                     href = prefix + ref
                 }
-                body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(fmt(r.width))\" height=\"\(fmt(r.height))\" "
+                body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(fmt(native.width))\" height=\"\(fmt(native.height))\" "
                 body += "xlink:href=\"\(href)\"/>\n"
                 continue
             }

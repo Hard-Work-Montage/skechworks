@@ -30,6 +30,47 @@ public struct Page: @unchecked Sendable {
         let r = layers.filter(\.isVisible).map(\.bounds).reduce(CGRect.null) { $0.union($1) }
         return r.isNull ? CGRect(x: 0, y: 0, width: 1, height: 1) : r
     }
+
+    /// Applies `body` to the layer with `id`, wherever it sits in the tree.
+    ///
+    /// The model is value types all the way down, so editing a nested layer means
+    /// rebuilding the spine above it. Doing that in one place keeps every caller from
+    /// hand-rolling tree surgery — and keeps undo simple, since a snapshot of the
+    /// layer before and after is all an undo step ever needs.
+    @discardableResult
+    public mutating func updateLayer(_ id: String, _ body: (inout Layer) -> Void) -> Bool {
+        Page.update(&layers, id, body)
+    }
+
+    public func layer(_ id: String) -> Layer? { Page.find(id, in: layers) }
+
+    private static func update(_ layers: inout [Layer], _ id: String,
+                               _ body: (inout Layer) -> Void) -> Bool {
+        for i in layers.indices {
+            if layers[i].id == id { body(&layers[i]); return true }
+            switch layers[i].kind {
+            case .group(var kids):
+                if update(&kids, id, body) { layers[i].kind = .group(kids); return true }
+            case .shapeGroup(var kids, let rule):
+                if update(&kids, id, body) { layers[i].kind = .shapeGroup(kids, rule); return true }
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
+    private static func find(_ id: String, in layers: [Layer]) -> Layer? {
+        for l in layers {
+            if l.id == id { return l }
+            switch l.kind {
+            case .group(let k), .shapeGroup(let k, _):
+                if let hit = find(id, in: k) { return hit }
+            default: continue
+            }
+        }
+        return nil
+    }
 }
 
 public enum BooleanOp: Int, Sendable {
@@ -62,6 +103,13 @@ public struct Layer: @unchecked Sendable {
     public var booleanOp: BooleanOp = .none
     public var hasClippingMask = false
     public var breaksMaskChain = false
+
+    /// Artboards are groups with a job: they're the export unit. 70% of the artboards
+    /// in the corpus carry an export preset, named `front` / `back` — they're how a
+    /// coin's faces get cut out of a page, not a layout aid. They also paint a
+    /// background and clip whatever hangs over the edge.
+    public var isArtboard = false
+    public var backgroundColor: Color?
     public var style = Style()
     public var kind: LayerKind
 

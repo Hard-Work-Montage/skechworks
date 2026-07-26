@@ -184,6 +184,10 @@ public struct AcmplcFile {
         l.isVisible = j["visible"] as? Bool ?? true
         l.hasClippingMask = j["clippingMask"] as? Bool ?? false
         l.breaksMaskChain = j["breaksMaskChain"] as? Bool ?? false
+        l.isArtboard = j["artboard"] as? Bool ?? false
+        if let bg = j["background"] as? [String: Any], let hex = bg["color"] as? String {
+            l.backgroundColor = colorFrom(hex, dbl(bg["alpha"]) ?? 1)
+        }
         switch j["boolean"] as? String {
         case "union": l.booleanOp = .union
         case "subtract": l.booleanOp = .subtract
@@ -277,6 +281,8 @@ public struct AcmplcFile {
         if l.booleanOp != .none { d["boolean"] = boolName(l.booleanOp) }
         if l.hasClippingMask { d["clippingMask"] = true }
         if l.breaksMaskChain { d["breaksMaskChain"] = true }
+        if l.isArtboard { d["artboard"] = true }
+        if let bg = l.backgroundColor { d["background"] = ["color": bg.hex, "alpha": bg.a] }
         if let s = styleJSON(l.style) { d["style"] = s }
 
         let w = SVGWriter()

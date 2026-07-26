@@ -82,16 +82,21 @@ public struct Renderer {
         }
         if d.opacity != 1 { ctx.setAlpha(d.opacity) }
 
-        if let ref = d.imageRef, let data = images[ref],
-           let src = CGImageSourceCreateWithData(data as CFData, nil),
-           let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+        if let ref = d.imageRef, let data = images[ref], let o = BitmapImage.load(data) {
             ctx.saveGState()
             ctx.concatenate(d.transform)
             let r = CGRect(origin: .zero, size: d.layer.frame.size)
-            // Undo the y-flip locally so the bitmap isn't drawn upside down.
-            ctx.translateBy(x: 0, y: r.height)
+
+            // Order is load-bearing. The EXIF transform is defined in y-DOWN display
+            // space, so it has to be applied while we're still in that space. Flipping
+            // first (for CGImage's y-up drawing) and rotating after mirrors the result.
+            //   layer frame -> display box -> native pixels -> flip -> draw
+            ctx.scaleBy(x: r.width / max(1, o.displaySize.width),
+                        y: r.height / max(1, o.displaySize.height))
+            ctx.concatenate(o.transform)
+            ctx.translateBy(x: 0, y: o.nativeSize.height)
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(img, in: r)
+            ctx.draw(img: o.image, size: o.nativeSize)
             ctx.restoreGState()
             return
         }
@@ -184,4 +189,10 @@ public struct Renderer {
 
 extension CGRect {
     init(infinite: Bool) { self = CGRect(x: -1e7, y: -1e7, width: 2e7, height: 2e7) }
+}
+
+extension CGContext {
+    func draw(img: CGImage, size: CGSize) {
+        draw(img, in: CGRect(origin: .zero, size: size))
+    }
 }

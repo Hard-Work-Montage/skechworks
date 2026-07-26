@@ -88,6 +88,20 @@ public enum Compose {
             switch l.kind {
             case .group(let kids):
                 var inner = flatten(kids, base: t)
+                if l.isArtboard {
+                    // The artboard's own rect: paint its background first, then clip
+                    // everything inside it to the edge, the way Sketch does.
+                    let rect = CGPath(rect: CGRect(origin: .zero, size: l.frame.size), transform: nil)
+                        .transformed(by: t)
+                    if let bg = l.backgroundColor {
+                        var plate = Layer(kind: .path(CGPath(rect: CGRect(origin: .zero, size: l.frame.size), transform: nil), closed: true))
+                        plate.frame = l.frame
+                        plate.name = l.name
+                        plate.style.fills = [Fill(paint: .color(bg))]
+                        out.append(Drawable(path: rect, style: plate.style, layer: plate, transform: t))
+                    }
+                    inner = inner.map { var d = $0; d.clip = intersect(d.clip, rect); return d }
+                }
                 if let m = mask { inner = inner.map { var d = $0; d.clip = intersect(d.clip, m); return d } }
                 if l.style.opacity != 1 {
                     inner = inner.map { var d = $0; d.opacity *= l.style.opacity; return d }

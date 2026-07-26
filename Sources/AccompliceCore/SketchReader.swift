@@ -97,6 +97,12 @@ public struct SketchReader {
         l.breaksMaskChain = j["shouldBreakMaskChain"] as? Bool ?? false
         l.booleanOp = BooleanOp(rawValue: j["booleanOperation"] as? Int ?? -1) ?? .none
         l.style = style(from: j["style"] as? [String: Any])
+        if cls == "artboard" || cls == "symbolMaster" {
+            l.isArtboard = true
+            if j["hasBackgroundColor"] as? Bool ?? false {
+                l.backgroundColor = color(j["backgroundColor"])
+            }
+        }
         return l
     }
 

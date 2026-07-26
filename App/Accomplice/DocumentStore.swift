@@ -21,6 +21,10 @@ final class DocumentStore: ObservableObject {
     /// The page currently on screen, once parsed. Nil while a page is still being read.
     @Published private(set) var page: Page?
 
+    /// Which page the file's PNG half shows. Preserved across saves — changing it
+    /// would silently change how the document looks in Finder.
+    private(set) var coverPage = 0
+
     var images: [String: Data] { source?.images ?? [:] }
     var pageCount: Int { source?.pageCount ?? 0 }
 
@@ -65,7 +69,12 @@ final class DocumentStore: ObservableObject {
                     return
                 }
                 self.source = src
+                self.coverPage = src.coverPage
                 self.url = url
+                self.undoManager.removeAllActions()
+                self.isDirty = false
+                self.canUndo = false
+                self.canRedo = false
                 self.selectedLayerID = nil
                 self.status = "\(src.pageCount) page\(src.pageCount == 1 ? "" : "s")"
                     + (src.sourceApp.map { " · from \($0)" } ?? "")
@@ -94,6 +103,102 @@ final class DocumentStore: ObservableObject {
                 self.page = p
                 self.isPageLoading = false
                 if !warnings.isEmpty { self.fontWarnings = warnings }
+            }
+        }
+    }
+
+    // MARK: - Editing
+
+    let undoManager = UndoManager()
+    @Published var isDirty = false
+    @Published var canUndo = false
+    @Published var canRedo = false
+
+    /// Applies an edit to one layer and registers its inverse for undo.
+    ///
+    /// Undo works by snapshotting the whole layer before and after rather than
+    /// diffing properties. A Layer is a value type, so a snapshot is cheap and
+    /// correct by construction — no chance of an undo step that restores position
+    /// but forgets the fill.
+    func edit(_ layerID: String, actionName: String, _ body: (inout Layer) -> Void) {
+        guard var page, let src = source else { return }
+        guard let before = page.layer(layerID) else { return }
+
+        page.updateLayer(layerID) { body(&$0) }
+        guard let after = page.layer(layerID) else { return }
+
+        apply(page, at: pageIndex, src: src)
+        registerUndo(layerID: layerID, restore: before, redo: after,
+                     pageIndex: pageIndex, actionName: actionName)
+        isDirty = true
+        refreshUndoState()
+    }
+
+    private func registerUndo(layerID: String, restore: Layer, redo: Layer,
+                              pageIndex idx: Int, actionName: String) {
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                store.replaceLayer(layerID, with: restore, pageIndex: idx)
+                // Registering during undo is what makes redo work.
+                store.registerUndo(layerID: layerID, restore: redo, redo: restore,
+                                   pageIndex: idx, actionName: actionName)
+                store.isDirty = true
+                store.refreshUndoState()
+            }
+        }
+        undoManager.setActionName(actionName)
+    }
+
+    private func replaceLayer(_ id: String, with layer: Layer, pageIndex idx: Int) {
+        guard let src = source else { return }
+        if pageIndex != idx { pageIndex = idx }
+        guard var p = src.page(at: idx) else { return }
+        p.updateLayer(id) { $0 = layer }
+        apply(p, at: idx, src: src)
+        selectedLayerID = id
+    }
+
+    private func apply(_ p: Page, at idx: Int, src: DocumentSource) {
+        src.replacePage(p, at: idx)
+        if idx == pageIndex { page = p }
+    }
+
+    private func refreshUndoState() {
+        canUndo = undoManager.canUndo
+        canRedo = undoManager.canRedo
+    }
+
+    func undo() { undoManager.undo(); refreshUndoState() }
+    func redo() { undoManager.redo(); refreshUndoState() }
+
+    // MARK: - Save
+
+    /// Rewrites the whole .acmplc.png. Every page is parsed first — including ones
+    /// never opened — so untouched pages survive a save unchanged.
+    func save() {
+        guard let src = source, let url else { return }
+        isLoading = true
+        status = "Saving…"
+        let cover = coverPage
+        Task.detached(priority: .userInitiated) {
+            var opts = AcmplcFile.Options()
+            opts.coverPage = cover
+            do {
+                let doc = src.fullDocument()
+                let data = try AcmplcFile.write(document: doc, images: src.images, options: opts)
+                try data.write(to: url)
+                LaunchBinding.claim(url)
+                await MainActor.run {
+                    self.isLoading = false
+                    self.isDirty = false
+                    self.status = "Saved \(url.lastPathComponent)"
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoading = false
+                    self.status = "Save failed: \(error)"
+                    NSSound.beep()
+                }
             }
         }
     }
@@ -179,7 +284,8 @@ struct LayerNode: Identifiable {
         isVisible = l.isVisible
         switch l.kind {
         case .group(let k):
-            kindLabel = "Group"; systemImage = "folder"
+            kindLabel = l.isArtboard ? "Artboard" : "Group"
+            systemImage = l.isArtboard ? "rectangle.dashed" : "folder"
             children = k.isEmpty ? nil : k.map(LayerNode.init)
         case .shapeGroup(let k, _):
             kindLabel = "Combined"; systemImage = "square.on.circle"
