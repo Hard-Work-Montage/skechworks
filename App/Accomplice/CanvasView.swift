@@ -6,7 +6,18 @@ import SwiftUI
 /// Screen and output can't disagree, which is the whole reason geometry lives in one place.
 final class PageCanvas: NSView {
 
-    var page: Page? { didSet { resize(); recompose(); needsDisplay = true } }
+    var page: Page? { didSet { adoptPage(); needsDisplay = true } }
+
+    /// Content revision. Changing it forces a recomposition — see DocumentStore.revision.
+    var revision = 0 {
+        didSet {
+            guard revision != oldValue else { return }
+            composedFor = nil
+            recompose()
+            growBounds()
+            needsDisplay = true
+        }
+    }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
     var selected: Set<String> = [] { didSet { updateDragSet(); needsDisplay = true } }
     var onClick: ((CGPoint, Bool) -> Void)?          // point, extend (shift held)
@@ -133,26 +144,55 @@ final class PageCanvas: NSView {
     private func recompose() {
         guard let page else { composed = []; composedFor = nil; return }
         guard composedFor != page.name || composed.isEmpty else { return }
+        // composedFor is cleared by `revision` when contents change, which is what
+        // makes an edit rebuild this rather than redrawing stale geometry.
         composed = Compose.flatten(page.layers)
         composedFor = page.name
         artboards = []
         collectArtboards(page.layers, .identity, &artboards)
     }
 
+    private var boundsPage: String?
+
     /// The view's frame is the page content plus a margin.
     ///
     /// Artboard labels are drawn ABOVE their board, which for the topmost row means
-    /// outside the content bounds. AppKit will happily draw there, but hit-testing
-    /// stops at the view's frame — so those labels rendered fine and were unclickable,
-    /// while labels lower down (sitting in the gap between rows) worked. The margin has
-    /// to grow as you zoom out, because a label sized 11/magnification in page units
-    /// gets larger the further out you go.
-    private func resize() {
-        guard let page else { bounds1 = .zero; return }
-        let content = page.contentBounds()
+    /// outside the content bounds — and hit-testing stops at the view's frame, so
+    /// without the margin those labels render but can't be clicked.
+    ///
+    /// Recomputed only when the PAGE changes, never merely because content moved. The
+    /// canvas is infinite: dragging artwork must not shift the coordinate origin under
+    /// everything else, or the whole page appears to jump and re-centre. It only ever
+    /// grows, and growing compensates the scroll so nothing visibly moves.
+    private func adoptPage() {
+        guard let page else { bounds1 = .zero; boundsPage = nil; return }
+        if boundsPage != page.name {
+            boundsPage = page.name
+            let margin = labelMargin
+            bounds1 = page.contentBounds().insetBy(dx: -margin, dy: -margin)
+            setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
+            composedFor = nil
+        }
+        recompose()
+    }
+
+    private func growBounds() {
+        guard let page else { return }
         let margin = labelMargin
-        bounds1 = content.insetBy(dx: -margin, dy: -margin)
+        let needed = page.contentBounds().insetBy(dx: -margin, dy: -margin)
+        let union = bounds1.union(needed)
+        guard union != bounds1 else { return }
+        // Growing at the top or left moves the origin; scroll by the same amount so
+        // the view stays put instead of lurching.
+        let dx = bounds1.minX - union.minX
+        let dy = bounds1.minY - union.minY
+        bounds1 = union
         setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
+        if dx != 0 || dy != 0, let clip = enclosingScrollView?.contentView {
+            let o = clip.bounds.origin
+            clip.scroll(to: NSPoint(x: o.x + dx, y: o.y + dy))
+            enclosingScrollView?.reflectScrolledClipView(clip)
+        }
     }
 
     /// Deliberately NOT scale-dependent.
@@ -478,6 +518,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     let images: [String: Data]
     @Binding var selection: Set<String>
     let zoomToken: Int
+    let revision: Int
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -504,6 +545,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.images = images
         canvas.page = page
         canvas.selected = selection
+        canvas.revision = revision
         wire(canvas)
         if pageChanged, let page {
             context.coordinator.lastPageName = page.name

@@ -39,6 +39,12 @@ final class DocumentStore: ObservableObject {
     /// The page currently on screen, once parsed. Nil while a page is still being read.
     @Published private(set) var page: Page?
 
+    /// Bumped on every edit. The canvas caches its composition (boolean ops are
+    /// expensive), and page identity alone can't tell it the CONTENTS changed — so
+    /// after a move the art would redraw from a stale composition while the selection
+    /// frames used fresh geometry, and the two would disagree on screen.
+    @Published private(set) var revision = 0
+
     /// Which page the file's PNG half shows. Preserved across saves — changing it
     /// would silently change how the document looks in Finder.
     private(set) var coverPage = 0
@@ -157,6 +163,7 @@ final class DocumentStore: ObservableObject {
 
         apply(page, at: pageIndex, src: src)
         registerUndo(restore: before, redo: after, pageIndex: pageIndex, actionName: actionName)
+        revision += 1
         isDirty = true
         refreshUndoState()
     }
@@ -260,6 +267,7 @@ final class DocumentStore: ObservableObject {
         guard var p = src.page(at: idx) else { return }
         for (id, l) in layers { p.updateLayer(id) { $0 = l } }
         apply(p, at: idx, src: src)
+        revision += 1
         // Restore the selection the edit applied to, so undo puts you back where you were.
         selection = Set(layers.keys)
     }
