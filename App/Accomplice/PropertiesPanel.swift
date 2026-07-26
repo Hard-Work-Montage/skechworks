@@ -94,7 +94,27 @@ struct PropertiesPanel: View {
             }
             if l.hasClippingMask { row("Mask", "Clips layers above") }
             if l.isArtboard {
-                row("Artboard", l.backgroundColor == nil ? "Clips contents" : "Clips contents · background")
+                Divider().padding(.vertical, 2)
+                sectionTitle("Artboard")
+                if let bg = l.backgroundColor {
+                    HStack(spacing: 8) {
+                        swatch(bg)
+                        Text(bg.hex.uppercased()).font(.system(.body, design: .monospaced))
+                        Spacer()
+                    }
+                }
+                // Sketch's "Include in export" checkbox. The coin front/back artboards
+                // keep this off: white while you work, transparent when engraved.
+                Toggle("Include fill in export", isOn: Binding(
+                    get: { l.backgroundInExport },
+                    set: { on in
+                        store.edit(l.id, actionName: on ? "Include Artboard Fill" : "Exclude Artboard Fill") {
+                            $0.backgroundInExport = on
+                        }
+                    }
+                ))
+                .toggleStyle(.checkbox).font(.callout)
+                .disabled(l.backgroundColor == nil)
             }
         }
     }

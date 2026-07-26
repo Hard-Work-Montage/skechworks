@@ -121,6 +121,18 @@ public struct Layer: @unchecked Sendable {
 
     public var bounds: CGRect { frame }
 
+    /// This layer's id plus every descendant's. Dragging a group has to move all of
+    /// its drawables, and the canvas needs to know which ones without recomposing.
+    public var subtreeIDs: Set<String> {
+        var out: Set<String> = [id]
+        switch kind {
+        case .group(let k), .shapeGroup(let k, _):
+            for c in k { out.formUnion(c.subtreeIDs) }
+        default: break
+        }
+        return out
+    }
+
     /// Resizes the layer, scaling its contents to match.
     ///
     /// Paths are stored in absolute units inside the layer's own space, not normalized

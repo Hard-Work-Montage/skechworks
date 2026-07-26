@@ -8,8 +8,25 @@ final class PageCanvas: NSView {
 
     var page: Page? { didSet { resize(); recompose(); needsDisplay = true } }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
-    var selectedID: String? { didSet { needsDisplay = true } }
+    var selectedID: String? { didSet { updateDragSet(); needsDisplay = true } }
     var onClick: ((CGPoint) -> Void)?
+    var onDragBegin: ((String) -> Void)?
+    var onDragEnd: ((CGSize) -> Void)?
+    var onNudge: ((CGFloat, CGFloat) -> Void)?
+
+    /// Live drag state. The model isn't touched until mouse-up; until then the canvas
+    /// just offsets the already-composed drawables belonging to the dragged subtree.
+    /// Recomposing per frame would cost ~0.6s of CGPath boolean work per tick.
+    private var dragOffset: CGSize = .zero
+    private var dragging = false
+    private var dragAnchor: CGPoint = .zero
+    private var dragSet: Set<String> = []
+
+    private func updateDragSet() {
+        guard let id = selectedID, let page,
+              let l = page.layer(id) else { dragSet = []; return }
+        dragSet = l.subtreeIDs
+    }
 
     /// Sketch's canvas is y-down; matching it means no coordinate flipping anywhere.
     override var isFlipped: Bool { true }
@@ -44,9 +61,23 @@ final class PageCanvas: NSView {
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
         ctx.translateBy(x: -bounds1.minX, y: -bounds1.minY)
-        Renderer(images: images).draw(drawables: composed, in: ctx)
 
-        if let id = selectedID, let rect = frameOf(id, in: page.layers, base: .identity) {
+        let r = Renderer(images: images)
+        if dragging && dragOffset != .zero {
+            let moved = composed.filter { dragSet.contains($0.layer.id) }
+            let rest = composed.filter { !dragSet.contains($0.layer.id) }
+            r.draw(drawables: rest, in: ctx)
+            ctx.saveGState()
+            ctx.translateBy(x: dragOffset.width, y: dragOffset.height)
+            r.draw(drawables: moved, in: ctx)
+            ctx.restoreGState()
+        } else {
+            r.draw(drawables: composed, in: ctx)
+        }
+
+        if let id = selectedID,
+           var rect = frameOf(id, in: page.layers, base: .identity) {
+            if dragging { rect = rect.offsetBy(dx: dragOffset.width, dy: dragOffset.height) }
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
             ctx.setLineWidth(1.5 / max(0.01, currentScale))
             ctx.setLineDash(phase: 0, lengths: [4 / max(0.01, currentScale), 3 / max(0.01, currentScale)])
@@ -79,7 +110,8 @@ final class PageCanvas: NSView {
     }
 
     /// Hit-tests against the cached composition rather than recomposing per click.
-    func hitTest(_ point: CGPoint) -> Layer? {
+    /// Named distinctly because NSView already has `hitTest(_:) -> NSView?`.
+    func layerHit(_ point: CGPoint) -> Layer? {
         for d in composed.reversed() {
             if let p = d.path, p.contains(point) { return d.layer }
             if d.path == nil {
@@ -90,9 +122,51 @@ final class PageCanvas: NSView {
         return nil
     }
 
+    override var acceptsFirstResponder: Bool { true }
+
     override func mouseDown(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        onClick?(CGPoint(x: p.x + bounds1.minX, y: p.y + bounds1.minY))
+        let local = convert(event.locationInWindow, from: nil)
+        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        dragAnchor = p
+        dragOffset = .zero
+
+        // Clicking inside the current selection starts a drag; clicking elsewhere
+        // re-selects first, so a single press can select and then move.
+        let hit = layerHit(p)
+        if hit?.id != selectedID { onClick?(p) }
+        window?.makeFirstResponder(self)
+
+        if let id = hit?.id ?? selectedID, dragSet.contains(id) || hit != nil {
+            dragging = true
+            onDragBegin?(hit?.id ?? id)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
+        let local = convert(event.locationInWindow, from: nil)
+        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        dragOffset = CGSize(width: p.x - dragAnchor.x, height: p.y - dragAnchor.y)
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
+        dragging = false
+        let o = dragOffset
+        dragOffset = .zero
+        onDragEnd?(o)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+        switch event.keyCode {
+        case 123: onNudge?(-step, 0)   // left
+        case 124: onNudge?(step, 0)    // right
+        case 125: onNudge?(0, step)    // down (canvas is y-down)
+        case 126: onNudge?(0, -step)   // up
+        default: super.keyDown(with: event)
+        }
     }
 }
 
@@ -110,6 +184,7 @@ final class CenteringClipView: NSClipView {
 }
 
 struct CanvasRepresentable: NSViewRepresentable {
+    @EnvironmentObject var store: DocumentStore
     let page: Page?
     let images: [String: Data]
     @Binding var selectedID: String?
@@ -126,9 +201,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         scroll.backgroundColor = .underPageBackgroundColor
 
         let canvas = PageCanvas()
-        canvas.onClick = { [weak canvas] pt in
-            selectedID = canvas?.hitTest(pt)?.id
-        }
+        wire(canvas)
         scroll.documentView = canvas
         context.coordinator.canvas = canvas
         return scroll
@@ -141,9 +214,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.images = images
         canvas.page = page
         canvas.selectedID = selectedID
-        canvas.onClick = { [weak canvas] pt in
-            selectedID = canvas?.hitTest(pt)?.id
-        }
+        wire(canvas)
         if pageChanged, let page {
             context.coordinator.lastPageName = page.name
             context.coordinator.lastZoomToken = zoomToken
@@ -159,6 +230,15 @@ struct CanvasRepresentable: NSViewRepresentable {
                                                            dy: -b.height * 0.04))
             }
         }
+    }
+
+    private func wire(_ canvas: PageCanvas) {
+        canvas.onClick = { [weak canvas] pt in
+            selectedID = canvas?.layerHit(pt)?.id
+        }
+        canvas.onDragBegin = { id in store.beginDrag(id) }
+        canvas.onDragEnd = { offset in store.endDrag(offset: offset) }
+        canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

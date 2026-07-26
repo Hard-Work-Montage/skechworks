@@ -134,6 +134,41 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Dragging
+
+    /// A drag in progress: the layer as it was when the mouse went down.
+    ///
+    /// Dragging can't call `edit` per mouse-move — that would push one undo step per
+    /// frame and recompose the page (~0.6s of CGPath booleans) on every tick. Instead
+    /// the canvas previews the move itself, and the model is touched once on mouse-up.
+    private var dragStart: (id: String, layer: Layer, page: Int)?
+
+    func beginDrag(_ id: String) {
+        guard let page, let l = page.layer(id) else { return }
+        dragStart = (id, l, pageIndex)
+    }
+
+    /// Commits the whole gesture as a single undo step.
+    func endDrag(offset: CGSize) {
+        guard let start = dragStart else { return }
+        dragStart = nil
+        guard offset != .zero, pageIndex == start.page else { return }
+        edit(start.id, actionName: "Move") {
+            $0.frame.origin = CGPoint(x: start.layer.frame.minX + offset.width,
+                                      y: start.layer.frame.minY + offset.height)
+        }
+    }
+
+    func cancelDrag() { dragStart = nil }
+
+    /// Arrow-key nudge. Shift moves by 10 the way every design tool does.
+    func nudge(dx: CGFloat, dy: CGFloat) {
+        guard let id = selectedLayerID else { return }
+        edit(id, actionName: "Nudge") {
+            $0.frame.origin = CGPoint(x: $0.frame.minX + dx, y: $0.frame.minY + dy)
+        }
+    }
+
     private func registerUndo(layerID: String, restore: Layer, redo: Layer,
                               pageIndex idx: Int, actionName: String) {
         undoManager.registerUndo(withTarget: self) { store in
