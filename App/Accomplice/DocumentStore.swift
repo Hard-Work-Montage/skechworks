@@ -12,7 +12,25 @@ final class DocumentStore: ObservableObject {
     @Published var source: DocumentSource?
     @Published var url: URL?
     @Published var pageIndex = 0 { didSet { loadCurrentPage() } }
-    @Published var selectedLayerID: String?
+    /// The selection. A set rather than a single id because boolean ops, aligning and
+    /// bulk moves all act on several layers at once, and retrofitting that later would
+    /// touch every edit path.
+    @Published var selection: Set<String> = []
+
+    /// Convenience for the inspector, which shows one layer's properties.
+    var selectedLayerID: String? {
+        get { selection.count == 1 ? selection.first : nil }
+        set { selection = newValue.map { [$0] } ?? [] }
+    }
+
+    func select(_ id: String?, extend: Bool = false) {
+        guard let id else { if !extend { selection = [] }; return }
+        if extend {
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+        } else if selection != [id] {
+            selection = [id]
+        }
+    }
     @Published var status: String = "Open an .acmplc.png or a .sketch file"
     @Published var isLoading = false
     @Published var isPageLoading = false
@@ -75,7 +93,7 @@ final class DocumentStore: ObservableObject {
                 self.isDirty = false
                 self.canUndo = false
                 self.canRedo = false
-                self.selectedLayerID = nil
+                self.selection = []
                 self.status = "\(src.pageCount) page\(src.pageCount == 1 ? "" : "s")"
                     + (src.sourceApp.map { " · from \($0)" } ?? "")
                 self.pageIndex = 0
@@ -121,15 +139,24 @@ final class DocumentStore: ObservableObject {
     /// correct by construction — no chance of an undo step that restores position
     /// but forgets the fill.
     func edit(_ layerID: String, actionName: String, _ body: (inout Layer) -> Void) {
-        guard var page, let src = source else { return }
-        guard let before = page.layer(layerID) else { return }
+        edit([layerID], actionName: actionName, body)
+    }
 
-        page.updateLayer(layerID) { body(&$0) }
-        guard let after = page.layer(layerID) else { return }
+    /// Applies the same change across several layers as ONE undo step — so moving a
+    /// six-layer selection is one ⌘Z, not six.
+    func edit(_ ids: [String], actionName: String, _ body: (inout Layer) -> Void) {
+        guard var page, let src = source, !ids.isEmpty else { return }
+        var before: [String: Layer] = [:], after: [String: Layer] = [:]
+        for id in ids {
+            guard let b = page.layer(id) else { continue }
+            before[id] = b
+            page.updateLayer(id) { body(&$0) }
+            if let a = page.layer(id) { after[id] = a }
+        }
+        guard !before.isEmpty else { return }
 
         apply(page, at: pageIndex, src: src)
-        registerUndo(layerID: layerID, restore: before, redo: after,
-                     pageIndex: pageIndex, actionName: actionName)
+        registerUndo(restore: before, redo: after, pageIndex: pageIndex, actionName: actionName)
         isDirty = true
         refreshUndoState()
     }
@@ -141,41 +168,84 @@ final class DocumentStore: ObservableObject {
     /// Dragging can't call `edit` per mouse-move — that would push one undo step per
     /// frame and recompose the page (~0.6s of CGPath booleans) on every tick. Instead
     /// the canvas previews the move itself, and the model is touched once on mouse-up.
-    private var dragStart: (id: String, layer: Layer, page: Int)?
+    private var dragStart: (origins: [String: CGPoint], page: Int)?
 
     func beginDrag(_ id: String) {
-        guard let page, let l = page.layer(id) else { return }
-        dragStart = (id, l, pageIndex)
+        guard let page else { return }
+        let ids = selection.contains(id) ? Array(selection) : [id]
+        var origins: [String: CGPoint] = [:]
+        for i in ids { if let l = page.layer(i) { origins[i] = l.frame.origin } }
+        dragStart = (origins, pageIndex)
     }
 
-    /// Commits the whole gesture as a single undo step.
+    /// Commits the whole gesture as a single undo step, across the whole selection.
     func endDrag(offset: CGSize) {
         guard let start = dragStart else { return }
         dragStart = nil
         guard offset != .zero, pageIndex == start.page else { return }
-        edit(start.id, actionName: "Move") {
-            $0.frame.origin = CGPoint(x: start.layer.frame.minX + offset.width,
-                                      y: start.layer.frame.minY + offset.height)
+        let origins = start.origins
+        edit(Array(origins.keys), actionName: "Move") { l in
+            guard let o = origins[l.id] else { return }
+            l.frame.origin = CGPoint(x: o.x + offset.width, y: o.y + offset.height)
         }
     }
 
     func cancelDrag() { dragStart = nil }
 
+    // MARK: - Resizing
+
+    private var resizeStart: [String: CGRect] = [:]
+
+    func beginResize() {
+        guard let page else { return }
+        resizeStart = [:]
+        for id in selection { if let l = page.layer(id) { resizeStart[id] = l.frame } }
+    }
+
+    /// Scales the selection about `anchor` (the handle opposite the one being dragged),
+    /// as one undo step. Layer.resize takes the contained geometry with it.
+    func endResize(scale: CGSize, anchor: CGPoint) {
+        let start = resizeStart
+        resizeStart = [:]
+        guard !start.isEmpty, scale.width != 1 || scale.height != 1 else { return }
+        edit(Array(start.keys), actionName: "Resize") { l in
+            guard let f = start[l.id] else { return }
+            l.frame.origin = CGPoint(x: anchor.x + (f.minX - anchor.x) * scale.width,
+                                     y: anchor.y + (f.minY - anchor.y) * scale.height)
+            l.resize(to: CGSize(width: max(1, f.width * scale.width),
+                                height: max(1, f.height * scale.height)))
+        }
+    }
+
+    func cancelResize() { resizeStart = [:] }
+
     /// Arrow-key nudge. Shift moves by 10 the way every design tool does.
     func nudge(dx: CGFloat, dy: CGFloat) {
-        guard let id = selectedLayerID else { return }
-        edit(id, actionName: "Nudge") {
+        guard !selection.isEmpty else { return }
+        edit(Array(selection), actionName: "Nudge") {
             $0.frame.origin = CGPoint(x: $0.frame.minX + dx, y: $0.frame.minY + dy)
         }
     }
 
-    private func registerUndo(layerID: String, restore: Layer, redo: Layer,
+    /// Everything the marquee touched.
+    func selectAll(in rect: CGRect, on page: Page, extend: Bool) {
+        var hits: Set<String> = []
+        for l in page.layers where l.isVisible {
+            let t = Compose.transform(l)
+            let box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
+                ?? CGRect(origin: .zero, size: l.frame.size).applying(t)
+            if rect.intersects(box) { hits.insert(l.id) }
+        }
+        selection = extend ? selection.union(hits) : hits
+    }
+
+    private func registerUndo(restore: [String: Layer], redo: [String: Layer],
                               pageIndex idx: Int, actionName: String) {
         undoManager.registerUndo(withTarget: self) { store in
             MainActor.assumeIsolated {
-                store.replaceLayer(layerID, with: restore, pageIndex: idx)
+                store.replaceLayers(restore, pageIndex: idx)
                 // Registering during undo is what makes redo work.
-                store.registerUndo(layerID: layerID, restore: redo, redo: restore,
+                store.registerUndo(restore: redo, redo: restore,
                                    pageIndex: idx, actionName: actionName)
                 store.isDirty = true
                 store.refreshUndoState()
@@ -184,13 +254,14 @@ final class DocumentStore: ObservableObject {
         undoManager.setActionName(actionName)
     }
 
-    private func replaceLayer(_ id: String, with layer: Layer, pageIndex idx: Int) {
+    private func replaceLayers(_ layers: [String: Layer], pageIndex idx: Int) {
         guard let src = source else { return }
         if pageIndex != idx { pageIndex = idx }
         guard var p = src.page(at: idx) else { return }
-        p.updateLayer(id) { $0 = layer }
+        for (id, l) in layers { p.updateLayer(id) { $0 = l } }
         apply(p, at: idx, src: src)
-        selectedLayerID = id
+        // Restore the selection the edit applied to, so undo puts you back where you were.
+        selection = Set(layers.keys)
     }
 
     private func apply(_ p: Page, at idx: Int, src: DocumentSource) {

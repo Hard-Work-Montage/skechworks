@@ -8,6 +8,7 @@ struct PropertiesPanel: View {
     @EnvironmentObject var store: DocumentStore
     let layer: Layer?
     let pageName: String?
+    var selectionCount: Int = 0
 
     var body: some View {
         Group {
@@ -29,9 +30,10 @@ struct PropertiesPanel: View {
                 }
             } else {
                 VStack(spacing: 6) {
-                    Image(systemName: "sidebar.right")
+                    Image(systemName: selectionCount > 1 ? "square.on.square" : "sidebar.right")
                         .font(.system(size: 26)).foregroundStyle(.tertiary)
-                    Text("No selection").foregroundStyle(.secondary)
+                    Text(selectionCount > 1 ? "\(selectionCount) layers selected" : "No selection")
+                        .foregroundStyle(.secondary)
                     Text(pageName.map { "on \($0)" } ?? "")
                         .font(.caption).foregroundStyle(.tertiary)
                 }

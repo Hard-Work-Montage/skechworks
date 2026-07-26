@@ -15,7 +15,8 @@ struct ContentView: View {
         } content: {
             canvas
         } detail: {
-            PropertiesPanel(layer: selectedLayer, pageName: store.page?.name)
+            PropertiesPanel(layer: selectedLayer, pageName: store.page?.name,
+                            selectionCount: selectionCount)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
         }
         .navigationTitle(store.url?.lastPathComponent ?? "Accomplice")
@@ -60,6 +61,8 @@ struct ContentView: View {
         return LayerLookup.find(id, in: page.layers)
     }
 
+    private var selectionCount: Int { store.selection.count }
+
     // MARK: - Left rail
 
     private var leftRail: some View {
@@ -85,7 +88,7 @@ struct ContentView: View {
             railHeader("Pages", count: store.source?.pageCount)
             List(selection: Binding(
                 get: { store.pageIndex },
-                set: { store.pageIndex = $0 ?? 0; store.selectedLayerID = nil }
+                set: { store.pageIndex = $0 ?? 0; store.selection = [] }
             )) {
                 // Names and layer counts come from document.json, so the whole sidebar
                 // is populated before any page geometry has been parsed.
@@ -108,7 +111,7 @@ struct ContentView: View {
             railHeader("Layers", count: store.page?.layers.count)
             if let page = store.page {
                 List(page.layers.map(LayerNode.init), children: \.children,
-                     selection: $store.selectedLayerID) { node in
+                     selection: $store.selection) { node in
                     HStack(spacing: 6) {
                         Image(systemName: node.systemImage)
                             .foregroundStyle(.secondary).frame(width: 14)
@@ -151,7 +154,7 @@ struct ContentView: View {
     private var canvas: some View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
-                                selectedID: $store.selectedLayerID, zoomToken: zoomToken)
+                                selection: $store.selection, zoomToken: zoomToken)
             if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))

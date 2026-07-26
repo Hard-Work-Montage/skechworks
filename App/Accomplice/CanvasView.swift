@@ -8,9 +8,12 @@ final class PageCanvas: NSView {
 
     var page: Page? { didSet { resize(); recompose(); needsDisplay = true } }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
-    var selectedID: String? { didSet { updateDragSet(); needsDisplay = true } }
-    var onClick: ((CGPoint) -> Void)?
+    var selected: Set<String> = [] { didSet { updateDragSet(); needsDisplay = true } }
+    var onClick: ((CGPoint, Bool) -> Void)?          // point, extend (shift held)
+    var onMarquee: ((CGRect, Bool) -> Void)?         // rect, extend
     var onDragBegin: ((String) -> Void)?
+    var onResizeBegin: (() -> Void)?
+    var onResizeEnd: ((CGSize, CGPoint) -> Void)?
     var onDragEnd: ((CGSize) -> Void)?
     var onNudge: ((CGFloat, CGFloat) -> Void)?
 
@@ -19,14 +22,76 @@ final class PageCanvas: NSView {
     /// Recomposing per frame would cost ~0.6s of CGPath boolean work per tick.
     private var dragOffset: CGSize = .zero
     private var dragging = false
+    private var marqueeing = false
+
+    /// Which resize handle is being dragged, if any.
+    ///
+    /// Handles are drawn at a constant SCREEN size, so their hit radius has to be
+    /// converted back into page units — otherwise they'd be unusably small zoomed out
+    /// and enormous zoomed in.
+    enum Handle: CaseIterable { case nw, n, ne, e, se, s, sw, w }
+    private var activeHandle: Handle?
+    private var resizeScale = CGSize(width: 1, height: 1)
+    private var resizeAnchor: CGPoint = .zero
+
+    /// Union of the selected layers' boxes, in page space.
+    var selectionBounds: CGRect? {
+        guard let page, !selected.isEmpty else { return nil }
+        var r = CGRect.null
+        for id in selected {
+            if let f = frameOf(id, in: page.layers, base: .identity) { r = r.union(f) }
+        }
+        return r.isNull ? nil : r
+    }
+
+    private func handlePoint(_ h: Handle, in r: CGRect) -> CGPoint {
+        switch h {
+        case .nw: return CGPoint(x: r.minX, y: r.minY)
+        case .n:  return CGPoint(x: r.midX, y: r.minY)
+        case .ne: return CGPoint(x: r.maxX, y: r.minY)
+        case .e:  return CGPoint(x: r.maxX, y: r.midY)
+        case .se: return CGPoint(x: r.maxX, y: r.maxY)
+        case .s:  return CGPoint(x: r.midX, y: r.maxY)
+        case .sw: return CGPoint(x: r.minX, y: r.maxY)
+        case .w:  return CGPoint(x: r.minX, y: r.midY)
+        }
+    }
+
+    /// The point that stays put while a given handle is dragged.
+    private func anchorPoint(_ h: Handle, in r: CGRect) -> CGPoint {
+        switch h {
+        case .nw: return CGPoint(x: r.maxX, y: r.maxY)
+        case .n:  return CGPoint(x: r.minX, y: r.maxY)
+        case .ne: return CGPoint(x: r.minX, y: r.maxY)
+        case .e:  return CGPoint(x: r.minX, y: r.minY)
+        case .se: return CGPoint(x: r.minX, y: r.minY)
+        case .s:  return CGPoint(x: r.minX, y: r.minY)
+        case .sw: return CGPoint(x: r.maxX, y: r.minY)
+        case .w:  return CGPoint(x: r.maxX, y: r.minY)
+        }
+    }
+
+    private func handleUnder(_ p: CGPoint) -> Handle? {
+        guard let r = selectionBounds else { return nil }
+        let grab = 7 / max(0.01, currentScale)
+        for h in Handle.allCases {
+            let c = handlePoint(h, in: r)
+            if abs(p.x - c.x) <= grab && abs(p.y - c.y) <= grab { return h }
+        }
+        return nil
+    }
     private var dragAnchor: CGPoint = .zero
     private var dragSet: Set<String> = []
 
     private func updateDragSet() {
-        guard let id = selectedID, let page,
-              let l = page.layer(id) else { dragSet = []; return }
-        dragSet = l.subtreeIDs
+        guard let page else { dragSet = []; return }
+        dragSet = selected.reduce(into: Set<String>()) { acc, id in
+            if let l = page.layer(id) { acc.formUnion(l.subtreeIDs) }
+        }
     }
+
+    /// Rubber-band rect while marquee-selecting, in page space.
+    private var marquee: CGRect?
 
     /// Sketch's canvas is y-down; matching it means no coordinate flipping anywhere.
     override var isFlipped: Bool { true }
@@ -124,7 +189,17 @@ final class PageCanvas: NSView {
         ctx.translateBy(x: -bounds1.minX, y: -bounds1.minY)
 
         let r = Renderer(images: images)
-        if dragging && dragOffset != .zero {
+        if activeHandle != nil {
+            let moved = composed.filter { dragSet.contains($0.layer.id) }
+            let rest = composed.filter { !dragSet.contains($0.layer.id) }
+            r.draw(drawables: rest, in: ctx)
+            ctx.saveGState()
+            ctx.translateBy(x: resizeAnchor.x, y: resizeAnchor.y)
+            ctx.scaleBy(x: resizeScale.width, y: resizeScale.height)
+            ctx.translateBy(x: -resizeAnchor.x, y: -resizeAnchor.y)
+            r.draw(drawables: moved, in: ctx)
+            ctx.restoreGState()
+        } else if dragging && dragOffset != .zero {
             let moved = composed.filter { dragSet.contains($0.layer.id) }
             let rest = composed.filter { !dragSet.contains($0.layer.id) }
             r.draw(drawables: rest, in: ctx)
@@ -136,17 +211,50 @@ final class PageCanvas: NSView {
             r.draw(drawables: composed, in: ctx)
         }
 
-        if let id = selectedID,
-           var rect = frameOf(id, in: page.layers, base: .identity) {
+        let sc = max(0.01, currentScale)
+        for id in selected {
+            guard var rect = frameOf(id, in: page.layers, base: .identity) else { continue }
             if dragging { rect = rect.offsetBy(dx: dragOffset.width, dy: dragOffset.height) }
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
-            ctx.setLineWidth(1.5 / max(0.01, currentScale))
-            ctx.setLineDash(phase: 0, lengths: [4 / max(0.01, currentScale), 3 / max(0.01, currentScale)])
+            ctx.setLineWidth(1.5 / sc)
+            ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
             ctx.stroke(rect.insetBy(dx: -1, dy: -1))
         }
+        ctx.setLineDash(phase: 0, lengths: [])
 
+        if let m = marquee {
+            ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor)
+            ctx.fill(m)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1 / sc)
+            ctx.stroke(m)
+        }
+
+        drawHandles(ctx)
         drawArtboardLabels()
         ctx.restoreGState()
+    }
+
+    private func drawHandles(_ ctx: CGContext) {
+        guard var r = selectionBounds, !dragging, !marqueeing else { return }
+        if let h = activeHandle {
+            let a = anchorPoint(h, in: r)
+            r = CGRect(x: a.x + (r.minX - a.x) * resizeScale.width,
+                       y: a.y + (r.minY - a.y) * resizeScale.height,
+                       width: r.width * resizeScale.width,
+                       height: r.height * resizeScale.height).standardized
+        }
+        let sc = max(0.01, currentScale)
+        let size = 7 / sc
+        for h in Handle.allCases {
+            let c = handlePoint(h, in: r)
+            let box = CGRect(x: c.x - size / 2, y: c.y - size / 2, width: size, height: size)
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fill(box)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1.2 / sc)
+            ctx.stroke(box)
+        }
     }
 
     /// Labels stay a constant size on screen, so they read the same at any zoom —
@@ -159,7 +267,7 @@ final class PageCanvas: NSView {
 
         for i in artboards.indices {
             let ab = artboards[i]
-            let selected = ab.id == selectedID
+            let selected = self.selected.contains(ab.id)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: size, weight: selected ? .semibold : .regular),
                 .foregroundColor: selected ? NSColor.controlAccentColor : NSColor.secondaryLabelColor,
@@ -226,30 +334,85 @@ final class PageCanvas: NSView {
         let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
         dragAnchor = p
         dragOffset = .zero
+        marquee = nil
+        let extend = event.modifierFlags.contains(.shift)
 
         // Clicking inside the current selection starts a drag; clicking elsewhere
         // re-selects first, so a single press can select and then move. Clicking bare
-        // canvas clears the selection, which is also how you get out of one picked
-        // from the layer list.
-        let hit = layerHit(p)
-        if hit?.id != selectedID { onClick?(p) }
+        // canvas starts a marquee instead.
         window?.makeFirstResponder(self)
 
-        if let h = hit {
+        // Handles win over everything: they sit on the selection's edge, which is
+        // usually on top of the art you'd otherwise hit.
+        if let handle = handleUnder(p), let r = selectionBounds {
+            activeHandle = handle
+            resizeAnchor = anchorPoint(handle, in: r)
+            resizeScale = CGSize(width: 1, height: 1)
+            onResizeBegin?()
+            return
+        }
+
+        let hit = layerHit(p)
+
+        guard let h = hit else {
+            if !extend { onClick?(p, false) }   // clears the selection
+            marqueeing = true
+            return
+        }
+        if !selected.contains(h.id) || extend { onClick?(p, extend) }
+        if !extend {
             dragging = true
             onDragBegin?(h.id)
         }
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard dragging else { return }
         let local = convert(event.locationInWindow, from: nil)
         let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        if let h = activeHandle, let r = selectionBounds {
+            let a = resizeAnchor
+            var sx: CGFloat = 1, sy: CGFloat = 1
+            let startW = handlePoint(h, in: r).x - a.x
+            let startH = handlePoint(h, in: r).y - a.y
+            if abs(startW) > 0.001 { sx = (p.x - a.x) / startW }
+            if abs(startH) > 0.001 { sy = (p.y - a.y) / startH }
+            // Shift constrains to the aspect ratio, as everywhere else.
+            if event.modifierFlags.contains(.shift), abs(startW) > 0.001, abs(startH) > 0.001 {
+                let s = max(abs(sx), abs(sy))
+                sx = s * (sx < 0 ? -1 : 1); sy = s * (sy < 0 ? -1 : 1)
+            }
+            resizeScale = CGSize(width: max(0.01, sx), height: max(0.01, sy))
+            needsDisplay = true
+            return
+        }
+        if marqueeing {
+            marquee = CGRect(x: min(p.x, dragAnchor.x), y: min(p.y, dragAnchor.y),
+                             width: abs(p.x - dragAnchor.x), height: abs(p.y - dragAnchor.y))
+            needsDisplay = true
+            return
+        }
+        guard dragging else { return }
         dragOffset = CGSize(width: p.x - dragAnchor.x, height: p.y - dragAnchor.y)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
+        if activeHandle != nil {
+            activeHandle = nil
+            let s = resizeScale
+            resizeScale = CGSize(width: 1, height: 1)
+            onResizeEnd?(s, resizeAnchor)
+            return
+        }
+        if marqueeing {
+            marqueeing = false
+            if let m = marquee, m.width > 2, m.height > 2 {
+                onMarquee?(m, event.modifierFlags.contains(.shift))
+            }
+            marquee = nil
+            needsDisplay = true
+            return
+        }
         guard dragging else { return }
         dragging = false
         let o = dragOffset
@@ -300,13 +463,13 @@ struct CanvasRepresentable: NSViewRepresentable {
     @EnvironmentObject var store: DocumentStore
     let page: Page?
     let images: [String: Data]
-    @Binding var selectedID: String?
+    @Binding var selection: Set<String>
     let zoomToken: Int
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         let clip = CenteringClipView()
-        clip.onBackgroundClick = { selectedID = nil }
+        clip.onBackgroundClick = { selection = [] }
         scroll.contentView = clip
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -329,7 +492,7 @@ struct CanvasRepresentable: NSViewRepresentable {
             || context.coordinator.lastZoomToken != zoomToken
         canvas.images = images
         canvas.page = page
-        canvas.selectedID = selectedID
+        canvas.selected = selection
         wire(canvas)
         if pageChanged, let page {
             context.coordinator.lastPageName = page.name
@@ -353,12 +516,18 @@ struct CanvasRepresentable: NSViewRepresentable {
     }
 
     private func wire(_ canvas: PageCanvas) {
-        canvas.onClick = { [weak canvas] pt in
-            selectedID = canvas?.layerHit(pt)?.id
+        canvas.onClick = { [weak canvas] pt, extend in
+            store.select(canvas?.layerHit(pt)?.id, extend: extend)
+        }
+        canvas.onMarquee = { rect, extend in
+            guard let p = store.page else { return }
+            store.selectAll(in: rect, on: p, extend: extend)
         }
         canvas.onDragBegin = { id in store.beginDrag(id) }
         canvas.onDragEnd = { offset in store.endDrag(offset: offset) }
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
+        canvas.onResizeBegin = { store.beginResize() }
+        canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
