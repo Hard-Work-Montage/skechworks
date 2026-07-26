@@ -52,11 +52,21 @@ acmplc verify  <file.acmplc.png>                # prove both halves are intact
 
 ## Status
 
-Verified against the real corpus: **62/62 TAM `.sketch` files read, 172 pages.**
+Verified against the real corpus: **62/62 TAM `.sketch` files converted, 172 pages,
+172 SVG exports, zero failures.** All 62 pass `verify` as both PNG and ZIP. The
+converted library holds **1,163 text layers — exactly the count an independent audit
+of the raw `.sketch` files found**, so nothing is being dropped in translation.
 
 Rendering is checked against Sketch's own embedded `previews/preview.png` as an
 oracle. On the moon-phases coin, after eroding antialiased edges, **2 pixels differ
 out of 250,000** — the geometry is exact and the residual is rasterizer antialiasing.
+
+`acmplc roundtrip` writes a document, reads it back, renders both and diffs: worst
+byte difference **0.07–0.15%** across lighthouse / moon phases / bear.
+
+Size is honest: the converted library is **0.96× the size of the original `.sketch`
+files**, and 97% of it is the placed bitmaps themselves. Zero orphaned assets — every
+stored image is referenced by a layer.
 
 Supported: multi-page documents, bezier paths, ovals/rectangles, groups, boolean ops
 (union/subtract/intersect/difference), solid and gradient fills, borders with
