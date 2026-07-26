@@ -7,8 +7,27 @@ import Foundation
 
 public struct SVGWriter {
 
+    /// How placed bitmaps are referenced.
+    ///
+    /// `.embed` makes each SVG standalone — copy it anywhere and it still works. That's
+    /// what a standalone `acmplc svg` export wants.
+    ///
+    /// `.link` points at a sibling path instead. Only safe when something guarantees the
+    /// assets travel alongside — which is exactly true inside an `.acmplc.png`, where
+    /// both live in the same ZIP. Embedding there would duplicate every bitmap into
+    /// every page that uses it.
+    public enum AssetMode {
+        case embed
+        case link(prefix: String)
+    }
+
     public var images: [String: Data] = [:]
-    public init(images: [String: Data] = [:]) { self.images = images }
+    public var assetMode: AssetMode = .embed
+
+    public init(images: [String: Data] = [:], assetMode: AssetMode = .embed) {
+        self.images = images
+        self.assetMode = assetMode
+    }
 
     public func svg(page: Page, bounds explicit: CGRect? = nil) -> String {
         let b = explicit ?? page.contentBounds()
@@ -34,12 +53,19 @@ public struct SVGWriter {
                 continue
             }
 
-            if let ref = d.imageRef, let data = images[ref] {
+            if let ref = d.imageRef, images[ref] != nil {
                 let r = d.layer.frame
                 let m = d.transform
                 let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
+                let href: String
+                switch assetMode {
+                case .embed:
+                    href = "data:image/png;base64,\(images[ref]!.base64EncodedString())"
+                case .link(let prefix):
+                    href = prefix + ref
+                }
                 body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(fmt(r.width))\" height=\"\(fmt(r.height))\" "
-                body += "xlink:href=\"data:image/png;base64,\(data.base64EncodedString())\"/>\n"
+                body += "xlink:href=\"\(href)\"/>\n"
                 continue
             }
 

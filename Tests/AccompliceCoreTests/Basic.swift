@@ -58,6 +58,58 @@ import Testing
     #expect(!p.contains(CGPoint(x: 50, y: 50)))     // hole in the middle
 }
 
+@Test func svgPathDataSurvivesRoundTrip() {
+    // Geometry is stored as SVG path syntax, so the parser is part of the format's
+    // durability guarantee, not a convenience.
+    let original = CGMutablePath()
+    original.move(to: CGPoint(x: 10, y: 20))
+    original.addCurve(to: CGPoint(x: 100, y: 200), control1: CGPoint(x: 30, y: 40), control2: CGPoint(x: 70, y: 90))
+    original.addQuadCurve(to: CGPoint(x: 5, y: 5), control: CGPoint(x: 0, y: 100))
+    original.addLine(to: CGPoint(x: 10, y: 20))
+    original.closeSubpath()
+
+    let d = SVGWriter().pathData(original)
+    let back = PathParser.path(from: d)
+    #expect(SVGWriter().pathData(back) == d)
+    #expect(back.boundingBox.equalTo(original.boundingBox))
+}
+
+@Test func pathParserHandlesRelativeAndShorthand() {
+    // Not emitted by us, but valid SVG a human (or another tool) might hand us.
+    let p = PathParser.path(from: "m 10 10 h 20 v 20 h -20 z")
+    #expect(p.boundingBox.equalTo(CGRect(x: 10, y: 10, width: 20, height: 20)))
+}
+
+@Test func textAlignmentSurvivesTheDocumentFormat() throws {
+    // Regression: alignment was missing from the serializer, so every centred block
+    // came back left-aligned — silently wrong on reopen.
+    var run = TextRun()
+    run.string = "ONE\nYEAR\nSOBER"
+    run.alignment = .center
+    run.fontSize = 44
+    var l = Layer(kind: .text(run))
+    l.frame = CGRect(x: 0, y: 0, width: 200, height: 120)
+    var page = Page(name: "Front")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+
+    let (back, _) = try AcmplcFile.read(try AcmplcFile.write(document: doc, images: [:]))
+    guard case .text(let r) = try #require(back.pages.first?.layers.first).kind else {
+        Issue.record("expected a text layer"); return
+    }
+    #expect(r.alignment == .center)
+    #expect(r.string == "ONE\nYEAR\nSOBER")
+    #expect(r.fontSize == 44)
+}
+
+@Test func strippedPayloadIsReportedNotGuessed() {
+    // A plain PNG with no appended archive is the optimizer-stripped case. It must
+    // fail loudly rather than silently open as an empty document.
+    let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + Data(repeating: 0, count: 256)
+    #expect(throws: (any Error).self) { try AcmplcFile.read(png) }
+}
+
 @Test func groupInsideShapeGroupStillComposes() {
     // Regression: plain groups nested inside a shapeGroup were being dropped, which
     // silently deleted the dot clusters from the moon-phases coin.

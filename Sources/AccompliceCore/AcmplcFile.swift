@@ -30,7 +30,9 @@ public struct AcmplcFile {
                              options: Options = Options()) throws -> Data {
 
         let renderer = Renderer(images: images, background: Color(r: 1, g: 1, b: 1, a: 1))
-        let svg = SVGWriter(images: images)
+        // Inside the archive, assets are guaranteed to sit next to the exports, so link
+        // rather than embed — otherwise every page duplicates every bitmap it uses.
+        let svg = SVGWriter(images: images, assetMode: .link(prefix: "../assets/"))
 
         // 1. The visible layer: a real render of the cover page.
         let coverIndex = min(max(0, options.coverPage), max(0, document.pages.count - 1))
@@ -81,6 +83,174 @@ public struct AcmplcFile {
         return out
     }
 
+    // MARK: - Reading
+
+    public enum ReadError: Error, CustomStringConvertible {
+        case stripped
+        case malformed(String)
+        public var description: String {
+            switch self {
+            case .stripped:
+                return """
+                    no document payload — this file's editable data was stripped, most \
+                    likely by an image optimizer or a re-save from another image editor. \
+                    The picture survives; the document does not.
+                    """
+            case .malformed(let s): return s
+            }
+        }
+    }
+
+    public static func read(_ data: Data) throws -> (document: Document, images: [String: Data]) {
+        let z: [String: Data]
+        do { z = try Zip.read(data) } catch { throw ReadError.stripped }
+        guard let docData = z["document.json"],
+              let dj = try? JSONSerialization.jsonObject(with: docData) as? [String: Any] else {
+            throw ReadError.stripped
+        }
+
+        var doc = Document()
+        doc.sourceApp = dj["importedFrom"] as? String
+        for entry in dj["pages"] as? [[String: Any]] ?? [] {
+            guard let file = entry["file"] as? String, let pd = z[file],
+                  let pj = try? JSONSerialization.jsonObject(with: pd) as? [String: Any] else { continue }
+            var page = Page(name: pj["name"] as? String ?? "Page")
+            page.layers = (pj["layers"] as? [[String: Any]] ?? []).compactMap(readLayer)
+            doc.pages.append(page)
+        }
+
+        var images: [String: Data] = [:]
+        for (k, v) in z where k.hasPrefix("assets/") {
+            images[String(k.dropFirst("assets/".count))] = v
+        }
+        return (doc, images)
+    }
+
+    public static func read(url: URL) throws -> (document: Document, images: [String: Data]) {
+        try read(try Data(contentsOf: url, options: .mappedIfSafe))
+    }
+
+    private static func readLayer(_ j: [String: Any]) -> Layer? {
+        let kids = { (j["layers"] as? [[String: Any]] ?? []).compactMap(readLayer) }
+        let kind: LayerKind
+        switch j["type"] as? String ?? "" {
+        case "group":
+            kind = .group(kids())
+        case "shapeGroup":
+            kind = .shapeGroup(kids(), (j["windingRule"] as? String) == "evenodd" ? .evenOdd : .nonZero)
+        case "path":
+            guard let d = j["d"] as? String else { return nil }
+            kind = .path(PathParser.path(from: d), closed: j["closed"] as? Bool ?? true)
+        case "text":
+            guard let t = j["text"] as? [String: Any] else { return nil }
+            var run = TextRun()
+            run.string = t["string"] as? String ?? ""
+            run.fontName = t["font"] as? String ?? run.fontName
+            run.fontSize = dbl(t["size"]) ?? run.fontSize
+            run.kerning = dbl(t["kerning"]) ?? 0
+            run.lineHeight = dbl(t["lineHeight"]) ?? 0
+            if let hex = t["color"] as? String, let c = colorFrom(hex, 1) { run.color = c }
+            switch t["align"] as? String {
+            case "center": run.alignment = .center
+            case "right": run.alignment = .right
+            case "justified": run.alignment = .justified
+            default: run.alignment = .left
+            }
+            kind = .text(run)
+        case "bitmap":
+            guard let ref = j["image"] as? String else { return nil }
+            kind = .bitmap(imageRef: ref.hasPrefix("assets/") ? String(ref.dropFirst(7)) : ref)
+        default:
+            return nil
+        }
+
+        var l = Layer(kind: kind)
+        l.id = j["id"] as? String ?? UUID().uuidString
+        l.name = j["name"] as? String ?? ""
+        if let f = j["frame"] as? [String: Any] {
+            l.frame = CGRect(x: dbl(f["x"]) ?? 0, y: dbl(f["y"]) ?? 0,
+                             width: dbl(f["width"]) ?? 0, height: dbl(f["height"]) ?? 0)
+        }
+        l.rotation = dbl(j["rotation"]) ?? 0
+        l.flipH = j["flipH"] as? Bool ?? false
+        l.flipV = j["flipV"] as? Bool ?? false
+        l.isVisible = j["visible"] as? Bool ?? true
+        l.hasClippingMask = j["clippingMask"] as? Bool ?? false
+        l.breaksMaskChain = j["breaksMaskChain"] as? Bool ?? false
+        switch j["boolean"] as? String {
+        case "union": l.booleanOp = .union
+        case "subtract": l.booleanOp = .subtract
+        case "intersect": l.booleanOp = .intersect
+        case "difference": l.booleanOp = .difference
+        default: l.booleanOp = .none
+        }
+        l.style = readStyle(j["style"] as? [String: Any])
+        return l
+    }
+
+    private static func readStyle(_ j: [String: Any]?) -> Style {
+        var s = Style()
+        guard let j else { return s }
+        s.opacity = dbl(j["opacity"]) ?? 1
+        for f in j["fills"] as? [[String: Any]] ?? [] {
+            let alpha = dbl(f["alpha"]) ?? 1
+            if (f["type"] as? String) == "gradient" {
+                var g = Gradient()
+                switch f["kind"] as? String {
+                case "radial": g.kind = .radial
+                case "angular": g.kind = .angular
+                default: g.kind = .linear
+                }
+                if let p = f["from"] as? [Any], p.count == 2 { g.from = CGPoint(x: dbl(p[0]) ?? 0, y: dbl(p[1]) ?? 0) }
+                if let p = f["to"] as? [Any], p.count == 2 { g.to = CGPoint(x: dbl(p[0]) ?? 0, y: dbl(p[1]) ?? 0) }
+                g.stops = (f["stops"] as? [[String: Any]] ?? []).compactMap { st in
+                    guard let hex = st["color"] as? String,
+                          let c = colorFrom(hex, dbl(st["alpha"]) ?? 1) else { return nil }
+                    return (dbl(st["at"]) ?? 0, c)
+                }
+                if !g.stops.isEmpty { s.fills.append(Fill(paint: .gradient(g))) }
+            } else if let hex = f["color"] as? String, let c = colorFrom(hex, alpha) {
+                s.fills.append(Fill(paint: .color(c)))
+            }
+        }
+        for b in j["borders"] as? [[String: Any]] ?? [] {
+            var bd = Border()
+            if let hex = b["color"] as? String, let c = colorFrom(hex, 1) { bd.color = c }
+            bd.thickness = dbl(b["width"]) ?? 1
+            switch b["position"] as? String {
+            case "inside": bd.position = .inside
+            case "outside": bd.position = .outside
+            default: bd.position = .center
+            }
+            bd.dashPattern = (b["dash"] as? [Any] ?? []).compactMap(dbl)
+            s.borders.append(bd)
+        }
+        for sh in j["shadows"] as? [[String: Any]] ?? [] {
+            var s2 = Shadow()
+            if let hex = sh["color"] as? String, let c = colorFrom(hex, dbl(sh["alpha"]) ?? 1) { s2.color = c }
+            s2.offset = CGSize(width: dbl(sh["dx"]) ?? 0, height: dbl(sh["dy"]) ?? 0)
+            s2.blur = dbl(sh["blur"]) ?? 0
+            s2.spread = dbl(sh["spread"]) ?? 0
+            s.shadows.append(s2)
+        }
+        return s
+    }
+
+    private static func colorFrom(_ hex: String, _ alpha: CGFloat) -> Color? {
+        var h = hex
+        if h.hasPrefix("#") { h.removeFirst() }
+        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
+        return Color(r: CGFloat((v >> 16) & 0xff) / 255,
+                     g: CGFloat((v >> 8) & 0xff) / 255,
+                     b: CGFloat(v & 0xff) / 255, a: alpha)
+    }
+
+    private static func dbl(_ v: Any?) -> CGFloat? {
+        if let d = v as? Double { return CGFloat(d) }
+        if let i = v as? Int { return CGFloat(i) }
+        return nil
+    }
+
     // MARK: - Serialization
 
     private static func pageJSON(_ p: Page) -> [String: Any] {
@@ -107,16 +277,26 @@ public struct AcmplcFile {
         case .group(let kids):
             d["type"] = "group"; d["layers"] = kids.map(layerJSON)
         case .shapeGroup(let kids, let rule):
+            // No baked `resolved` outline here: it's a cache, fully derivable from the
+            // children, and caches don't belong in an archival format. exports/ already
+            // carries the final geometry for anyone who just wants the shape.
             d["type"] = "shapeGroup"
             d["windingRule"] = rule == .evenOdd ? "evenodd" : "nonzero"
             d["layers"] = kids.map(layerJSON)
-            if let p = Compose.resolvedPath(l) { d["resolved"] = w.pathData(p) }
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
         case .text(let t):
             d["type"] = "text"
+            let align: String
+            switch t.alignment {
+            case .center: align = "center"
+            case .right: align = "right"
+            case .justified: align = "justified"
+            default: align = "left"
+            }
             d["text"] = ["string": t.string, "font": t.fontName, "size": t.fontSize,
-                         "color": t.color.hex, "kerning": t.kerning, "lineHeight": t.lineHeight]
+                         "color": t.color.hex, "kerning": t.kerning, "lineHeight": t.lineHeight,
+                         "align": align]
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
         }

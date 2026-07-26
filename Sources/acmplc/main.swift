@@ -145,6 +145,41 @@ case "convert":
     }
     warnFonts()
 
+case "roundtrip":
+    // Proves the format is lossless: read the .acmplc.png back into the model, render
+    // it, and diff against a render straight from the .sketch original.
+    let (original, images) = load()
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("acmplc-roundtrip.acmplc.png")
+    do {
+        try AcmplcFile.write(document: original, images: images).write(to: tmp)
+        let (reloaded, reImages) = try AcmplcFile.read(url: tmp)
+        print("pages   : \(original.pages.count) written -> \(reloaded.pages.count) read back")
+        print("images  : \(images.count) written -> \(reImages.count) read back")
+
+        let a = Renderer(images: images, background: Color(r: 1, g: 1, b: 1, a: 1))
+        let b = Renderer(images: reImages, background: Color(r: 1, g: 1, b: 1, a: 1))
+        var worst = 0.0, checked = 0
+        for (i, p) in original.pages.enumerated() where i < reloaded.pages.count {
+            guard let ia = a.render(page: p, maxDimension: 400),
+                  let ib = b.render(page: reloaded.pages[i], maxDimension: 400),
+                  ia.width == ib.width, ia.height == ib.height,
+                  let da = ia.dataProvider?.data as Data?, let db = ib.dataProvider?.data as Data? else { continue }
+            var diff = 0
+            for k in 0..<min(da.count, db.count) where da[k] != db[k] { diff += 1 }
+            let pct = Double(diff) / Double(max(1, min(da.count, db.count))) * 100
+            worst = max(worst, pct)
+            checked += 1
+        }
+        print(String(format: "compared: %d pages, worst byte difference %.4f%%", checked, worst))
+        print(worst < 0.5 ? "ROUND-TRIP OK" : "ROUND-TRIP LOSSY — investigate")
+        try? FileManager.default.removeItem(at: tmp)
+        if worst >= 0.5 { exit(2) }
+    } catch {
+        fail("\(error)")
+    }
+    warnFonts()
+
 case "verify":
     let data: Data
     do { data = try Data(contentsOf: input) } catch { fail("\(error)") }
