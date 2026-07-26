@@ -38,10 +38,21 @@ guard args.count >= 3 else { usage() }
 let command = args[1]
 let input = URL(fileURLWithPath: args[2])
 
+/// Accepts either input format.
+///
+/// Both are ZIPs containing a `document.json`, so handing an .acmplc.png to the Sketch
+/// reader used to "succeed" and yield an empty document — a blank render with no error.
+/// Try our own format first and only fall back to Sketch.
 func load() -> (Document, [String: Data]) {
+    if let (doc, images) = try? AcmplcFile.read(url: input), !doc.pages.isEmpty {
+        return (doc, images)
+    }
     var reader = SketchReader()
     do {
         let doc = try reader.read(url: input)
+        if doc.pages.isEmpty {
+            fail("\(input.lastPathComponent): no pages found — is this really a Sketch or Accomplice document?")
+        }
         return (doc, reader.images)
     } catch {
         fail("\(input.lastPathComponent): \(error)")
