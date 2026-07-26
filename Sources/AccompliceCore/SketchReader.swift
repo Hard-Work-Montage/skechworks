@@ -102,6 +102,7 @@ public struct SketchReader {
             if j["hasBackgroundColor"] as? Bool ?? false {
                 l.backgroundColor = color(j["backgroundColor"])
             }
+            l.backgroundInExport = j["includeBackgroundColorInExport"] as? Bool ?? true
         }
         return l
     }

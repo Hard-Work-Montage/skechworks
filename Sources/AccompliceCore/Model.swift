@@ -110,6 +110,10 @@ public struct Layer: @unchecked Sendable {
     /// background and clip whatever hangs over the edge.
     public var isArtboard = false
     public var backgroundColor: Color?
+    /// Sketch's "include background in export". The coin `front`/`back` artboards are
+    /// white on canvas but set this false, so an engraving SVG has to come out
+    /// transparent rather than with a white plate baked underneath.
+    public var backgroundInExport = true
     public var style = Style()
     public var kind: LayerKind
 

@@ -37,6 +37,9 @@ public struct SVGWriter {
         var clipID = 0
 
         for d in drawables {
+            // An artboard background that Sketch marks as export-excluded must not be
+            // baked into the engraving file.
+            if d.isArtboardBackground && !d.includeInExport { continue }
             var attrs = ""
             if let clip = d.clip {
                 clipID += 1

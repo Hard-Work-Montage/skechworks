@@ -98,7 +98,10 @@ public enum Compose {
                         plate.frame = l.frame
                         plate.name = l.name
                         plate.style.fills = [Fill(paint: .color(bg))]
-                        out.append(Drawable(path: rect, style: plate.style, layer: plate, transform: t))
+                        var bgDrawable = Drawable(path: rect, style: plate.style, layer: plate, transform: t)
+                        bgDrawable.isArtboardBackground = true
+                        bgDrawable.includeInExport = l.backgroundInExport
+                        out.append(bgDrawable)
                     }
                     inner = inner.map { var d = $0; d.clip = intersect(d.clip, rect); return d }
                 }
@@ -157,4 +160,8 @@ public struct Drawable {
     public var opacity: CGFloat = 1
     public var text: TextRun?
     public var imageRef: String?
+    /// True for the plate painted behind an artboard, so exporters can honour
+    /// "include background in export" without re-deriving it.
+    public var isArtboardBackground = false
+    public var includeInExport = true
 }

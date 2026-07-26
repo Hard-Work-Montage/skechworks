@@ -36,10 +36,9 @@ final class PageCanvas: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        // Checkerboard, so white artwork on a white page is still legible as artwork.
-        NSColor.textBackgroundColor.setFill()
-        bounds.fill()
-
+        // No page background. A Sketch-style canvas is infinite and unpainted — only
+        // artboards have a colour. Filling the view white made every page look like one
+        // big artboard and hid where the real ones start and stop.
         guard let page else { return }
         ctx.saveGState()
         ctx.setShouldAntialias(true)
