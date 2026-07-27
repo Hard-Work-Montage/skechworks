@@ -120,8 +120,10 @@ struct ContentView: View {
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let p = providers.first else { return false }
+            // Documents open; images (and anything else decodable) get placed. Routing
+            // everything through open() meant dropping a photo destroyed the document.
             _ = p.loadObject(ofClass: URL.self) { url, _ in
-                if let url { Task { @MainActor in store.open(url) } }
+                if let url { Task { @MainActor in store.acceptDropped(url) } }
             }
             return true
         }

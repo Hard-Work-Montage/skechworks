@@ -11,6 +11,17 @@ import Foundation
 
 /// `@unchecked Sendable`: the page cache is the only mutable state and every access
 /// goes through `lock`.
+/// Which files are Accomplice documents rather than content to place.
+///
+/// Lives here so it's testable and there's exactly one answer: routing a dropped file
+/// through the open path when it wasn't a document used to destroy the open one.
+public enum DocumentKind {
+    public static func isDocument(_ url: URL) -> Bool {
+        let n = url.lastPathComponent.lowercased()
+        return n.hasSuffix(".acmplc.png") || n.hasSuffix(".acmplc") || n.hasSuffix(".sketch")
+    }
+}
+
 public final class DocumentSource: @unchecked Sendable {
 
     public struct PageRef: Sendable {

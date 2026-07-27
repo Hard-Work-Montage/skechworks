@@ -92,8 +92,10 @@ final class DocumentStore: ObservableObject {
 
     func open(_ url: URL) {
         isLoading = true
-        page = nil
-        source = nil
+        // Deliberately NOT clearing page/source here. Doing so meant a file that
+        // turned out not to be openable — an image dropped on the window, say — wiped
+        // the document you already had, unsaved work included. Nothing is discarded
+        // until there's a replacement in hand.
         status = "Opening \(url.lastPathComponent)…"
         MissingFonts.reset()
 
@@ -382,9 +384,13 @@ final class DocumentStore: ObservableObject {
     }
 
     func paste() {
+        let pb = NSPasteboard.general
         guard let src = source, var p = page,
-              let data = NSPasteboard.general.data(forType: Self.pasteboardType),
-              let (layers, assets) = AcmplcFile.decodeClipboard(data), !layers.isEmpty else { return }
+              let data = pb.data(forType: Self.pasteboardType),
+              let (layers, assets) = AcmplcFile.decodeClipboard(data), !layers.isEmpty else {
+            pasteExternal()
+            return
+        }
 
         // Fresh ids, nudged so a paste-in-place isn't invisible.
         let offset: CGFloat = 20
@@ -416,6 +422,22 @@ final class DocumentStore: ObservableObject {
         }
         undoManager.setActionName(fresh.count == 1 ? "Paste" : "Paste \(fresh.count) Layers")
         refreshUndoState()
+    }
+
+    /// Pasting something that didn't come from Accomplice: an image copied out of
+    /// Preview, Finder, a browser.
+    private func pasteExternal() {
+        let pb = NSPasteboard.general
+        if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            for u in urls where !Self.isDocument(u) {
+                if let d = try? Data(contentsOf: u),
+                   placeImage(d, name: u.deletingPathExtension().lastPathComponent) { return }
+            }
+            if let doc = urls.first(where: Self.isDocument) { open(doc); return }
+        }
+        for type in [NSPasteboard.PasteboardType.png, .tiff] {
+            if let d = pb.data(forType: type), placeImage(d, name: "Pasted Image") { return }
+        }
     }
 
     func duplicateSelection() {
@@ -489,21 +511,42 @@ final class DocumentStore: ObservableObject {
         panel.canChooseDirectories = false
         panel.message = "Choose an image to place"
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = try? Data(contentsOf: url), let src = source else { return }
+              let data = try? Data(contentsOf: url) else { return }
+        placeImage(data, name: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// Places image bytes as a bitmap layer. Shared by the insert menu, drag-and-drop
+    /// and paste, so all three behave identically.
+    @discardableResult
+    func placeImage(_ data: Data, name: String, at origin: CGPoint? = nil) -> Bool {
+        guard let src = source, BitmapImage.load(data) != nil else { return false }
 
         // Content-addressed, matching how the format stores assets, so placing the same
         // photo twice doesn't duplicate the bytes.
         let key = "images/\(Zip.crc32(data))-\(data.count).png"
-        let oriented = BitmapImage.load(data)
-        let display = oriented?.displaySize ?? CGSize(width: 400, height: 400)
+        let display = BitmapImage.load(data)?.displaySize ?? CGSize(width: 400, height: 400)
         let scale = min(1, 800 / max(display.width, display.height))
         let size = CGSize(width: display.width * scale, height: display.height * scale)
 
         source = src.adding(image: data, key: key)
         var l = Layer(kind: .bitmap(imageRef: key))
-        l.name = url.deletingPathExtension().lastPathComponent
-        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        l.name = name.isEmpty ? "Image" : name
+        l.frame = CGRect(origin: origin ?? insertionPoint(size), size: size)
         addLayer(l, actionName: "Place Image")
+        return true
+    }
+
+    static func isDocument(_ url: URL) -> Bool { DocumentKind.isDocument(url) }
+
+    /// A dropped file: open documents, place everything else we can decode.
+    func acceptDropped(_ url: URL) {
+        if Self.isDocument(url) { open(url); return }
+        guard let data = try? Data(contentsOf: url),
+              placeImage(data, name: url.deletingPathExtension().lastPathComponent) else {
+            status = "Can't place \(url.lastPathComponent)"
+            NSSound.beep()
+            return
+        }
     }
 
     /// Builds a layer from points drawn on the canvas (page space).

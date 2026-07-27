@@ -353,3 +353,14 @@ import Testing
     let group = Layer(kind: .group([a, Layer(kind: .group([b]))]))
     #expect(group.imageRefs == ["one.png", "two.png"])
 }
+
+@Test func documentDetectionKeepsImagesOutOfTheOpenPath() {
+    // The bug this guards: every dropped file went through open(), which cleared the
+    // current document before discovering the file wasn't one. A photo wiped your work.
+    #expect(DocumentKind.isDocument(URL(fileURLWithPath: "/x/coin.acmplc.png")))
+    #expect(DocumentKind.isDocument(URL(fileURLWithPath: "/x/coin.acmplc")))
+    #expect(DocumentKind.isDocument(URL(fileURLWithPath: "/x/art.sketch")))
+    #expect(!DocumentKind.isDocument(URL(fileURLWithPath: "/x/photo.png")))
+    #expect(!DocumentKind.isDocument(URL(fileURLWithPath: "/x/photo.jpg")))
+    #expect(!DocumentKind.isDocument(URL(fileURLWithPath: "/x/IMG_1234.HEIC")))
+}
