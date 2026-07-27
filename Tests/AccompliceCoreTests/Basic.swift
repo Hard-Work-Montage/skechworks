@@ -1419,3 +1419,14 @@ private func maskedGroup() -> Layer {
     #expect(drawables[0].layer.name == "Photo")
     #expect(drawables[0].clip != nil)
 }
+
+@Test func theDigitKeysMapStraightOntoThePointTypes() {
+    // The canvas turns keyCodes 18...21 into CurveMode(rawValue: code - 17). That only
+    // stays correct while the raw values are 1...4 in the inspector's order — pin it,
+    // because reordering the enum would silently rewire the keyboard.
+    #expect(CurveMode(rawValue: 1) == .straight)
+    #expect(CurveMode(rawValue: 2) == .mirrored)
+    #expect(CurveMode(rawValue: 3) == .asymmetric)     // "Aligned"
+    #expect(CurveMode(rawValue: 4) == .disconnected)   // "Free"
+    #expect(CurveMode.allCases.map(\.rawValue) == [1, 2, 3, 4])
+}

@@ -936,6 +936,16 @@ final class PageCanvas: NSView {
             return
         // Illustrator's add/remove anchor keys, live while editing a path. Bare, so
         // they don't collide with the ⌘ zoom pair above.
+        // 1-4 set the selected point's type, in the order the inspector lists them.
+        // CurveMode's raw values are already 1...4, so the digit IS the mode.
+        case 18, 19, 20, 21:
+            if editPath != nil, lastTouchedPoint != nil,
+               let m = CurveMode(rawValue: Int(event.keyCode) - 17) {
+                applyPointMode(m)
+                return
+            }
+            super.keyDown(with: event)
+            return
         case 24, 69:      // = / + , main row and keypad
             if editPath != nil, insertPointAtPreview() { return }
             super.keyDown(with: event)
