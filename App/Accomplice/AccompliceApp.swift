@@ -29,6 +29,7 @@ struct DocumentWindow: View {
 struct AccompliceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.openWindow) private var openWindow
+    @StateObject private var recents = RecentDocuments.shared
 
     var body: some Scene {
         WindowGroup(id: "document") {
@@ -43,6 +44,25 @@ struct AccompliceApp: App {
                     .keyboardShortcut("n", modifiers: .command)
                 Button("Open…") { AppDelegate.shared?.active?.openPanel() }
                     .keyboardShortcut("o", modifiers: .command)
+                Menu("Open Recent") {
+                    ForEach(recents.urls, id: \.self) { url in
+                        Button(url.lastPathComponent) {
+                            if let store = AppDelegate.shared?.active,
+                               store.source != nil, store.url != nil {
+                                // A window already holding a document gets a new tab
+                                // rather than having its contents replaced.
+                                AppDelegate.shared?.openInNewWindow(url)
+                            } else {
+                                AppDelegate.shared?.active?.open(url)
+                            }
+                        }
+                    }
+                    if !recents.urls.isEmpty {
+                        Divider()
+                        Button("Clear Menu") { recents.clear() }
+                    }
+                }
+                .disabled(recents.urls.isEmpty)
             }
             // Replace the stock undo items: SwiftUI's environment UndoManager isn't
             // the one driving document edits, so the built-ins would be inert.
@@ -176,6 +196,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func unregister(_ s: DocumentStore) {
         stores.removeAll { $0 === s }
+    }
+
+    /// Opens a document in a fresh window (which macOS turns into a tab), leaving
+    /// whatever is already open alone.
+    func openInNewWindow(_ url: URL) {
+        pendingURLs.append(url)
+        if let item = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?
+            .submenu?.items.first(where: { $0.title == "New" }) {
+            NSApp.sendAction(item.action!, to: item.target, from: item)
+        }
     }
 
     override init() {

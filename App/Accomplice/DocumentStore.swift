@@ -155,6 +155,7 @@ final class DocumentStore: ObservableObject {
                 self.source = src
                 self.coverPage = src.coverPage
                 self.url = url
+                RecentDocuments.shared.note(url)
                 self.undoManager.removeAllActions()
                 self.isDirty = false
                 self.canUndo = false
@@ -970,7 +971,12 @@ final class DocumentStore: ObservableObject {
 
             self.isLoading = false
             self.status = outcome.message
-            if outcome.ok { self.isDirty = false } else { NSSound.beep() }
+            if outcome.ok {
+                self.isDirty = false
+                RecentDocuments.shared.note(url)
+            } else {
+                NSSound.beep()
+            }
             completion?(outcome.ok)
         }
     }

@@ -1,12 +1,69 @@
 #!/bin/sh
-# Build AppIcon.icns from one of the Icons/*.png masters.
+# Turn the raw 1024px masters into proper macOS icons, then build AppIcon.icns.
 #
-# The bundled icon is what Finder and the Dock show before the app runs. The
-# in-app picker swaps NSApp.applicationIconImage at runtime, which a signed
-# bundle can't persist — so the default has to be baked in here.
+# The masters are a rounded tile sitting on a dark vignette that fills the square.
+# macOS does NOT mask app icons — it draws exactly the pixels you hand it — so
+# shipping those verbatim gave a dark square with the artwork inset inside, which
+# reads as a bordered tile everywhere the icon appears.
+#
+# So: crop the tile out of the vignette, mask its corners to transparent, and sit it
+# on a 1024 canvas at 824px — the size Apple's grid expects, with the surrounding
+# margin left for the shadow.
+#
+#   bin/make-appicon --process           reprocess masters, then build from gradient
+#   bin/make-appicon --process purple    ... and build from a different colourway
+#   bin/make-appicon                     just rebuild the .icns
 set -e
 cd "$(dirname "$0")/.."
-SRC="${1:-App/Accomplice/Icons/gradient.png}"
+
+ICONS=App/Accomplice/Icons
+RAW=${ACMPLC_ICON_MASTERS:-"$HOME/Downloads"}
+TILE=824
+RADIUS=185
+
+# Normalises whatever is in Icons/ onto Apple's grid, in place.
+if [ "$1" = "--process" ]; then
+  python3 - "$ICONS" "$TILE" "$RADIUS" <<'NORMALISE'
+import subprocess, glob, os, sys, shutil
+icons, TILE, RADIUS = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+CANVAS = 1024
+backup = "/tmp/acmplc-icon-src"
+os.makedirs(backup, exist_ok=True)
+mask = "/tmp/acmplc-mask.png"
+# CopyOpacity reads luminance, so white = opaque. Drawing the shape in black
+# yields an entirely transparent icon, which is a confusing five minutes.
+subprocess.run(["magick", "-size", f"{TILE}x{TILE}", "xc:black", "-fill", "white",
+                "-draw", f"roundrectangle 0,0,{TILE-1},{TILE-1},{RADIUS},{RADIUS}", mask], check=True)
+
+for src in sorted(glob.glob(os.path.join(icons, "*.png"))):
+    name = os.path.basename(src)
+    stash = os.path.join(backup, name)
+    if not os.path.exists(stash):
+        shutil.copy(src, stash)
+    # Threshold the alpha first: these masters carry a soft glow, and trimming on
+    # raw alpha measures the glow rather than the tile — which is why every
+    # colourway came out a different size and off-centre.
+    box = subprocess.run(["magick", stash, "-alpha", "extract", "-threshold", "92%",
+                          "-trim", "-format", "%w %h %X %Y", "info:"],
+                         capture_output=True, text=True).stdout.split()
+    w, h, x, y = (int(v.replace("+", "")) for v in box)
+    side = max(w, h)                       # square it around the tile's centre
+    x0 = max(0, x + w // 2 - side // 2)
+    y0 = max(0, y + h // 2 - side // 2)
+    side = min(side, CANVAS - x0, CANVAS - y0)
+    subprocess.run(["magick", stash, "-crop", f"{side}x{side}+{x0}+{y0}", "+repage",
+                    "-resize", f"{TILE}x{TILE}!", "/tmp/acmplc-tile.png"], check=True)
+    subprocess.run(["magick", "/tmp/acmplc-tile.png", mask, "-alpha", "off",
+                    "-compose", "CopyOpacity", "-composite", "/tmp/acmplc-masked.png"], check=True)
+    subprocess.run(["magick", "-size", f"{CANVAS}x{CANVAS}", "xc:none", "/tmp/acmplc-masked.png",
+                    "-gravity", "center", "-composite", src], check=True)
+    print(f"  {name:14s} {side}px tile -> {TILE} centred in {CANVAS}")
+NORMALISE
+  shift
+fi
+
+SRC="$ICONS/${1:-gradient}.png"
+[ -f "$SRC" ] || SRC="$ICONS/gradient.png"
 OUT="App/Accomplice/AppIcon.iconset"
 rm -rf "$OUT"; mkdir -p "$OUT"
 for s in 16 32 128 256 512; do
