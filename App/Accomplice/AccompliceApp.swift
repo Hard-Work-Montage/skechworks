@@ -143,11 +143,10 @@ struct AccompliceApp: App {
                 Button("Ask…") { NotificationCenter.default.post(name: .showCommandBar, object: nil) }
                     .keyboardShortcut("k", modifiers: .command)
                 Divider()
-                ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
-                    Button(t.title) { AppDelegate.shared?.active?.tool = t }
-                        .keyboardShortcut(KeyEquivalent(Character(t == .select ? "v" : t == .pen ? "p" : "b")),
-                                          modifiers: [])
-                }
+                Button("Select") { AppDelegate.shared?.active?.tool = .select }
+                    .keyboardShortcut("v", modifiers: [])
+                Button("Vector") { AppDelegate.shared?.active?.tool = .pen }
+                    .keyboardShortcut("p", modifiers: [])
             }
             CommandGroup(replacing: .saveItem) {
                 // Close lives in this placement too, not in .newItem — replacing the

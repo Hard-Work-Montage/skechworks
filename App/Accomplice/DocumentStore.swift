@@ -18,19 +18,17 @@ final class DocumentStore: ObservableObject {
     @Published var selection: Set<String> = []
 
     enum Tool: String, CaseIterable {
-        case select, pen, bend
+        case select, pen
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
-            case .bend: return "point.topleft.down.to.point.bottomright.curvepath"
             }
         }
         var title: String {
             switch self {
             case .select: return "Select (V)"
             case .pen: return "Pen (P)"
-            case .bend: return "Bend (B)"
             }
         }
     }
@@ -38,6 +36,23 @@ final class DocumentStore: ObservableObject {
     /// Zoom is a request, not a value — the canvas owns the magnification because
     /// only it knows the viewport. See ZoomIntent.
     @Published var zoomRequest = ZoomRequest()
+
+    /// The point currently being edited on the canvas, so the inspector can show its
+    /// type. Point Type is a property of the point, not a tool — which is why the
+    /// bend tool that used to stand in for it is gone.
+    struct EditingPoint: Equatable {
+        var index: Int
+        var mode: CurveMode
+    }
+    @Published var editingPoint: EditingPoint?
+    /// A requested change of point type, applied by the canvas that owns the path.
+    @Published var pointModeRequest: (serial: Int, mode: CurveMode)? {
+        didSet { if pointModeRequest == nil { return } }
+    }
+
+    func setPointMode(_ m: CurveMode) {
+        pointModeRequest = (serial: (pointModeRequest?.serial ?? 0) + 1, mode: m)
+    }
 
     func zoom(_ intent: ZoomIntent) {
         zoomRequest = ZoomRequest(serial: zoomRequest.serial + 1, intent: intent)

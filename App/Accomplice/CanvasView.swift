@@ -43,6 +43,8 @@ final class PageCanvas: NSView {
     var onResizeEnd: ((CGSize, CGPoint) -> Void)?
     var onDrawPath: ((VectorPath) -> Void)?
     var onEditPath: ((VectorPath, String, String) -> Void)?
+    /// Which point is under the cursor's attention, for the Point Type control.
+    var onPointSelected: ((Int?, CurveMode?) -> Void)?
 
     var tool: DocumentStore.Tool = .select {
         didSet {
@@ -74,7 +76,16 @@ final class PageCanvas: NSView {
     private var draggingPoint: Int?
     private var draggingHandle: (index: Int, out: Bool)?
     private var bendingSegment: Int?
-    private var lastTouchedPoint: Int?
+    /// A press on a segment, not yet decided. Moving turns it into a bend; releasing
+    /// without moving adds a point there.
+    private var pendingSegment: (index: Int, at: CGPoint, centred: Bool)?
+    private var lastTouchedPoint: Int? {
+        didSet {
+            guard lastTouchedPoint != oldValue else { return }
+            let mode = lastTouchedPoint.flatMap { editPath?.points[safe: $0]?.mode }
+            onPointSelected?(lastTouchedPoint, mode)
+        }
+    }
 
     private var pointRadius: CGFloat { 4 / max(0.01, currentScale) }
     private var grabRadius: CGFloat { 7 / max(0.01, currentScale) }
@@ -86,7 +97,7 @@ final class PageCanvas: NSView {
     private func rebuildEditPath() {
         editPath = nil; editLayerID = nil; editTransform = .identity
         // The bend tool is a point-editing tool: it implies the mode.
-        let target = tool == .bend ? selected.first : editingLayerID
+        let target = editingLayerID
         guard tool != .pen, let page, selected.count == 1, let id = target,
               selected.contains(id),
               let l = page.layer(id), case .path(let cg, _) = l.kind else { return }
@@ -620,6 +631,18 @@ final class PageCanvas: NSView {
             }
         }
 
+        // --- Drag a segment to bend it ---
+        //
+        // Was its own tool. It isn't one: it's a gesture on a path you're already
+        // editing, and making it a mode meant leaving the mode to do anything else.
+        // A press that turns into a drag bends; a press that doesn't adds a point,
+        // decided in mouseUp.
+        if editPath != nil, !isOnPointOrHandle(p),
+           let vp = editPath, let hit = vp.closestSegment(to: p, within: grabRadius * 2) {
+            pendingSegment = (hit.index, p, extend)
+            return
+        }
+
         // --- In point editing, a single click on the path adds a point ---
         //
         // One click, like Sketch. It's only unambiguous because this is a mode you
@@ -637,11 +660,7 @@ final class PageCanvas: NSView {
         }
 
         // --- Bend: grab the nearest segment of the edited path ---
-        if tool == .bend, let vp = editPath,
-           let hit = vp.closestSegment(to: p, within: grabRadius * 2) {
-            bendingSegment = hit.index
-            return
-        }
+
 
         // --- Point editing on the selected path ---
         if let vp = editPath {
@@ -744,6 +763,17 @@ final class PageCanvas: NSView {
         if spot != nil { NSCursor.crosshair.set() } else { NSCursor.arrow.set() }
     }
 
+    /// Applies a point-type change from the inspector.
+    func applyPointMode(_ m: CurveMode) {
+        guard let vp = editPath, let i = lastTouchedPoint, vp.points.indices.contains(i) else { return }
+        let prev = i > 0 ? vp.points[i - 1].point : (vp.closed ? vp.points.last?.point : nil)
+        let next = i < vp.points.count - 1 ? vp.points[i + 1].point : (vp.closed ? vp.points.first?.point : nil)
+        editPath?.points[i].convert(to: m, previous: prev, next: next)
+        commitEdit("Change Point Type")
+        onPointSelected?(i, m)
+        needsDisplay = true
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
         if editPath == nil { NSCursor.arrow.set() }
@@ -799,6 +829,15 @@ final class PageCanvas: NSView {
         if let h = draggingHandle {
             editPath?.points[h.index].setHandle(out: h.out, to: p); needsDisplay = true; return
         }
+        if let pending = pendingSegment {
+            // Far enough to mean it: start bending rather than adding.
+            if hypot(p.x - pending.at.x, p.y - pending.at.y) > grabRadius / 2 {
+                bendingSegment = pending.index
+                pendingSegment = nil
+            } else {
+                return
+            }
+        }
         if let seg = bendingSegment {
             editPath?.bend(segment: seg, to: p); needsDisplay = true; return
         }
@@ -834,6 +873,15 @@ final class PageCanvas: NSView {
         if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
         if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
         if bendingSegment != nil { bendingSegment = nil; commitEdit("Bend Curve"); return }
+        if let pending = pendingSegment {
+            // Pressed and released without moving: that's a click, so add a point.
+            pendingSegment = nil
+            if let vp = editPath, let hit = vp.closestSegment(to: pending.at, within: grabRadius * 2) {
+                insertTarget = (hit.index, pending.centred ? 0.5 : hit.t)
+                insertPointAtPreview()
+            }
+            return
+        }
         if activeHandle != nil {
             activeHandle = nil
             let s = resizeScale
@@ -945,6 +993,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     let images: [String: Data]
     @Binding var selection: Set<String>
     let zoom: ZoomRequest
+    let pointMode: (serial: Int, mode: CurveMode)?
     let revision: Int
     let tool: DocumentStore.Tool
     let pageToken: Int
@@ -977,6 +1026,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.revision = revision
         canvas.tool = tool
         wire(canvas)
+        if let req = pointMode, context.coordinator.lastPointModeSerial != req.serial {
+            context.coordinator.lastPointModeSerial = req.serial
+            canvas.applyPointMode(req.mode)
+        }
         if context.coordinator.lastZoomSerial != zoom.serial {
             context.coordinator.lastZoomSerial = zoom.serial
             apply(zoom.intent, scroll: scroll, canvas: canvas)
@@ -1030,6 +1083,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
         canvas.onDelete = { store.deleteSelection() }
         canvas.onZoom = { store.zoom($0) }
+        canvas.onPointSelected = { i, m in
+            store.editingPoint = i.flatMap { idx in m.map { DocumentStore.EditingPoint(index: idx, mode: $0) } }
+        }
         canvas.onResizeBegin = { store.beginResize() }
         canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
@@ -1042,10 +1098,18 @@ struct CanvasRepresentable: NSViewRepresentable {
         var canvas: PageCanvas?
         var lastPageToken: Int = -1
         var lastZoomSerial: Int = 0
+        var lastPointModeSerial: Int = 0
     }
 }
 
 
 extension CGRect {
     var centre: CGPoint { CGPoint(x: midX, y: midY) }
+}
+
+
+extension Array {
+    /// Index that returns nil rather than trapping — point indices outlive the paths
+    /// they came from when the selection changes mid-edit.
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

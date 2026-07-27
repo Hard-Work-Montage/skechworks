@@ -15,7 +15,7 @@ import Foundation
 // where fidelity bugs would hide. The interaction wins (bend, corner-first drawing,
 // smart handles) don't need the graph; only branching and auto-regions do.
 
-public enum CurveMode: Int, Sendable {
+public enum CurveMode: Int, Sendable, Hashable, CaseIterable {
     case straight = 1     // no handles
     case mirrored = 2     // handles equal and opposite
     case asymmetric = 3   // collinear, independent lengths
@@ -39,6 +39,44 @@ public struct VectorPoint: Sendable {
     }
 
     public var isCorner: Bool { !hasCurveFrom && !hasCurveTo }
+
+    /// Switches the point between Sketch's four kinds, reshaping the handles to suit.
+    ///
+    /// Going to straight drops the handles; coming back from it invents a pair along
+    /// the direction the path was already heading, so the curve eases rather than
+    /// snapping to something arbitrary.
+    public mutating func convert(to newMode: CurveMode, previous: CGPoint?, next: CGPoint?) {
+        switch newMode {
+        case .straight:
+            hasCurveFrom = false; hasCurveTo = false
+            curveFrom = point; curveTo = point
+
+        case .mirrored, .asymmetric, .disconnected:
+            if isCorner {
+                // No handles to work from: lay them along the chord through the point,
+                // a third of the way to each neighbour, which is the usual smooth default.
+                let before = previous ?? next ?? point
+                let after = next ?? previous ?? point
+                var dx = after.x - before.x, dy = after.y - before.y
+                let len = hypot(dx, dy)
+                if len < 0.0001 { dx = 1; dy = 0 }
+                else { dx /= len; dy /= len }
+                let outReach = hypot((next ?? point).x - point.x, (next ?? point).y - point.y) / 3
+                let inReach = hypot((previous ?? point).x - point.x, (previous ?? point).y - point.y) / 3
+                curveFrom = CGPoint(x: point.x + dx * outReach, y: point.y + dy * outReach)
+                curveTo = CGPoint(x: point.x - dx * inReach, y: point.y - dy * inReach)
+                hasCurveFrom = true; hasCurveTo = true
+            }
+            mode = newMode
+            if newMode != .disconnected {
+                // Re-run the constraint so the handles actually satisfy the new mode
+                // rather than only doing so from the next drag onwards.
+                setHandle(out: true, to: curveFrom)
+            }
+            return
+        }
+        mode = newMode
+    }
 
     /// Moves the anchor, taking its handles along.
     public mutating func move(to p: CGPoint) {

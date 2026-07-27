@@ -1183,3 +1183,62 @@ private func maxDeviation(_ path: VectorPath, from reference: VectorPath) -> CGF
     #expect(page.layers[0].pointCount ?? 0 < 30)               // the traced one shrank
     #expect(page.layers[1].pointCount == cleanBefore)          // the clean one untouched
 }
+
+// MARK: - Point type
+
+@Test func convertingToStraightDropsTheHandles() {
+    var vp = curvedTestPath()
+    vp.points[0].convert(to: .straight, previous: nil, next: vp.points[1].point)
+    #expect(vp.points[0].isCorner)
+    #expect(vp.points[0].mode == .straight)
+}
+
+@Test func convertingACornerToSmoothInventsHandlesAlongThePath() {
+    // A corner between two straight runs.
+    var vp = VectorPath(cgPath: {
+        let cg = CGMutablePath()
+        cg.move(to: CGPoint(x: 0, y: 0))
+        cg.addLine(to: CGPoint(x: 100, y: 0))
+        cg.addLine(to: CGPoint(x: 100, y: 100))
+        return cg
+    }())
+    #expect(vp.points[1].isCorner)
+    vp.points[1].convert(to: .mirrored, previous: vp.points[0].point, next: vp.points[2].point)
+
+    #expect(!vp.points[1].isCorner)
+    #expect(vp.points[1].mode == .mirrored)
+    // Mirrored means the handles are equal and opposite about the anchor.
+    let p = vp.points[1]
+    let out = CGPoint(x: p.curveFrom.x - p.point.x, y: p.curveFrom.y - p.point.y)
+    let into = CGPoint(x: p.curveTo.x - p.point.x, y: p.curveTo.y - p.point.y)
+    #expect(abs(out.x + into.x) < 0.01)
+    #expect(abs(out.y + into.y) < 0.01)
+}
+
+@Test func mirroredHandlesStayOppositeWhenOneIsDragged() {
+    var vp = curvedTestPath()
+    vp.points[0].mode = .mirrored
+    vp.points[0].setHandle(out: true, to: CGPoint(x: 40, y: 40))
+    let p = vp.points[0]
+    let out = CGPoint(x: p.curveFrom.x - p.point.x, y: p.curveFrom.y - p.point.y)
+    let into = CGPoint(x: p.curveTo.x - p.point.x, y: p.curveTo.y - p.point.y)
+    #expect(abs(out.x + into.x) < 0.01)
+    #expect(abs(out.y + into.y) < 0.01)
+    #expect(abs(hypot(out.x, out.y) - hypot(into.x, into.y)) < 0.01)
+}
+
+@Test func asymmetricKeepsHandlesInLineButDifferentLengths() {
+    var vp = curvedTestPath()
+    var p = vp.points[0]
+    p.mode = .asymmetric
+    p.curveTo = CGPoint(x: p.point.x - 10, y: p.point.y)
+    p.hasCurveTo = true
+    p.setHandle(out: true, to: CGPoint(x: p.point.x + 90, y: p.point.y + 90))
+    let out = CGPoint(x: p.curveFrom.x - p.point.x, y: p.curveFrom.y - p.point.y)
+    let into = CGPoint(x: p.curveTo.x - p.point.x, y: p.curveTo.y - p.point.y)
+    // Collinear and opposite...
+    let cross = out.x * into.y - out.y * into.x
+    #expect(abs(cross) < 0.01)
+    // ...but the incoming handle kept its own length.
+    #expect(abs(hypot(into.x, into.y) - 10) < 0.01)
+}

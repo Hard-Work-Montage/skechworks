@@ -85,15 +85,19 @@ struct ContentView: View {
                 .help("Insert artboard, shape, vector, text or image")
                 .disabled(store.source == nil)
             }
+            // No tool picker. Insert ▸ Vector (P) starts drawing and Escape stops,
+            // so a persistent three-way switch was one redundant control and one that
+            // stood in for a point property.
             ToolbarItem {
-                Picker("Tool", selection: $store.tool) {
-                    ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
-                        Label(t.title, systemImage: t.symbol).tag(t)
+                if store.tool == .pen {
+                    HStack(spacing: 6) {
+                        Image(systemName: "pencil.tip").foregroundStyle(.tint)
+                        Text("Vector — Return to finish, Esc to cancel")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(.tint.opacity(0.12), in: Capsule())
                 }
-                .pickerStyle(.segmented)
-                .labelStyle(.iconOnly)
-                .help("Select (V) · Pen (P) · Bend (B)")
             }
             ToolbarItem {
                 Button { store.zoom(.fit) } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
@@ -299,6 +303,7 @@ struct ContentView: View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
                                 selection: $store.selection, zoom: store.zoomRequest,
+                                pointMode: store.pointModeRequest,
                                 revision: store.revision, tool: store.tool,
                                 pageToken: store.pageToken)
             if store.isLoading || store.isPageLoading {

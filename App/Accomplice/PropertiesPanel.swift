@@ -22,6 +22,7 @@ struct PropertiesPanel: View {
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
                         if !layer.style.shadows.isEmpty { Divider(); shadows(layer) }
                         if case .text(let t) = layer.kind { Divider(); text(t, layer) }
+                        if let pt = store.editingPoint { Divider(); pointType(pt) }
                         if case .shapeGroup(let kids, let rule) = layer.kind {
                             Divider(); combined(kids.count, rule, layer)
                         }
@@ -264,6 +265,30 @@ struct PropertiesPanel: View {
                     .toggleStyle(.switch).controlSize(.mini)
                     .font(.callout)
             }
+        }
+    }
+
+    /// Sketch's four point types, where they belong: on the point, not in the toolbar.
+    private func pointType(_ pt: DocumentStore.EditingPoint) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionTitle("Point Type")
+            Picker("", selection: Binding(
+                get: { pt.mode },
+                set: { m in if m != pt.mode { store.setPointMode(m) } }
+            )) {
+                Image(systemName: "arrowtriangle.up").tag(CurveMode.straight)
+                    .help("Straight — no handles")
+                Image(systemName: "circle.and.line.horizontal").tag(CurveMode.mirrored)
+                    .help("Mirrored — handles equal and opposite")
+                Image(systemName: "line.diagonal").tag(CurveMode.asymmetric)
+                    .help("Asymmetric — in line, independent lengths")
+                Image(systemName: "scribble").tag(CurveMode.disconnected)
+                    .help("Disconnected — handles fully independent")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(["", "Straight", "Mirrored", "Asymmetric", "Disconnected"][pt.mode.rawValue])
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
