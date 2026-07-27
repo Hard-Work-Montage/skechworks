@@ -634,6 +634,22 @@ final class DocumentStore: ObservableObject {
         if let made { selection = [made] }
     }
 
+    /// Refits the selected paths with fewer points. Reports what it saved, because
+    /// "Simplify" that silently did nothing is indistinguishable from one that ruined
+    /// the shape until you look closely.
+    @discardableResult
+    func simplifySelection(detail: Double) -> String {
+        guard !selection.isEmpty else { return "Nothing selected." }
+        var report = ""
+        let ids = selection
+        mutatePage("Simplify") { page in
+            // An empty query inherits the selection, which is what the menu wants.
+            report = page.run([.simplify(LayerQuery(), tolerance: nil, detail: detail)],
+                              selection: ids).report
+        }
+        return report
+    }
+
     func insertArtboard()  { insert("artboard", "Insert Artboard") }
     func insertRectangle() { insert("rect", "Insert Rectangle") }
     func insertOval()      { insert("ellipse", "Insert Oval") }

@@ -1023,3 +1023,163 @@ private func curvedTestPath() -> VectorPath {
     vp.insertPoint(onSegment: 0, at: 0.5)
     #expect(vp.points[1].point == CGPoint(x: 60, y: 120))
 }
+
+// MARK: - Simplify
+
+/// A circle drawn with far more points than it needs, as traced artwork arrives.
+private func overSampledCircle(points n: Int, radius r: CGFloat) -> VectorPath {
+    let cg = CGMutablePath()
+    for i in 0..<n {
+        let a = CGFloat(i) / CGFloat(n) * 2 * .pi
+        let p = CGPoint(x: 200 + r * cos(a), y: 200 + r * sin(a))
+        i == 0 ? cg.move(to: p) : cg.addLine(to: p)
+    }
+    cg.closeSubpath()
+    return VectorPath(cgPath: cg)
+}
+
+/// Worst distance from `path` to the nearest point of `reference`.
+private func maxDeviation(_ path: VectorPath, from reference: VectorPath) -> CGFloat {
+    var ref: [CGPoint] = []
+    for i in 0..<reference.segmentCount {
+        guard let (a, b) = reference.segment(i) else { continue }
+        for s in 0..<24 { ref.append(VectorPath.evaluate(a, b, CGFloat(s) / 24)) }
+    }
+    var worst: CGFloat = 0
+    for i in 0..<path.segmentCount {
+        guard let (a, b) = path.segment(i) else { continue }
+        for s in 0...24 {
+            let q = VectorPath.evaluate(a, b, CGFloat(s) / 24)
+            let nearest = ref.map { hypot($0.x - q.x, $0.y - q.y) }.min() ?? 0
+            worst = max(worst, nearest)
+        }
+    }
+    return worst
+}
+
+@Test func simplifyDropsPointsAndStaysWithinTolerance() {
+    let original = overSampledCircle(points: 120, radius: 150)
+    var vp = original
+    vp.simplify(tolerance: 1)
+
+    #expect(vp.points.count < 20)                 // 120 points is ~15x what a circle needs
+    #expect(vp.points.count >= 4)
+    #expect(maxDeviation(vp, from: original) <= 1.5)
+}
+
+@Test func aTighterToleranceKeepsMorePoints() {
+    let original = overSampledCircle(points: 200, radius: 300)
+    var loose = original, tight = original
+    loose.simplify(tolerance: 8)
+    tight.simplify(tolerance: 0.25)
+    #expect(tight.points.count > loose.points.count)
+    #expect(maxDeviation(tight, from: original) < maxDeviation(loose, from: original))
+}
+
+@Test func simplifyKeepsCorners() {
+    // A square traced with many points down each side. Rounding the corners off is
+    // not a simpler square, it's a different shape.
+    let cg = CGMutablePath()
+    let corners = [CGPoint(x: 0, y: 0), CGPoint(x: 300, y: 0),
+                   CGPoint(x: 300, y: 300), CGPoint(x: 0, y: 300)]
+    cg.move(to: corners[0])
+    for i in 0..<4 {
+        let a = corners[i], b = corners[(i + 1) % 4]
+        for s in 1...20 {
+            let t = CGFloat(s) / 20
+            cg.addLine(to: CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+        }
+    }
+    cg.closeSubpath()
+    var vp = VectorPath(cgPath: cg)
+    let before = vp.points.count
+    vp.simplify(tolerance: 1)
+
+    #expect(vp.points.count < before / 4)
+    // Every original corner still has a point sitting on it.
+    for c in corners {
+        let hit = vp.points.contains { hypot($0.point.x - c.x, $0.point.y - c.y) < 2 }
+        #expect(hit, "corner \(c) was rounded off")
+    }
+}
+
+@Test func simplifyLeavesAnAlreadyMinimalPathAlone() {
+    // Four points for a circle is already optimal; it must not grow or drift.
+    let cg = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 200), transform: nil)
+    let original = VectorPath(cgPath: cg)
+    var vp = original
+    vp.simplify(tolerance: 1)
+    #expect(vp.points.count <= original.points.count)
+    #expect(maxDeviation(vp, from: original) <= 1.5)
+}
+
+@Test func simplifyCommandReportsRealNumbers() {
+    var page = Page(name: "p")
+    var l = Layer(kind: .path(overSampledCircle(points: 120, radius: 150).cgPath(), closed: true))
+    l.name = "traced"
+    l.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    page.layers = [l]
+
+    let run = page.run(DocumentCommand.decodeList(Data(#"[{"op":"simplify","name":"traced","tolerance":1}]"#.utf8)))
+    // The report has to carry counts. "Simplify: 1 layer" would let a model claim a
+    // saving it never made.
+    #expect(run.report.contains("120 points"))
+    #expect(run.report.contains("fewer"))
+    #expect(page.layers[0].pointCount ?? 0 < 20)
+}
+
+@Test func detailScalesWithTheLayerSoOneNumberSuitsAnyShape() {
+    func pointsAfter(detail: Double, radius: CGFloat, size: CGFloat) -> Int {
+        var page = Page(name: "p")
+        var l = Layer(kind: .path(overSampledCircle(points: 200, radius: radius).cgPath(), closed: true))
+        l.name = "t"
+        l.frame = CGRect(x: 0, y: 0, width: size, height: size)
+        page.layers = [l]
+        _ = page.run([.simplify(LayerQuery(), tolerance: nil, detail: detail)])
+        return page.layers[0].pointCount ?? 0
+    }
+    // Same detail on a small icon and a big coin should give a similar result.
+    let small = pointsAfter(detail: 0.5, radius: 20, size: 40)
+    let large = pointsAfter(detail: 0.5, radius: 1000, size: 2000)
+    #expect(abs(small - large) <= 4)
+
+    // And higher detail must keep more.
+    #expect(pointsAfter(detail: 0.95, radius: 300, size: 600)
+            >= pointsAfter(detail: 0.3, radius: 300, size: 600))
+}
+
+@Test func describeShowsPointCountsSoTheModelCanTargetTheHeavyLayers() {
+    var page = Page(name: "p")
+    var heavy = Layer(kind: .path(overSampledCircle(points: 120, radius: 150).cgPath(), closed: true))
+    heavy.name = "traced"
+    heavy.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    var light = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    light.name = "box"
+    light.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    page.layers = [heavy, light]
+
+    let described = page.describe()
+    #expect(described.contains("120 points"))
+    // A four-point rectangle isn't worth the noise.
+    #expect(!described.contains("4 points"))
+}
+
+@Test func layersCanBeSelectedByPointCount() {
+    var page = Page(name: "p")
+    var heavy = Layer(kind: .path(overSampledCircle(points: 120, radius: 150).cgPath(), closed: true))
+    heavy.name = "traced"
+    heavy.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    var light = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 50, height: 50), transform: nil), closed: true))
+    light.name = "clean"
+    light.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+    page.layers = [heavy, light]
+    let cleanBefore = light.pointCount
+
+    // What the model is shown ("120 points") has to be something it can act on.
+    let run = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"simplify","type":"path","minPoints":80,"detail":0.5}]
+    """.utf8)))
+    #expect(run.report.contains("1 layer"))
+    #expect(page.layers[0].pointCount ?? 0 < 30)               // the traced one shrank
+    #expect(page.layers[1].pointCount == cleanBefore)          // the clean one untouched
+}

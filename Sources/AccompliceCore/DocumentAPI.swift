@@ -28,6 +28,10 @@ public struct LayerQuery: Codable, Sendable {
     public var text: String?
     public var visible: Bool?
     /// Layers whose name matches nothing else — useful for cleanup.
+    /// Anchor count, so a model can act on what describe() shows it. Without this it
+    /// can see which layers are over-detailed and has no way to say so.
+    public var minPoints: Int?
+    public var maxPoints: Int?
     public var minWidth: Double?
     public var maxWidth: Double?
     /// Restrict to the current selection.
@@ -43,6 +47,7 @@ public struct LayerQuery: Codable, Sendable {
     public var isEmpty: Bool {
         name == nil && type == nil && fill == nil && stroke == nil && text == nil
             && visible == nil && minWidth == nil && maxWidth == nil && selectedOnly == nil
+            && minPoints == nil && maxPoints == nil
     }
 }
 
@@ -77,6 +82,8 @@ extension Layer {
             guard let content = apiText, content.localizedCaseInsensitiveContains(t) else { return false }
         }
         if let v = q.visible, isVisible != v { return false }
+        if let n = q.minPoints, (pointCount ?? 0) < n { return false }
+        if let n = q.maxPoints, (pointCount ?? 0) > n { return false }
         if let w = q.minWidth, Double(frame.width) < w { return false }
         if let w = q.maxWidth, Double(frame.width) > w { return false }
         return true
@@ -121,6 +128,8 @@ extension Page {
                 if let b = l.style.borders.first { bits.append("stroke \(b.color.hex) \(Int(b.thickness))pt") }
                 if !l.isVisible { bits.append("hidden") }
                 if let t = l.apiText { bits.append("text: \(t.replacingOccurrences(of: "\n", with: " ").prefix(40))") }
+                // Only worth mentioning when it's enough to matter.
+                if let n = l.pointCount, n >= 24 { bits.append("\(n) points") }
                 lines.append(bits.joined(separator: " · "))
                 switch l.kind {
                 case .group(let k), .shapeGroup(let k, _): walk(k, depth + 1)
@@ -158,6 +167,8 @@ public enum DocumentCommand: Sendable {
     /// Create a layer. Takes no selector — there's nothing to select yet.
     case add(AddSpec)
     case duplicate(LayerQuery, dx: Double, dy: Double, times: Int)
+    /// Refit paths with fewer points. Tolerance is in page units.
+    case simplify(LayerQuery, tolerance: Double?, detail: Double?)
 
     public var query: LayerQuery {
         switch self {
@@ -168,6 +179,7 @@ public enum DocumentCommand: Sendable {
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
         case .curve(let q, _, _, _): return q
         case .duplicate(let q, _, _, _): return q
+        case .simplify(let q, _, _): return q
         case .add: return LayerQuery()
         }
     }
@@ -186,6 +198,7 @@ public enum DocumentCommand: Sendable {
         case .resize: return "Resize"
         case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
         case .add(let spec): return "Add \(spec.kind.capitalized)"
+        case .simplify: return "Simplify"
         case .duplicate(_, _, _, let n): return n > 1 ? "Duplicate ×\(n)" : "Duplicate"
         case .align(_, let e): return "Align \(e)"
         case .distribute(_, let a): return "Distribute \(a)"
@@ -270,6 +283,9 @@ extension DocumentCommand {
             spec.width = n("width", "w"); spec.height = n("height", "h")
             spec.fill = s("fill", "color", "colour", "background")
             return .add(spec)
+        case "simplify", "reducepoints", "smooth":
+            return .simplify(q, tolerance: n("tolerance", "value", "epsilon"),
+                             detail: n("detail", "amount", "strength", "aggressiveness"))
         case "duplicate", "copy", "clone":
             return .duplicate(q, dx: n("dx", "offsetX") ?? 20, dy: n("dy", "offsetY") ?? 20,
                               times: Int(n("times", "count", "copies") ?? 1))
@@ -326,6 +342,8 @@ extension DocumentCommand {
         q.stroke = src["stroke"] as? String
         q.text = src["text"] as? String
         q.visible = src["visible"] as? Bool
+        q.minPoints = (src["minPoints"] as? Int) ?? (src["minPoints"] as? Double).map(Int.init)
+        q.maxPoints = (src["maxPoints"] as? Int) ?? (src["maxPoints"] as? Double).map(Int.init)
         q.minWidth = src["minWidth"] as? Double
         q.maxWidth = src["maxWidth"] as? Double
         q.selectedOnly = src["selectedOnly"] as? Bool
@@ -353,6 +371,9 @@ extension DocumentCommand {
           text         substring of a text layer's content
           visible      true | false
           minWidth     number      maxWidth  number
+          minPoints    number — anchor count, matching the "N points" shown above.
+                       This is how you target over-detailed paths.
+          maxPoints    number
           selectedOnly true — restrict to what the user has selected
           limit        number — cap how many layers are affected
 
@@ -378,6 +399,16 @@ extension DocumentCommand {
                        sensible defaults are used. This is how you CREATE layers;
                        every other operation only changes ones that already exist.
           duplicate    dx, dy, times
+          simplify     tolerance (page units — how far the path may move) or
+                       detail (0-1, where 1 keeps almost everything and 0.2 is
+                       aggressive). Refits paths with fewer points. Layers report
+                       their point count above, so target the heavy ones with
+                       minPoints; a shape that is genuinely intricate is not the same
+                       as one that was traced badly.
+
+        Example — "clean up the traced shapes":
+        {"say":"Simplified the paths carrying far more points than they need.",
+         "commands":[{"op":"simplify","type":"path","minPoints":80,"detail":0.5}]}
           curve        radius, angle (degrees clockwise from 12 o'clock), flipped
                        Inside an artboard the ring is centred on the artboard, so
                        don't try to position the text first — set angle 180 for the

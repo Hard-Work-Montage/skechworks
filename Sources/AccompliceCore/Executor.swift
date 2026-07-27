@@ -64,7 +64,10 @@ extension Page {
                 pendingSelection = Set(ids)
                 scope = Set(ids)
             } else {
-                Page.perform(c, ids: ids, to: &self)
+                let detail = Page.perform(c, ids: ids, to: &self)
+                let count = "\(ids.count) layer\(ids.count == 1 ? "" : "s")"
+                report.append("\(c.summary): \(detail ?? count)")
+                continue
             }
             report.append("\(c.summary): \(ids.count) layer\(ids.count == 1 ? "" : "s")")
         }
@@ -74,7 +77,9 @@ extension Page {
 
     /// Split out from `run` purely so the type checker can cope — a switch this wide
     /// with closures inline defeats it.
-    private static func perform(_ c: DocumentCommand, ids: [String], to p: inout Page) {
+    /// Returns a line describing what it did, when a count alone would hide the point.
+    @discardableResult
+    private static func perform(_ c: DocumentCommand, ids: [String], to p: inout Page) -> String? {
         let set = Set(ids)
         switch c {
         case .select:
@@ -84,13 +89,13 @@ extension Page {
             for id in ids { p.removeLayer(id) }
 
         case .setFill(_, let hex):
-            guard let col = SVGReader.color(hex, alpha: 1) else { return }
+            guard let col = SVGReader.color(hex, alpha: 1) else { return nil }
             for id in ids {
                 p.updateLayer(id) { $0.style.fills = [Fill(paint: .color(col))] }
             }
 
         case .setStroke(_, let hex, let width):
-            guard let col = SVGReader.color(hex, alpha: 1) else { return }
+            guard let col = SVGReader.color(hex, alpha: 1) else { return nil }
             for id in ids {
                 p.updateLayer(id) { l in
                     var b = l.style.borders.first ?? Border()
@@ -161,6 +166,32 @@ extension Page {
         case .add:
             break   // handled before selector resolution
 
+        case .simplify(_, let tolerance, let detail):
+            var before = 0, after = 0, touched = 0
+            for id in ids {
+                guard let l = p.layer(id), case .path(let cg, let closed) = l.kind else { continue }
+                // Detail is relative to the layer's own size, so one number works on a
+                // 40pt icon and a 2000pt coin. Tolerance wins when both are given.
+                let diagonal = hypot(l.frame.width, l.frame.height)
+                let eps: CGFloat
+                if let tolerance { eps = CGFloat(tolerance) }
+                else if let detail { eps = max(0.01, diagonal * 0.02 * CGFloat(1 - min(1, max(0, detail)))) }
+                else { eps = max(0.01, diagonal * 0.004) }
+
+                var vp = VectorPath(cgPath: cg)
+                let was = vp.points.count
+                vp.simplify(tolerance: eps)
+                guard vp.points.count < was else { continue }
+                before += was
+                after += vp.points.count
+                touched += 1
+                p.updateLayer(id) { $0.kind = .path(vp.cgPath(), closed: closed) }
+            }
+            guard touched > 0 else { return "nothing to remove" }
+            let saved = before - after
+            return "\(before) points → \(after) across \(touched) layer\(touched == 1 ? "" : "s") "
+                 + "(\(saved * 100 / max(1, before))% fewer)"
+
         case .duplicate(_, let dx, let dy, let times):
             for id in ids {
                 guard let original = p.layer(id) else { continue }
@@ -206,6 +237,7 @@ extension Page {
                 }
             }
         }
+        return nil
     }
 }
 

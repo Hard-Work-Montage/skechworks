@@ -177,6 +177,20 @@ public struct Layer: @unchecked Sendable {
 
     public var bounds: CGRect { frame }
 
+    /// Anchor count for a path layer. What a model needs to tell an over-detailed
+    /// trace from a shape that's meant to be intricate.
+    public var pointCount: Int? {
+        guard case .path(let cg, _) = kind else { return nil }
+        var n = 0
+        cg.applyWithBlock { element in
+            switch element.pointee.type {
+            case .moveToPoint, .addLineToPoint, .addQuadCurveToPoint, .addCurveToPoint: n += 1
+            default: break
+            }
+        }
+        return n
+    }
+
     /// Grows a curved text layer's frame to hold the whole ring.
     ///
     /// The arc is centred on the frame's centre, so a 400x70 text box can't contain a
