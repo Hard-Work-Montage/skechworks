@@ -27,11 +27,49 @@ final class MCPServer {
 
     private init() {}
 
+    var endpoint: String { "http://127.0.0.1:\(port)" }
+
+    /// Registers this server with Claude Code, so connecting is a button rather than
+    /// a command to copy.
+    @discardableResult
+    func connectClaudeCode() -> String {
+        let candidates = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+                          NSHomeDirectory() + "/.local/bin/claude", "/usr/bin/claude"]
+        guard let claude = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return "Couldn't find the `claude` CLI. Copy the command instead."
+        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: claude)
+        task.arguments = ["mcp", "add", "--transport", "http", "--scope", "user",
+                          "accomplice", endpoint]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = pipe
+        do {
+            try task.run()
+            task.waitUntilExit()
+            let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return task.terminationStatus == 0
+                ? "Connected. Claude Code can now edit the open document."
+                : (out.isEmpty ? "claude exited \(task.terminationStatus)" : out)
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     /// The document commands act on: whichever window is frontmost.
     private var store: DocumentStore? { AppDelegate.shared?.active }
 
-    func start(port: UInt16 = MCPServer.defaultPort) {
+    /// Starts on the first free port from the default upwards.
+    ///
+    /// A fixed port is fine until you have two copies running, or something else has
+    /// taken it — at which point the server silently isn't there. Walking a small
+    /// range and reporting where it landed is the difference between "it works" and
+    /// "it works on this machine today".
+    func start(port requested: UInt16 = MCPServer.defaultPort, attempt: Int = 0) {
         stop()
+        let port = requested + UInt16(attempt)
         self.port = port
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
             lastError = "bad port"
@@ -52,7 +90,13 @@ final class MCPServer {
                         self?.lastError = nil
                     case .failed(let e), .waiting(let e):
                         self?.running = false
-                        self?.lastError = e.localizedDescription
+                        // Port taken: try the next one, a few times, then give up
+                        // with something readable.
+                        if attempt < 8 {
+                            self?.start(port: requested, attempt: attempt + 1)
+                        } else {
+                            self?.lastError = e.localizedDescription
+                        }
                     case .cancelled:
                         self?.running = false
                     default:

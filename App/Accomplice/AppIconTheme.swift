@@ -128,8 +128,10 @@ struct MCPSettings: View {
     @AppStorage("mcp.enabled") private var enabled = true
     @State private var running = MCPServer.shared.running
 
+    @State private var result: String?
+
     private var command: String {
-        "claude mcp add --transport http accomplice http://127.0.0.1:\(MCPServer.defaultPort)"
+        "claude mcp add --transport http --scope user accomplice \(MCPServer.shared.endpoint)"
     }
 
     var body: some View {
@@ -141,7 +143,7 @@ struct MCPSettings: View {
                 }
             LabeledContent("Status") {
                 VStack(alignment: .leading, spacing: 2) {
-                    Label(running ? "Listening on 127.0.0.1:\(MCPServer.defaultPort)" : "Off",
+                    Label(running ? "Listening on \(MCPServer.shared.endpoint)" : "Off",
                           systemImage: running ? "circle.fill" : "circle")
                         .font(.caption)
                         .foregroundStyle(running ? .green : .secondary)
@@ -151,13 +153,22 @@ struct MCPSettings: View {
                 }
             }
             Section("Connect Claude Code") {
-                Text(command)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                Button("Copy") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(command, forType: .string)
+                HStack {
+                    Button("Connect") { result = MCPServer.shared.connectClaudeCode() }
+                        .disabled(!running)
+                    Button("Copy command") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                        result = "Copied."
+                    }
                 }
+                if let result {
+                    Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                Text(command)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
             }
             Text("""
                 Loopback only — nothing off this machine can reach it. Agents act on the \
