@@ -46,6 +46,25 @@ public struct Page: @unchecked Sendable {
 
     public func layer(_ id: String) -> Layer? { Page.find(id, in: layers) }
 
+    /// Ancestor ids from outermost inwards, excluding the layer itself. The layer list
+    /// uses this to reveal a nested layer picked on the canvas.
+    public func ancestors(of id: String) -> [String] {
+        var trail: [String] = []
+        func walk(_ ls: [Layer], _ acc: [String]) -> Bool {
+            for l in ls {
+                if l.id == id { trail = acc; return true }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _):
+                    if walk(k, acc + [l.id]) { return true }
+                default: continue
+                }
+            }
+            return false
+        }
+        _ = walk(layers, [])
+        return trail
+    }
+
     private static func update(_ layers: inout [Layer], _ id: String,
                                _ body: (inout Layer) -> Void) -> Bool {
         for i in layers.indices {

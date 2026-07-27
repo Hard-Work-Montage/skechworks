@@ -263,3 +263,18 @@ import Testing
     d.setHandle(out: true, to: CGPoint(x: 150, y: 100))
     #expect(d.curveTo == CGPoint(x: 90, y: 90))   // independent, untouched
 }
+
+@Test func ancestorsLeadFromTheOutsideIn() {
+    // Drives "select on canvas, reveal in the layer list" — the trail has to be
+    // outermost-first so each group can be opened on the way down.
+    var leaf = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 5, height: 5), transform: nil), closed: true))
+    leaf.id = "leaf"
+    var inner = Layer(kind: .shapeGroup([leaf], .nonZero)); inner.id = "inner"
+    var outer = Layer(kind: .group([inner])); outer.id = "outer"
+    var page = Page(name: "P")
+    page.layers = [outer]
+
+    #expect(page.ancestors(of: "leaf") == ["outer", "inner"])
+    #expect(page.ancestors(of: "outer") == [])
+    #expect(page.ancestors(of: "missing") == [])
+}

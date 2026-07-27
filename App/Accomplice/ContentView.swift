@@ -9,6 +9,37 @@ struct ContentView: View {
     @EnvironmentObject var store: DocumentStore
     @State private var zoomToken = 0
 
+    /// Which groups are open in the layer list.
+    ///
+    /// SwiftUI's `List(children:)` owns its own disclosure state and won't let us open
+    /// a group programmatically — so the tree is flattened by hand. That's what makes
+    /// "select a shape on the canvas and its layer is revealed and highlighted"
+    /// possible, which is the entire point.
+    @State private var expanded: Set<String> = []
+
+    private struct LayerRow: Identifiable {
+        let node: LayerNode
+        let depth: Int
+        var id: String { node.id }
+    }
+
+    private func rows(_ nodes: [LayerNode], depth: Int = 0) -> [LayerRow] {
+        var out: [LayerRow] = []
+        for n in nodes {
+            out.append(LayerRow(node: n, depth: depth))
+            if let kids = n.children, expanded.contains(n.id) {
+                out.append(contentsOf: rows(kids, depth: depth + 1))
+            }
+        }
+        return out
+    }
+
+    /// Opens every ancestor of the selection so the row actually exists to scroll to.
+    private func reveal(_ ids: Set<String>) {
+        guard let page = store.page else { return }
+        for id in ids { expanded.formUnion(page.ancestors(of: id)) }
+    }
+
     var body: some View {
         NavigationSplitView {
             leftRail
@@ -120,21 +151,51 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             railHeader("Layers", count: store.page?.layers.count)
             if let page = store.page {
-                List(page.layers.map(LayerNode.init), children: \.children,
-                     selection: $store.selection) { node in
-                    HStack(spacing: 6) {
-                        Image(systemName: node.systemImage)
-                            .foregroundStyle(.secondary).frame(width: 14)
-                        Text(node.name).lineLimit(1)
-                            .foregroundStyle(node.isVisible ? .primary : .tertiary)
+                ScrollViewReader { proxy in
+                    List(rows(page.layers.map(LayerNode.init)), selection: $store.selection) { row in
+                        layerRow(row)
+                            .tag(row.node.id)
+                            .id(row.node.id)
                     }
-                    .tag(node.id)
+                    .listStyle(.sidebar)
+                    .onChange(of: store.selection) { _, new in
+                        guard let first = new.first else { return }
+                        reveal(new)
+                        // After the rows rebuild, bring it into view.
+                        DispatchQueue.main.async {
+                            withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(first, anchor: .center) }
+                        }
+                    }
                 }
-                .listStyle(.sidebar)
             } else {
                 Color.clear
             }
         }
+    }
+
+    private func layerRow(_ row: LayerRow) -> some View {
+        HStack(spacing: 5) {
+            if row.node.children != nil {
+                Button {
+                    if expanded.contains(row.node.id) { expanded.remove(row.node.id) }
+                    else { expanded.insert(row.node.id) }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .rotationEffect(.degrees(expanded.contains(row.node.id) ? 90 : 0))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 10)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Color.clear.frame(width: 10)
+            }
+            Image(systemName: row.node.systemImage)
+                .foregroundStyle(.secondary).frame(width: 14)
+            Text(row.node.name).lineLimit(1)
+                .foregroundStyle(row.node.isVisible ? .primary : .tertiary)
+        }
+        .padding(.leading, CGFloat(row.depth) * 12)
     }
 
     private func railHeader(_ title: String, count: Int?) -> some View {
