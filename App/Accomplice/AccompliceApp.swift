@@ -64,6 +64,38 @@ struct AccompliceApp: App {
                 Button("Select All") { AppDelegate.shared?.active?.selectAll() }
                     .keyboardShortcut("a", modifiers: .command)
             }
+            CommandMenu("Arrange") {
+                Button("Bring Forward") { AppDelegate.shared?.active?.bringForward() }
+                    .keyboardShortcut("]", modifiers: .command)
+                Button("Bring to Front") { AppDelegate.shared?.active?.bringToFront() }
+                    .keyboardShortcut("]", modifiers: [.command, .option])
+                Button("Send Backward") { AppDelegate.shared?.active?.sendBackward() }
+                    .keyboardShortcut("[", modifiers: .command)
+                Button("Send to Back") { AppDelegate.shared?.active?.sendToBack() }
+                    .keyboardShortcut("[", modifiers: [.command, .option])
+                Divider()
+                Menu("Align") {
+                    Button("Left") { AppDelegate.shared?.active?.align(.left, "Left") }
+                    Button("Horizontal Centres") { AppDelegate.shared?.active?.align(.horizontalCentre, "Centre") }
+                    Button("Right") { AppDelegate.shared?.active?.align(.right, "Right") }
+                    Divider()
+                    Button("Top") { AppDelegate.shared?.active?.align(.top, "Top") }
+                    Button("Vertical Middles") { AppDelegate.shared?.active?.align(.verticalMiddle, "Middle") }
+                    Button("Bottom") { AppDelegate.shared?.active?.align(.bottom, "Bottom") }
+                }
+                Menu("Distribute") {
+                    Button("Horizontally") { AppDelegate.shared?.active?.distribute(.horizontal, "Horizontally") }
+                    Button("Vertically") { AppDelegate.shared?.active?.distribute(.vertical, "Vertically") }
+                }
+                Divider()
+                Button("Group") { AppDelegate.shared?.active?.groupSelection() }
+                    .keyboardShortcut("g", modifiers: .command)
+                Button("Ungroup") { AppDelegate.shared?.active?.ungroupSelection() }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                Divider()
+                Button("Hide/Show Layer") { AppDelegate.shared?.active?.toggleLockOrHide(hide: true) }
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
+            }
             CommandMenu("Tools") {
                 ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
                     Button(t.title) { AppDelegate.shared?.active?.tool = t }

@@ -385,6 +385,88 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Arrange
+
+    /// Structural edits (reordering, grouping) change the shape of the tree rather
+    /// than one layer's properties, so undo snapshots the whole page. A layer-by-layer
+    /// diff can't express "this moved out of that group".
+    func mutatePage(_ actionName: String, _ body: (inout Page) -> Void) {
+        guard let src = source, var p = page else { return }
+        let before = p.layers
+        body(&p)
+        guard !layersEqual(before, p.layers) else { return }
+        apply(p, at: pageIndex, src: src)
+        revision += 1
+        isDirty = true
+        registerPageUndo(before, pageIndex: pageIndex, actionName: actionName)
+        refreshUndoState()
+    }
+
+    private func registerPageUndo(_ layers: [Layer], pageIndex idx: Int, actionName: String) {
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                guard let src = store.source, var p = src.page(at: idx) else { return }
+                let redo = p.layers
+                p.layers = layers
+                if store.pageIndex != idx { store.pageIndex = idx }
+                store.apply(p, at: idx, src: src)
+                store.revision += 1
+                store.isDirty = true
+                store.registerPageUndo(redo, pageIndex: idx, actionName: actionName)
+                store.refreshUndoState()
+            }
+        }
+        undoManager.setActionName(actionName)
+    }
+
+    /// Cheap structural comparison, so a no-op arrange doesn't push an undo step.
+    private func layersEqual(_ a: [Layer], _ b: [Layer]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (x, y) in zip(a, b) {
+            if x.id != y.id || x.frame != y.frame { return false }
+        }
+        return true
+    }
+
+    func bringForward()  { mutatePage("Bring Forward")  { $0.bringForward(selection) } }
+    func sendBackward()  { mutatePage("Send Backward")  { $0.sendBackward(selection) } }
+    func bringToFront()  { mutatePage("Bring to Front") { $0.bringToFront(selection) } }
+    func sendToBack()    { mutatePage("Send to Back")   { $0.sendToBack(selection) } }
+
+    func align(_ edge: AlignEdge, _ name: String) {
+        mutatePage("Align \(name)") { $0.align(selection, to: edge) }
+    }
+
+    func distribute(_ axis: Axis, _ name: String) {
+        mutatePage("Distribute \(name)") { $0.distribute(selection, along: axis) }
+    }
+
+    func groupSelection() {
+        guard selection.count >= 1 else { return }
+        var made: String?
+        mutatePage("Group") { made = $0.group(selection) }
+        if let made { selection = [made] }
+    }
+
+    func ungroupSelection() {
+        let targets = selection
+        var freed: [String] = []
+        mutatePage("Ungroup") { p in
+            for id in targets { freed.append(contentsOf: p.ungroup(id)) }
+        }
+        if !freed.isEmpty { selection = Set(freed) }
+    }
+
+    func toggleLockOrHide(hide: Bool) {
+        guard !selection.isEmpty, let page else { return }
+        let anyVisible = selection.compactMap { page.layer($0) }.contains { $0.isVisible }
+        if hide {
+            edit(Array(selection), actionName: anyVisible ? "Hide Layers" : "Show Layers") {
+                $0.isVisible = !anyVisible
+            }
+        }
+    }
+
     // MARK: - Clipboard
 
     static let pasteboardType = NSPasteboard.PasteboardType("com.accomplice.layers")

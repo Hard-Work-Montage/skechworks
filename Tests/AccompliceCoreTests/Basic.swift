@@ -416,3 +416,79 @@ import Testing
     #expect(r.warnings.contains { $0.lowercased().contains("text") })
     #expect(r.document.pages[0].layers.count == 1)   // the rect, not the text
 }
+
+private func makePage(_ ids: [String]) -> Page {
+    var p = Page(name: "P")
+    p.layers = ids.enumerated().map { i, id in
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+        l.id = id
+        l.frame = CGRect(x: CGFloat(i) * 30, y: CGFloat(i) * 10, width: 10, height: 10)
+        return l
+    }
+    return p
+}
+
+@Test func zOrderMovesWithinSiblings() {
+    var p = makePage(["a", "b", "c", "d"])   // index 0 is back-most
+    p.bringForward(["b"])
+    #expect(p.layers.map(\.id) == ["a", "c", "b", "d"])
+    p.sendToBack(["b"])
+    #expect(p.layers.map(\.id) == ["b", "a", "c", "d"])
+    p.bringToFront(["b", "a"])
+    #expect(p.layers.map(\.id) == ["c", "d", "b", "a"])
+}
+
+@Test func bringForwardStopsAtTheTopRatherThanWrapping() {
+    var p = makePage(["a", "b"])
+    p.bringForward(["b"])           // already front-most
+    #expect(p.layers.map(\.id) == ["a", "b"])
+}
+
+@Test func alignUsesTheSelectionBounds() {
+    var p = makePage(["a", "b", "c"])
+    p.align(["a", "b", "c"], to: .left)
+    #expect(p.layers.allSatisfy { $0.frame.minX == 0 })
+
+    var q = makePage(["a", "b", "c"])
+    q.align(["a", "b", "c"], to: .verticalMiddle)
+    let mid = q.layers.map(\.frame.midY)
+    #expect(abs(mid[0] - mid[2]) < 0.001)
+}
+
+@Test func distributeEvensTheGapsAndLeavesTheEndsAlone() {
+    var p = Page(name: "P")
+    p.layers = [(0.0, 10.0), (5.0, 10.0), (100.0, 10.0)].enumerated().map { i, spec in
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: spec.1, height: 10), transform: nil), closed: true))
+        l.id = "l\(i)"
+        l.frame = CGRect(x: spec.0, y: 0, width: spec.1, height: 10)
+        return l
+    }
+    p.distribute(["l0", "l1", "l2"], along: .horizontal)
+    let xs = p.layers.map(\.frame.minX).sorted()
+    #expect(xs.first == 0)          // ends stay put
+    #expect(xs.last == 100)
+    #expect(abs((xs[1] - (xs[0] + 10)) - (xs[2] - (xs[1] + 10))) < 0.001)   // equal gaps
+}
+
+@Test func groupAndUngroupRoundTripPositions() throws {
+    var p = makePage(["a", "b", "c"])
+    let before = p.layers.map(\.frame)
+
+    // Called outside #require: the macro can't wrap a mutating member.
+    let made = p.group(["a", "b"])
+    let gid = try #require(made)
+    #expect(p.layers.count == 2)
+    guard case .group(let kids) = try #require(p.layer(gid)).kind else {
+        Issue.record("expected a group"); return
+    }
+    #expect(kids.count == 2)
+    // Children are stored relative to the group.
+    #expect(kids[0].frame.minX == 0)
+
+    let freed = p.ungroup(gid)
+    #expect(freed.count == 2)
+    #expect(p.layers.count == 3)
+    // Ungrouping puts everything back exactly where it was on the canvas.
+    #expect(p.layer("a")?.frame == before[0])
+    #expect(p.layer("b")?.frame == before[1])
+}
