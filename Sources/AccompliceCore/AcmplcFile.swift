@@ -18,7 +18,7 @@ public struct AcmplcFile {
 
     public static let formatVersion = 1
 
-    public struct Options {
+    public struct Options: Sendable {
         public var coverPage: Int = 0
         public var coverSize: CGFloat = 1024
         public var includeExports = true

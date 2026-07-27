@@ -175,6 +175,8 @@ final class DocumentStore: ObservableObject {
 
     let undoManager = UndoManager()
     @Published var isDirty = false
+    /// Set when the user chooses "Don't Save", so the close can proceed.
+    func discardChanges() { isDirty = false }
     @Published var canUndo = false
     @Published var canRedo = false
 
@@ -651,20 +653,22 @@ final class DocumentStore: ObservableObject {
 
     /// Rewrites the whole .acmplc.png. Every page is parsed first — including ones
     /// never opened — so untouched pages survive a save unchanged.
-    func save() {
-        guard source != nil else { return }
-        guard url != nil else { saveAs(); return }
-        writeToDisk()
+    /// `completion(true)` only when bytes actually reached disk — the close prompt
+    /// needs to know, since a cancelled Save As must leave the window open.
+    func save(completion: ((Bool) -> Void)? = nil) {
+        guard source != nil else { completion?(false); return }
+        guard url != nil else { saveAs(completion: completion); return }
+        writeToDisk(completion: completion)
     }
 
     /// Asks where to put a document that has never been written.
-    func saveAs() {
-        guard source != nil else { return }
+    func saveAs(completion: ((Bool) -> Void)? = nil) {
+        guard source != nil else { completion?(false); return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (url?.lastPathComponent ?? "Untitled.acmplc.png")
         panel.message = "Save as an Accomplice document"
         panel.allowsOtherFileTypes = true
-        guard panel.runModal() == .OK, var out = panel.url else { return }
+        guard panel.runModal() == .OK, var out = panel.url else { completion?(false); return }
         // Keep the compound extension: it's what makes the file read as an image
         // everywhere, which is the whole point of the format.
         if !out.lastPathComponent.hasSuffix(".acmplc.png") {
@@ -672,34 +676,39 @@ final class DocumentStore: ObservableObject {
                 .appendingPathExtension("acmplc.png")
         }
         url = out
-        writeToDisk()
+        writeToDisk(completion: completion)
     }
 
-    private func writeToDisk() {
-        guard let src = source, let url else { return }
+    /// The completion stays on the main actor throughout — the heavy work happens in
+    /// a detached task whose result is a plain value, so no non-Sendable closure has
+    /// to cross an isolation boundary.
+    private func writeToDisk(completion: ((Bool) -> Void)? = nil) {
+        guard let src = source, let url else { completion?(false); return }
         isLoading = true
         status = "Saving…"
-        let cover = coverPage
-        Task.detached(priority: .userInitiated) {
-            var opts = AcmplcFile.Options()
-            opts.coverPage = cover
-            do {
-                let doc = src.fullDocument()
-                let data = try AcmplcFile.write(document: doc, images: src.images, options: opts)
-                try data.write(to: url)
-                LaunchBinding.claim(url)
-                await MainActor.run {
-                    self.isLoading = false
-                    self.isDirty = false
-                    self.status = "Saved \(url.lastPathComponent)"
+        var opts = AcmplcFile.Options()
+        opts.coverPage = coverPage
+        let options = opts
+
+        Task { @MainActor in
+            let outcome: (ok: Bool, message: String) = await Task.detached(priority: .userInitiated) {
+                do {
+                    // Every page is parsed first — including ones never opened — so
+                    // untouched pages survive a save unchanged.
+                    let doc = src.fullDocument()
+                    let data = try AcmplcFile.write(document: doc, images: src.images, options: options)
+                    try data.write(to: url)
+                    LaunchBinding.claim(url)
+                    return (true, "Saved \(url.lastPathComponent)")
+                } catch {
+                    return (false, "Save failed: \(error)")
                 }
-            } catch {
-                await MainActor.run {
-                    self.isLoading = false
-                    self.status = "Save failed: \(error)"
-                    NSSound.beep()
-                }
-            }
+            }.value
+
+            self.isLoading = false
+            self.status = outcome.message
+            if outcome.ok { self.isDirty = false } else { NSSound.beep() }
+            completion?(outcome.ok)
         }
     }
 
