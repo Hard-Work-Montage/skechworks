@@ -47,9 +47,7 @@ struct ContentView: View {
         } content: {
             canvas
         } detail: {
-            PropertiesPanel(layer: selectedLayer, pageName: store.page?.name,
-                            selectionCount: selectionCount)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
+            rightRail
         }
         // "Untitled" rather than the app name: with several new documents open, every
         // tab reading "Accomplice" tells you nothing.
@@ -125,11 +123,6 @@ struct ContentView: View {
                     .disabled(store.source == nil)
             }
         }
-        .inspector(isPresented: $showCommandBar) {
-            ChatPanel()
-                .environmentObject(store)
-                .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .showCommandBar)) { _ in
             showCommandBar = true
         }
@@ -141,6 +134,36 @@ struct ContentView: View {
                 if let url { Task { @MainActor in store.acceptDropped(url) } }
             }
             return true
+        }
+    }
+
+    /// Properties over chat, split vertically — the same shape as pages over layers on
+    /// the left. A separate inspector column made four panels, which is one more than
+    /// any of them deserved.
+    private var rightRail: some View {
+        Group {
+            if showCommandBar {
+                VSplitView {
+                    properties
+                        .frame(minHeight: 140, idealHeight: 300)
+                    VStack(alignment: .leading, spacing: 0) {
+                        railHeader("Chat", count: nil)
+                        ChatPanel().environmentObject(store)
+                    }
+                    .frame(minHeight: 200)
+                }
+            } else {
+                properties
+            }
+        }
+        .navigationSplitViewColumnWidth(min: 260, ideal: 330, max: 520)
+    }
+
+    private var properties: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            railHeader("Properties", count: nil)
+            PropertiesPanel(layer: selectedLayer, pageName: store.page?.name,
+                            selectionCount: selectionCount)
         }
     }
 
@@ -248,6 +271,7 @@ struct ContentView: View {
         .padding(.leading, CGFloat(row.depth) * 12)
     }
 
+    @ViewBuilder
     private func railHeader(_ title: String, count: Int?) -> some View {
         HStack {
             Text(title.uppercased())

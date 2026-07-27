@@ -42,7 +42,6 @@ struct ChatPanel: View {
             Divider()
             composer
         }
-        .frame(minWidth: 320)
     }
 
     private var header: some View {
@@ -60,7 +59,7 @@ struct ChatPanel: View {
                 .help("Clear conversation")
                 .disabled(session.messages.isEmpty)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 12).padding(.bottom, 6)
     }
 
     private var transcript: some View {
