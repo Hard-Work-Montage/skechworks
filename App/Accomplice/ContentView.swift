@@ -261,7 +261,8 @@ struct ContentView: View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
                                 selection: $store.selection, zoomToken: zoomToken,
-                                revision: store.revision, tool: store.tool)
+                                revision: store.revision, tool: store.tool,
+                                pageToken: store.pageToken)
             if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))

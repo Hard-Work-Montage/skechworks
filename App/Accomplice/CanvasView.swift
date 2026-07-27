@@ -229,7 +229,10 @@ final class PageCanvas: NSView {
         collectArtboards(page.layers, .identity, &artboards)
     }
 
-    private var boundsPage: String?
+    /// Identity of the page whose bounds we're currently using. A token rather than a
+    /// name, because names collide across documents.
+    private var boundsToken: Int = -1
+    var pageToken: Int = 0 { didSet { if pageToken != oldValue { adoptPage(); needsDisplay = true } } }
 
     /// The view's frame is the page content plus a margin.
     ///
@@ -242,9 +245,9 @@ final class PageCanvas: NSView {
     /// everything else, or the whole page appears to jump and re-centre. It only ever
     /// grows, and growing compensates the scroll so nothing visibly moves.
     private func adoptPage() {
-        guard let page else { bounds1 = .zero; boundsPage = nil; return }
-        if boundsPage != page.name {
-            boundsPage = page.name
+        guard let page else { bounds1 = .zero; boundsToken = -1; return }
+        if boundsToken != pageToken {
+            boundsToken = pageToken
             let margin = labelMargin
             bounds1 = page.contentBounds().insetBy(dx: -margin, dy: -margin)
             setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
@@ -753,6 +756,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     let zoomToken: Int
     let revision: Int
     let tool: DocumentStore.Tool
+    let pageToken: Int
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -774,16 +778,17 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let canvas = context.coordinator.canvas else { return }
-        let pageChanged = context.coordinator.lastPageName != page?.name
+        let pageChanged = context.coordinator.lastPageToken != pageToken
             || context.coordinator.lastZoomToken != zoomToken
         canvas.images = images
         canvas.page = page
         canvas.selected = selection
+        canvas.pageToken = pageToken
         canvas.revision = revision
         canvas.tool = tool
         wire(canvas)
         if pageChanged, let page {
-            context.coordinator.lastPageName = page.name
+            context.coordinator.lastPageToken = pageToken
             context.coordinator.lastZoomToken = zoomToken
             // Fit on arrival: these pages range from 180pt to 15,000pt wide, so a
             // fixed default zoom would be useless most of the time.
@@ -825,7 +830,7 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     final class Coordinator {
         var canvas: PageCanvas?
-        var lastPageName: String?
+        var lastPageToken: Int = -1
         var lastZoomToken: Int = -1
     }
 }

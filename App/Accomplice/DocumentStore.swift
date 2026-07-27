@@ -58,6 +58,14 @@ final class DocumentStore: ObservableObject {
     /// The page currently on screen, once parsed. Nil while a page is still being read.
     @Published private(set) var page: Page?
 
+    /// Bumped whenever a DIFFERENT page becomes visible — a new document, or another
+    /// page in the same one.
+    ///
+    /// Page NAME is not an identity: a blank document and an imported SVG are both
+    /// "Page 1", so keying the canvas on the name meant opening one into the other
+    /// never re-fitted the view and the artwork sat off-screen with nothing drawn.
+    @Published private(set) var pageToken = 0
+
     /// Bumped on every edit. The canvas caches its composition (boolean ops are
     /// expensive), and page identity alone can't tell it the CONTENTS changed — so
     /// after a move the art would redraw from a stale composition while the selection
@@ -102,29 +110,41 @@ final class DocumentStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             var made: DocumentSource?
             var failure: String?
+            var notes: [String] = []
 
             // .acmplc.png first — it's the native format, and it only parses
             // document.json here, so this is fast regardless of document size. A
             // .sketch fails that and falls through; so does a PNG whose payload was
             // stripped, which is why the error has to distinguish them.
-            do {
-                made = try DocumentSource.acmplc(url: url)
-            } catch {
-                if url.pathExtension.lowercased() == "sketch" {
-                    var reader = SketchReader()
-                    do {
-                        let doc = try reader.read(url: url)
-                        made = DocumentSource.eager(doc, images: reader.images)
-                    } catch {
+            let ext = url.pathExtension.lowercased()
+            if ext == "svg" {
+                do {
+                    let r = try SVGReader().read(url: url)
+                    made = DocumentSource.eager(r.document, images: r.images)
+                    notes = r.warnings
+                } catch {
+                    failure = "\(error)"
+                }
+            } else {
+                do {
+                    made = try DocumentSource.acmplc(url: url)
+                } catch {
+                    if ext == "sketch" {
+                        var reader = SketchReader()
+                        do {
+                            let doc = try reader.read(url: url)
+                            made = DocumentSource.eager(doc, images: reader.images)
+                        } catch {
+                            failure = "\(error)"
+                        }
+                    } else {
                         failure = "\(error)"
                     }
-                } else {
-                    failure = "\(error)"
                 }
             }
 
             let warnings = MissingFonts.all
-            await MainActor.run { [made, failure] in
+            await MainActor.run { [made, failure, notes] in
                 self.isLoading = false
                 self.fontWarnings = warnings
                 guard let src = made else {
@@ -142,6 +162,15 @@ final class DocumentStore: ObservableObject {
                 self.selection = []
                 self.status = "\(src.pageCount) page\(src.pageCount == 1 ? "" : "s")"
                     + (src.sourceApp.map { " · from \($0)" } ?? "")
+                    + (notes.isEmpty ? "" : " · \(notes.count) note\(notes.count == 1 ? "" : "s")")
+                // Imported SVG can't carry everything; say what was left out rather
+                // than letting it look like a faithful import.
+                if !notes.isEmpty { self.fontWarnings = notes.map { ("SVG", $0) } }
+                // An imported SVG has no .acmplc.png behind it yet.
+                if url.pathExtension.lowercased() == "svg" {
+                    self.url = nil
+                    self.isDirty = true
+                }
                 self.pageIndex = 0
                 self.loadCurrentPage()
             }
@@ -155,6 +184,7 @@ final class DocumentStore: ObservableObject {
         let i = pageIndex
         if src.isLoaded(i) {
             page = src.page(at: i)
+            pageToken += 1
             isPageLoading = false
             return
         }
@@ -165,6 +195,7 @@ final class DocumentStore: ObservableObject {
             await MainActor.run {
                 guard self.pageIndex == i, self.source === src else { return }
                 self.page = p
+                self.pageToken += 1
                 self.isPageLoading = false
                 if !warnings.isEmpty { self.fontWarnings = warnings }
             }

@@ -364,3 +364,55 @@ import Testing
     #expect(!DocumentKind.isDocument(URL(fileURLWithPath: "/x/photo.jpg")))
     #expect(!DocumentKind.isDocument(URL(fileURLWithPath: "/x/IMG_1234.HEIC")))
 }
+
+@Test func svgReaderHandlesShapesGroupsAndTransforms() throws {
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+      <g transform="translate(10,20)">
+        <rect x="0" y="0" width="50" height="40" fill="#ff0000"/>
+        <circle cx="100" cy="100" r="25" fill="none" stroke="blue" stroke-width="3"/>
+      </g>
+      <path d="M0 0 L100 0 L100 100 Z" fill="rgb(0,128,0)"/>
+    </svg>
+    """
+    let r = try SVGReader().read(data: Data(svg.utf8))
+    let page = try #require(r.document.pages.first)
+    #expect(page.layers.count == 2)          // the <g> plus the loose path
+
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("expected a group"); return }
+    #expect(kids.count == 2)
+    // translate(10,20) applied
+    #expect(page.layers[0].frame.minX == 10)
+    #expect(page.layers[0].frame.minY == 20)
+}
+
+@Test func svgTransformsCompose() {
+    let t = SVGReader.transform("translate(10,20) scale(2)")
+    let p = CGPoint(x: 5, y: 5).applying(t)
+    #expect(p.x == 20)   // scaled first, then translated
+    #expect(p.y == 30)
+
+    let m = SVGReader.transform("matrix(1,0,0,1,7,8)")
+    #expect(CGPoint(x: 0, y: 0).applying(m) == CGPoint(x: 7, y: 8))
+}
+
+@Test func svgColoursCoverTheFormsThatActuallyAppear() {
+    #expect(SVGReader.color("#ff0000", alpha: 1)?.hex == "#ff0000")
+    #expect(SVGReader.color("#f00", alpha: 1)?.hex == "#ff0000")     // shorthand
+    #expect(SVGReader.color("rgb(0,128,0)", alpha: 1)?.hex == "#008000")
+    #expect(SVGReader.color("blue", alpha: 1)?.hex == "#0000ff")     // named
+    #expect(SVGReader.color("none", alpha: 1) == nil)
+    #expect(SVGReader.gradientReference("url(#grad1)") == "grad1")
+}
+
+@Test func svgTextIsSkippedLoudly() throws {
+    // Converting text without its font produces something that looks fine until it's
+    // engraved, so it's reported rather than guessed at.
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/>
+    <text x="0" y="0" font-size="20">Hello</text></svg>
+    """
+    let r = try SVGReader().read(data: Data(svg.utf8))
+    #expect(r.warnings.contains { $0.lowercased().contains("text") })
+    #expect(r.document.pages[0].layers.count == 1)   // the rect, not the text
+}

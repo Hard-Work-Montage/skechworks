@@ -66,6 +66,11 @@ targets:
             LSHandlerRank: Owner
             LSItemContentTypes:
               - com.accomplice.document
+          - CFBundleTypeName: SVG Image
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.svg-image
           # Plain PNGs: we can open them, but Preview stays the default.
           - CFBundleTypeName: PNG Image
             CFBundleTypeRole: Viewer

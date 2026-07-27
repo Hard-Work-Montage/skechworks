@@ -18,7 +18,8 @@ import Foundation
 public enum DocumentKind {
     public static func isDocument(_ url: URL) -> Bool {
         let n = url.lastPathComponent.lowercased()
-        return n.hasSuffix(".acmplc.png") || n.hasSuffix(".acmplc") || n.hasSuffix(".sketch")
+        return n.hasSuffix(".acmplc.png") || n.hasSuffix(".acmplc")
+            || n.hasSuffix(".sketch") || n.hasSuffix(".svg")
     }
 }
 

@@ -44,6 +44,15 @@ let input = URL(fileURLWithPath: args[2])
 /// reader used to "succeed" and yield an empty document — a blank render with no error.
 /// Try our own format first and only fall back to Sketch.
 func load() -> (Document, [String: Data]) {
+    if input.pathExtension.lowercased() == "svg" {
+        do {
+            let r = try SVGReader().read(url: input)
+            for w in r.warnings { FileHandle.standardError.write(Data("note: \(w)\n".utf8)) }
+            return (r.document, r.images)
+        } catch {
+            fail("\(input.lastPathComponent): \(error)")
+        }
+    }
     if let (doc, images) = try? AcmplcFile.read(url: input), !doc.pages.isEmpty {
         return (doc, images)
     }
