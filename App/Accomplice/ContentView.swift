@@ -60,6 +60,7 @@ struct ContentView: View {
                         .resizable().interpolation(.high)
                         .frame(width: 22, height: 22)
                         .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .padding(.leading, 6)   // was flush against the group's edge
                 }
             }
             ToolbarItem(placement: .navigation) {
@@ -83,10 +84,6 @@ struct ContentView: View {
                 .menuIndicator(.hidden)
                 .help("Insert artboard, shape, vector, text or image")
                 .disabled(store.source == nil)
-            }
-            ToolbarItem(placement: .navigation) {
-                Button { store.openPanel() } label: { Label("Open", systemImage: "folder") }
-                    .help("Open an .acmplc.png or .sketch file")
             }
             ToolbarItem {
                 Picker("Tool", selection: $store.tool) {
