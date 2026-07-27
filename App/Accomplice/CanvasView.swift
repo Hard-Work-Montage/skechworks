@@ -330,8 +330,8 @@ final class PageCanvas: NSView {
 
         let sc = max(0.01, currentScale)
         for id in selected {
-            guard var rect = frameOf(id, in: page.layers, base: .identity) else { continue }
-            if dragging { rect = rect.offsetBy(dx: dragOffset.width, dy: dragOffset.height) }
+            guard let raw = frameOf(id, in: page.layers, base: .identity) else { continue }
+            let rect = previewed(raw)
             ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
             ctx.setLineWidth(1.5 / sc)
             ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
@@ -412,16 +412,32 @@ final class PageCanvas: NSView {
         }
     }
 
+    /// Applies whatever gesture is in flight to a rect.
+    ///
+    /// The selection frame and the handles both need this, and previously only the
+    /// handles knew about resizing — so during a drag the dashed box sat at the old
+    /// size while the handles moved, then snapped on release.
+    private func previewed(_ r: CGRect) -> CGRect {
+        if dragging, dragOffset != .zero {
+            return r.offsetBy(dx: dragOffset.width, dy: dragOffset.height)
+        }
+        if activeHandle != nil {
+            let a = resizeAnchor
+            return CGRect(x: a.x + (r.minX - a.x) * resizeScale.width,
+                          y: a.y + (r.minY - a.y) * resizeScale.height,
+                          width: r.width * resizeScale.width,
+                          height: r.height * resizeScale.height).standardized
+        }
+        return r
+    }
+
     private func drawHandles(_ ctx: CGContext) {
         guard editPath == nil, tool == .select else { return }
-        guard var r = selectionBounds, !dragging, !marqueeing else { return }
-        if let h = activeHandle {
-            let a = anchorPoint(h, in: r)
-            r = CGRect(x: a.x + (r.minX - a.x) * resizeScale.width,
-                       y: a.y + (r.minY - a.y) * resizeScale.height,
-                       width: r.width * resizeScale.width,
-                       height: r.height * resizeScale.height).standardized
-        }
+        // Handles stay put through a resize (you're holding one) but hide during a
+        // move or a marquee, where they'd just be noise.
+        guard let bounds = selectionBounds, !marqueeing,
+              !(dragging && dragOffset != .zero) else { return }
+        let r = previewed(bounds)
         let sc = max(0.01, currentScale)
         let size = 7 / sc
         for h in Handle.allCases {
@@ -637,6 +653,7 @@ final class PageCanvas: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        defer { needsDisplay = true }   // a click that commits nothing still changes what's drawn
         if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
         if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
         if bendingSegment != nil { bendingSegment = nil; commitEdit("Bend Curve"); return }
@@ -645,6 +662,7 @@ final class PageCanvas: NSView {
             let s = resizeScale
             resizeScale = CGSize(width: 1, height: 1)
             onResizeEnd?(s, resizeAnchor)
+            needsDisplay = true
             return
         }
         if marqueeing {
