@@ -568,3 +568,16 @@ private func styledPage() -> Page {
     #expect(looksLikePathData == nil)
     #expect(text.count < 2000)
 }
+
+@Test func anUnscopedCommandIsNotAWildcard() {
+    // A real local model, asked to "remove all the layers with black fill", replied:
+    //   [{"op":"select","type":"path","fill":"#000000"},{"op":"delete"}]
+    // The delete carries no selector. Treated as "match everything" that wipes the
+    // document, so an empty query has to be recognisable as empty.
+    let cmds = DocumentCommand.decodeList(Data("""
+    {"commands":[{"op":"select","type":"path","fill":"#000000"},{"op":"delete"}]}
+    """.utf8))
+    #expect(cmds.count == 2)
+    #expect(cmds[0].query.isEmpty == false)
+    #expect(cmds[1].query.isEmpty == true)
+}

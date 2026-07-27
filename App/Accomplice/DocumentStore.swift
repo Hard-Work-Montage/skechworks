@@ -400,15 +400,33 @@ final class DocumentStore: ObservableObject {
         let name = commands.count == 1 ? commands[0].summary : "\(commands.count) Changes"
         let currentSelection = selection
 
+        // A model naturally writes "select these, then delete" — two commands, the
+        // second with no selector. An empty query matches EVERYTHING, so taken
+        // literally that deletes the document. Carry the batch's last selection
+        // forward instead, which is what was meant, and refuse an unscoped
+        // destructive command outright.
+        var scope: Set<String>? = currentSelection.isEmpty ? nil : currentSelection
+
         mutatePage(name) { p in
             for c in commands {
-                let ids = p.find(c.query, selection: currentSelection)
+                let ids: [String]
+                if c.query.isEmpty {
+                    guard let inherited = scope, !inherited.isEmpty else {
+                        report.append("\(c.summary): refused — no layers specified")
+                        continue
+                    }
+                    // Preserve document order rather than Set order.
+                    ids = p.find(LayerQuery()).filter { inherited.contains($0) }
+                } else {
+                    ids = p.find(c.query, selection: currentSelection)
+                }
                 if ids.isEmpty {
                     report.append("\(c.summary): no matching layers")
                     continue
                 }
                 if case .select = c {
                     pendingSelection = Set(ids)
+                    scope = Set(ids)
                 } else {
                     DocumentStore.apply(c, ids: ids, to: &p)
                 }

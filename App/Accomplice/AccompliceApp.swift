@@ -99,6 +99,9 @@ struct AccompliceApp: App {
                     .keyboardShortcut("h", modifiers: [.command, .shift])
             }
             CommandMenu("Tools") {
+                Button("Ask…") { NotificationCenter.default.post(name: .showCommandBar, object: nil) }
+                    .keyboardShortcut("k", modifiers: .command)
+                Divider()
                 ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
                     Button(t.title) { AppDelegate.shared?.active?.tool = t }
                         .keyboardShortcut(KeyEquivalent(Character(t == .select ? "v" : t == .pen ? "p" : "b")),
@@ -141,6 +144,10 @@ struct AccompliceApp: App {
             }
         }
     }
+}
+
+extension Notification.Name {
+    static let showCommandBar = Notification.Name("accomplice.showCommandBar")
 }
 
 @MainActor

@@ -69,6 +69,60 @@ enum AppIconTheme: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            IconSettings().tabItem { Label("Icon", systemImage: "app.badge") }
+            ModelSettings().tabItem { Label("Model", systemImage: "sparkles") }
+        }
+        .frame(width: 460, height: 400)
+    }
+}
+
+/// Local-first, cloud optional — the same arrangement as Pelocan, and the honest one
+/// for a tool whose pitch is that it runs on your machine.
+struct ModelSettings: View {
+    @AppStorage("ai.backend") private var backend = ModelConnector.Backend.ollama.rawValue
+    @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
+    @AppStorage("ai.model") private var model = "qwen3-coder:30b"
+    @AppStorage("ai.openRouterKey") private var openRouterKey = ""
+    @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
+    @State private var installed: [String] = []
+
+    var body: some View {
+        Form {
+            Picker("Run on", selection: $backend) {
+                ForEach(ModelConnector.Backend.allCases) { Text($0.title).tag($0.rawValue) }
+            }
+            .pickerStyle(.radioGroup)
+
+            if backend == ModelConnector.Backend.ollama.rawValue {
+                TextField("Ollama host", text: $ollamaHost)
+                if installed.isEmpty {
+                    TextField("Model", text: $model)
+                } else {
+                    Picker("Model", selection: $model) {
+                        ForEach(installed, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                Text("Nothing leaves this machine. A coder model around 30B handles document edits comfortably.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                SecureField("OpenRouter key", text: $openRouterKey)
+                TextField("Model", text: $openRouterModel)
+                Text("Your key, your account. Used only when this backend is selected.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(4)
+        .task {
+            installed = await ModelConnector.localModels(host: ollamaHost)
+            if !installed.isEmpty, !installed.contains(model) { model = installed[0] }
+        }
+    }
+}
+
+struct IconSettings: View {
     @AppStorage(AppIconTheme.defaultsKey) private var raw = AppIconTheme.gradient.rawValue
 
     private let columns = [GridItem(.adaptive(minimum: 64), spacing: 14)]
@@ -112,6 +166,5 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 420, height: 380)
     }
 }

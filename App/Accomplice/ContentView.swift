@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var store: DocumentStore
     @State private var zoomToken = 0
+    @State private var showCommandBar = false
 
     /// Which groups are open in the layer list.
     ///
@@ -117,6 +118,12 @@ struct ContentView: View {
                 } label: { Label("Export", systemImage: "square.and.arrow.up") }
                     .disabled(store.source == nil)
             }
+        }
+        .sheet(isPresented: $showCommandBar) {
+            CommandBar().environmentObject(store)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showCommandBar)) { _ in
+            showCommandBar = true
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let p = providers.first else { return false }

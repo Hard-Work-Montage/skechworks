@@ -37,7 +37,10 @@ public struct LayerQuery: Codable, Sendable {
 
     public init() {}
 
-    var isEmpty: Bool {
+    /// No selector at all. Callers must treat this as "whatever is already scoped",
+    /// never as "everything" — a model writes `{"op":"delete"}` meaning the thing it
+    /// just selected.
+    public var isEmpty: Bool {
         name == nil && type == nil && fill == nil && stroke == nil && text == nil
             && visible == nil && minWidth == nil && maxWidth == nil && selectedOnly == nil
     }
