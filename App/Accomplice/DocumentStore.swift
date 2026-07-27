@@ -526,6 +526,23 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// How many layers a batch would touch, without touching them.
+    func countAffected(_ commands: [DocumentCommand]) -> Int {
+        guard let page else { return 0 }
+        var touched: Set<String> = []
+        var scope: Set<String>? = selection.isEmpty ? nil : selection
+        for c in commands {
+            let ids: [String]
+            if c.query.isEmpty {
+                ids = Array(scope ?? [])
+            } else {
+                ids = page.find(c.query, selection: selection)
+            }
+            if case .select = c { scope = Set(ids) } else { touched.formUnion(ids) }
+        }
+        return touched.count
+    }
+
     /// What a model is shown before it decides anything.
     func describeDocument() -> String {
         guard let page else { return "No document open." }
@@ -544,8 +561,9 @@ final class DocumentStore: ObservableObject {
     func mutatePage(_ actionName: String, _ body: (inout Page) -> Void) {
         guard let src = source, var p = page else { return }
         let before = p.layers
+        let signatureBefore = p.contentSignature
         body(&p)
-        guard !layersEqual(before, p.layers) else { return }
+        guard p.contentSignature != signatureBefore else { return }
         apply(p, at: pageIndex, src: src)
         revision += 1
         isDirty = true
@@ -568,15 +586,6 @@ final class DocumentStore: ObservableObject {
             }
         }
         undoManager.setActionName(actionName)
-    }
-
-    /// Cheap structural comparison, so a no-op arrange doesn't push an undo step.
-    private func layersEqual(_ a: [Layer], _ b: [Layer]) -> Bool {
-        guard a.count == b.count else { return false }
-        for (x, y) in zip(a, b) {
-            if x.id != y.id || x.frame != y.frame { return false }
-        }
-        return true
     }
 
     func bringForward()  { mutatePage("Bring Forward")  { $0.bringForward(selection) } }

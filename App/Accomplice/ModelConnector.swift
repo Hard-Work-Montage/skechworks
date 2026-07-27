@@ -46,38 +46,45 @@ struct ModelConnector {
 
     var settings: Settings
 
-    /// Asks the model to turn a request into commands.
+    /// One turn of a conversation.
     ///
-    /// Returns the commands AND the raw reply, because showing what was proposed
-    /// before applying it is the difference between a tool and a slot machine.
-    func plan(request: String, document: String) async throws -> (commands: [DocumentCommand], raw: String) {
+    /// The document description is re-sent every turn rather than kept in history:
+    /// it changes after every edit, and stale state is worse than no state.
+    func converse(request: String,
+                  document: String,
+                  history: [(role: String, content: String)]) async throws -> (turn: ModelTurn, raw: String) {
         let system = """
-        You edit a vector design document. You are given a description of the current \
-        page and a request. Reply with JSON only — no prose, no code fences.
+        You edit a vector design document, working alongside the user. Be brief.
 
         \(DocumentCommand.schema)
 
-        If the request can't be expressed with these operations, reply \
-        {"commands":[]} and nothing else.
+        Act rather than asking permission — the user can undo anything in one step. \
+        Ask only when a request is genuinely ambiguous and guessing would waste their \
+        time. If something can't be done with these operations, say so plainly in \
+        "say" and return no commands.
         """
-        let user = "CURRENT DOCUMENT\n\(document)\n\nREQUEST\n\(request)"
-        let raw = try await complete(system: system, user: user)
+        var messages: [[String: String]] = [["role": "system", "content": system]]
+        for h in history { messages.append(["role": h.role, "content": h.content]) }
+        messages.append(["role": "user",
+                         "content": "CURRENT DOCUMENT\n\(document)\n\nREQUEST\n\(request)"])
+
+        let raw = try await complete(messages: messages)
         let cleaned = ModelConnector.stripFences(raw)
-        let commands = DocumentCommand.decodeList(Data(cleaned.utf8))
-        guard !commands.isEmpty else { throw Failure.noCommands(raw) }
-        return (commands, cleaned)
+        let turn = ModelTurn.decode(Data(cleaned.utf8))
+        guard !turn.say.isEmpty || !turn.commands.isEmpty else { throw Failure.noCommands(raw) }
+        return (turn, cleaned)
     }
 
     // MARK: - Transport
 
-    private func complete(system: String, user: String) async throws -> String {
+    private func complete(messages: [[String: String]]) async throws -> String {
         switch settings.backend {
-        case .ollama: return try await ollama(system: system, user: user)
-        case .openRouter: return try await openRouter(system: system, user: user)
+        case .ollama: return try await ollama(messages)
+        case .openRouter: return try await openRouter(messages)
         }
     }
 
-    private func ollama(system: String, user: String) async throws -> String {
+    private func ollama(_ messages: [[String: String]]) async throws -> String {
         guard let url = URL(string: settings.ollamaHost + "/api/chat") else {
             throw Failure.unreachable("bad host")
         }
@@ -87,8 +94,7 @@ struct ModelConnector {
             // Deterministic: the same request should produce the same edit twice.
             "options": ["temperature": 0.1],
             "format": "json",
-            "messages": [["role": "system", "content": system],
-                         ["role": "user", "content": user]],
+            "messages": messages,
         ]
         let json = try await post(url, body: body, headers: [:])
         guard let message = json["message"] as? [String: Any],
@@ -98,7 +104,7 @@ struct ModelConnector {
         return content
     }
 
-    private func openRouter(system: String, user: String) async throws -> String {
+    private func openRouter(_ messages: [[String: String]]) async throws -> String {
         guard !settings.openRouterKey.isEmpty else { throw Failure.noKey }
         guard let url = URL(string: "https://openrouter.ai/api/v1/chat/completions") else {
             throw Failure.unreachable("bad url")
@@ -107,8 +113,7 @@ struct ModelConnector {
             "model": settings.openRouterModel,
             "temperature": 0.1,
             "response_format": ["type": "json_object"],
-            "messages": [["role": "system", "content": system],
-                         ["role": "user", "content": user]],
+            "messages": messages,
         ]
         let json = try await post(url, body: body, headers: [
             "Authorization": "Bearer \(settings.openRouterKey)",

@@ -218,6 +218,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Reapply the chosen colourway; a signed bundle can't rewrite its own .icns,
         // so the choice only exists at runtime.
         AppIconTheme.current.apply()
+        if UserDefaults.standard.object(forKey: "mcp.enabled") as? Bool ?? true {
+            MCPServer.shared.start()
+        }
     }
 
     func applicationWillFinishLaunching(_ n: Notification) {

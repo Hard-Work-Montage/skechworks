@@ -47,7 +47,8 @@ public struct LayerQuery: Codable, Sendable {
 }
 
 extension Layer {
-    var apiType: String {
+    /// Public so the MCP tools can report what a layer is without duplicating the map.
+    public var apiType: String {
         switch kind {
         case .group: return isArtboard ? "artboard" : "group"
         case .shapeGroup: return "shapeGroup"
@@ -57,17 +58,17 @@ extension Layer {
         }
     }
 
-    var apiText: String? {
+    public var apiText: String? {
         if case .text(let t) = kind { return t.string }
         return nil
     }
 
-    var firstFillHex: String? {
+    public var firstFillHex: String? {
         guard case .color(let c)? = style.fills.first?.paint else { return nil }
         return c.hex
     }
 
-    func matches(_ q: LayerQuery) -> Bool {
+    public func matches(_ q: LayerQuery) -> Bool {
         if let n = q.name, !name.localizedCaseInsensitiveContains(n) { return false }
         if let t = q.type, apiType.lowercased() != t.lowercased() { return false }
         if let f = q.fill, firstFillHex?.lowercased() != f.lowercased() { return false }
@@ -256,8 +257,14 @@ extension DocumentCommand {
     /// from what the executor actually accepts.
     public static var schema: String {
         """
-        Reply with JSON only: {"commands":[ ... ]}. Each command is an object with
-        "op" and a selector. The selector fields go inline (or nested under "where"):
+        Reply with JSON only: {"say": "...", "commands":[ ... ]}.
+
+        "say" is what you tell the user — one or two sentences, plain language. Use it
+        alone (with no commands, or an empty list) to ask a clarifying question or to
+        explain why you can't do something.
+
+        Each command is an object with "op" and a selector. The selector fields go
+        inline (or nested under "where"):
 
           name         substring of the layer name, case-insensitive
           type         artboard | group | shapeGroup | path | text | image
@@ -286,7 +293,15 @@ extension DocumentCommand {
           ungroup
 
         Example — "make every black path 50% opacity":
-        {"commands":[{"op":"setOpacity","type":"path","fill":"#000000","value":0.5}]}
+        {"say":"Dropped the black paths to 50%.",
+         "commands":[{"op":"setOpacity","type":"path","fill":"#000000","value":0.5}]}
+
+        Example — the request is ambiguous:
+        {"say":"Do you mean the artboards themselves, or the shapes inside them?",
+         "commands":[]}
+
+        Commands run in order, and a command with no selector acts on whatever the
+        previous select matched. Prefer one precise command over a select+act pair.
         """
     }
 }
@@ -340,5 +355,79 @@ extension Page {
         }
         walk(layers)
         return out
+    }
+}
+
+
+// MARK: - Change detection
+
+extension Layer {
+    /// A cheap signature of everything an edit can change.
+    ///
+    /// Used to tell a real edit from a no-op. Comparing only ids and frames — which is
+    /// what this replaced — silently discarded every rename, recolour and opacity
+    /// change, because none of those move anything.
+    public var contentSignature: String {
+        var s = "\(id)|\(name)|\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
+        s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation))"
+        s += "|\(firstFillHex ?? "-")|\(style.borders.first.map { "\($0.color.hex):\(Int($0.thickness)) " } ?? "-")"
+        s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)\(backgroundColor?.hex ?? "-")"
+        if let t = apiText { s += "|\(t)" }
+        if case .path(let p, let closed) = kind {
+            // Points move without the frame changing, so include the geometry's own
+            // extent — cheaper than hashing every curve.
+            let b = p.boundingBoxOfPath
+            s += "|\(Int(b.minX)),\(Int(b.minY)),\(Int(b.width)),\(Int(b.height)),\(closed ? 1 : 0)"
+        }
+        switch kind {
+        case .group(let k), .shapeGroup(let k, _):
+            s += "[" + k.map(\.contentSignature).joined(separator: ";") + "]"
+        default: break
+        }
+        return s
+    }
+}
+
+extension Page {
+    public var contentSignature: String {
+        layers.map(\.contentSignature).joined(separator: ";")
+    }
+}
+
+// MARK: - A model's reply
+
+/// What comes back from a turn: something to say, and optionally something to do.
+public struct ModelTurn: Sendable {
+    public var say: String
+    public var commands: [DocumentCommand]
+
+    public init(say: String, commands: [DocumentCommand]) {
+        self.say = say
+        self.commands = commands
+    }
+
+    public static func decode(_ data: Data) -> ModelTurn {
+        let commands = DocumentCommand.decodeList(data)
+        var say = ""
+        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            say = (obj["say"] as? String) ?? (obj["message"] as? String) ?? ""
+        }
+        return ModelTurn(say: say, commands: commands)
+    }
+
+    /// Whether this turn is worth stopping for.
+    ///
+    /// Ordinary edits just happen — undo is right there, and asking permission for
+    /// every recolour makes a tool feel like it doesn't trust you. What still deserves
+    /// a pause is the combination that undo alone doesn't make comfortable: destroying
+    /// things, or touching far more than you'd expect from one sentence.
+    public func needsConfirmation(affecting count: Int) -> Bool {
+        let destructive = commands.contains {
+            if case .delete = $0 { return true }
+            if case .ungroup = $0 { return true }
+            return false
+        }
+        if destructive && count > 3 { return true }
+        return count > 40
     }
 }

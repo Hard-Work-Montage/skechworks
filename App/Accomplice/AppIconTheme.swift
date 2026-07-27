@@ -73,6 +73,7 @@ struct SettingsView: View {
         TabView {
             IconSettings().tabItem { Label("Icon", systemImage: "app.badge") }
             ModelSettings().tabItem { Label("Model", systemImage: "sparkles") }
+            MCPSettings().tabItem { Label("Agents", systemImage: "terminal") }
         }
         .frame(width: 460, height: 400)
     }
@@ -119,6 +120,55 @@ struct ModelSettings: View {
             installed = await ModelConnector.localModels(host: ollamaHost)
             if !installed.isEmpty, !installed.contains(model) { model = installed[0] }
         }
+    }
+}
+
+/// Lets Claude Code and other MCP clients drive the open document.
+struct MCPSettings: View {
+    @AppStorage("mcp.enabled") private var enabled = true
+    @State private var running = MCPServer.shared.running
+
+    private var command: String {
+        "claude mcp add --transport http accomplice http://127.0.0.1:\(MCPServer.defaultPort)"
+    }
+
+    var body: some View {
+        Form {
+            Toggle("Allow agents to edit the open document", isOn: $enabled)
+                .onChange(of: enabled) { _, on in
+                    on ? MCPServer.shared.start() : MCPServer.shared.stop()
+                    running = MCPServer.shared.running
+                }
+            LabeledContent("Status") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(running ? "Listening on 127.0.0.1:\(MCPServer.defaultPort)" : "Off",
+                          systemImage: running ? "circle.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(running ? .green : .secondary)
+                    if let problem = MCPServer.shared.lastError {
+                        Text(problem).font(.caption2).foregroundStyle(.orange)
+                    }
+                }
+            }
+            Section("Connect Claude Code") {
+                Text(command)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                }
+            }
+            Text("""
+                Loopback only — nothing off this machine can reach it. Agents act on the \
+                frontmost document and go through the same operations you do, so anything \
+                they change is one undo away.
+                """)
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .padding(4)
+        .onAppear { running = MCPServer.shared.running }
     }
 }
 

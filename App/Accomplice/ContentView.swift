@@ -112,6 +112,12 @@ struct ContentView: View {
                     .help("Save").disabled(!store.isDirty)
             }
             ToolbarItem {
+                Button { showCommandBar.toggle() } label: {
+                    Label("Ask", systemImage: "sparkles")
+                }
+                .help("Ask (⌘K)")
+            }
+            ToolbarItem {
                 Menu {
                     Button("Export This Page as SVG…") { store.exportCurrentPage() }
                     Button("Export All Pages as SVG…") { store.exportAllPages() }
@@ -119,8 +125,10 @@ struct ContentView: View {
                     .disabled(store.source == nil)
             }
         }
-        .sheet(isPresented: $showCommandBar) {
-            CommandBar().environmentObject(store)
+        .inspector(isPresented: $showCommandBar) {
+            ChatPanel()
+                .environmentObject(store)
+                .inspectorColumnWidth(min: 300, ideal: 360, max: 520)
         }
         .onReceive(NotificationCenter.default.publisher(for: .showCommandBar)) { _ in
             showCommandBar = true

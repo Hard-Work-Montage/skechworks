@@ -581,3 +581,34 @@ private func styledPage() -> Page {
     #expect(cmds[0].query.isEmpty == false)
     #expect(cmds[1].query.isEmpty == true)
 }
+
+@Test func contentSignatureNoticesChangesThatDontMoveAnything() {
+    // The bug this guards: the no-op check compared only ids and frames, so a rename
+    // looked identical to no change and was silently discarded. An MCP rename
+    // reported "4 layers" and did nothing.
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    l.id = "x"; l.name = "before"
+    l.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    var page = Page(name: "P"); page.layers = [l]
+    let original = page.contentSignature
+
+    var renamed = page
+    renamed.updateLayer("x") { $0.name = "after" }
+    #expect(renamed.contentSignature != original)
+
+    var recoloured = page
+    recoloured.updateLayer("x") { $0.style.fills = [Fill(paint: .color(.black))] }
+    #expect(recoloured.contentSignature != original)
+
+    var faded = page
+    faded.updateLayer("x") { $0.style.opacity = 0.5 }
+    #expect(faded.contentSignature != original)
+
+    var hidden = page
+    hidden.updateLayer("x") { $0.isVisible = false }
+    #expect(hidden.contentSignature != original)
+
+    var untouched = page
+    untouched.updateLayer("x") { _ in }
+    #expect(untouched.contentSignature == original)
+}
