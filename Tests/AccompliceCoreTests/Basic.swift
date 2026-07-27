@@ -207,3 +207,59 @@ import Testing
     #expect(b.fontSize == 20)             // box re-wraps; glyphs are never distorted
     #expect(uneven.frame.width == 200)
 }
+
+@Test func vectorPathRoundTripsThroughCGPath() {
+    // The pen tool edits points; the model stores a baked CGPath. That conversion has
+    // to be lossless or every edit would drift the geometry.
+    let m = CGMutablePath()
+    m.move(to: CGPoint(x: 0, y: 0))
+    m.addCurve(to: CGPoint(x: 100, y: 0), control1: CGPoint(x: 20, y: -40), control2: CGPoint(x: 80, y: -40))
+    m.addLine(to: CGPoint(x: 100, y: 100))
+    m.addCurve(to: CGPoint(x: 0, y: 100), control1: CGPoint(x: 80, y: 140), control2: CGPoint(x: 20, y: 140))
+    m.closeSubpath()
+
+    let vp = VectorPath(cgPath: m.copy()!)
+    #expect(vp.closed)
+    #expect(vp.points.count == 4)
+    #expect(SVGWriter().pathData(vp.cgPath()) == SVGWriter().pathData(m.copy()!))
+}
+
+@Test func bendMovesTheCurveMidpointToTheCursor() {
+    // The headline interaction: drag the curve itself and it follows.
+    var vp = VectorPath(points: [VectorPoint(CGPoint(x: 0, y: 0)),
+                                 VectorPoint(CGPoint(x: 100, y: 0))])
+    let target = CGPoint(x: 50, y: 60)
+    vp.bend(segment: 0, to: target)
+
+    let mid = VectorPath.evaluate(vp.points[0], vp.points[1], 0.5)
+    #expect(abs(mid.x - target.x) < 0.01)
+    #expect(abs(mid.y - target.y) < 0.01)
+    #expect(vp.points[0].point == CGPoint(x: 0, y: 0))   // anchors don't move
+    #expect(vp.points[1].point == CGPoint(x: 100, y: 0))
+}
+
+@Test func deletingAPointKeepsTheCurveRatherThanFlattening() {
+    var vp = VectorPath(points: [VectorPoint(CGPoint(x: 0, y: 0)),
+                                 VectorPoint(CGPoint(x: 50, y: 0)),
+                                 VectorPoint(CGPoint(x: 100, y: 0))])
+    vp.bend(segment: 0, to: CGPoint(x: 25, y: 40))
+    vp.bend(segment: 1, to: CGPoint(x: 75, y: 40))
+    vp.removePoint(1)
+    #expect(vp.points.count == 2)
+    #expect(vp.points[0].hasCurveFrom)   // inherited the departed point's handles
+    #expect(vp.points[1].hasCurveTo)
+}
+
+@Test func handleModesPullTheOppositeHandle() {
+    var p = VectorPoint(CGPoint(x: 100, y: 100))
+    p.mode = .mirrored
+    p.setHandle(out: true, to: CGPoint(x: 150, y: 100))
+    #expect(abs(p.curveTo.x - 50) < 0.01)     // mirrored to the far side
+    #expect(abs(p.curveTo.y - 100) < 0.01)
+
+    var d = VectorPoint(CGPoint(x: 100, y: 100))
+    d.mode = .disconnected
+    d.curveTo = CGPoint(x: 90, y: 90); d.hasCurveTo = true
+    d.setHandle(out: true, to: CGPoint(x: 150, y: 100))
+    #expect(d.curveTo == CGPoint(x: 90, y: 90))   // independent, untouched
+}

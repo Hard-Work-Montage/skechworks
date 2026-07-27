@@ -173,7 +173,13 @@ public struct SketchReader {
                               control2: b.hasTo ? b.to : b.pt)
             } else {
                 let e = end(k)
-                path.addLine(to: e)
+                // A straight final segment of a closed path is left to closeSubpath,
+                // which draws exactly that line. Emitting it as well produces
+                // "...L<start>Z", which is geometrically identical but means a path
+                // can't round-trip byte-for-byte through VectorPath — and the pen tool
+                // rewrites geometry on every edit.
+                let redundantClosingLine = closed && s == segments - 1 && fillet(k) == 0
+                if !redundantClosingLine { path.addLine(to: e) }
                 if fillet(k) > 0 { path.addQuadCurve(to: start(k), control: pts[k].pt) }
             }
         }

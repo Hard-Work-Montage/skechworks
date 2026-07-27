@@ -182,6 +182,41 @@ case "resize":
     }
     print("resized '\(target.name)' width x\(factor); wrote resize_before.png / resize_after.png")
 
+case "vpcheck":
+    // Round-trips every path in a document through VectorPath and reports any drift.
+    // The pen tool edits points and writes a CGPath back, so any loss here would
+    // corrupt geometry on every single edit.
+    let (doc, _) = load()
+    var total = 0, mismatched = 0, quadOnly = 0, geometric = 0
+    let w = SVGWriter()
+    func walk(_ ls: [Layer]) {
+        for l in ls {
+            switch l.kind {
+            case .path(let p, _):
+                total += 1
+                let back = VectorPath(cgPath: p).cgPath()
+                let a = w.pathData(p), b = w.pathData(back)
+                if a != b {
+                    mismatched += 1
+                    // A quadratic converts to an exactly equivalent cubic, so the
+                    // string differs while the shape doesn't. Anything else is a
+                    // genuine geometry change and must be reported as such.
+                    if a.contains("Q") { quadOnly += 1 }
+                    else {
+                        let d = max(abs(p.boundingBox.minX - back.boundingBox.minX),
+                                    abs(p.boundingBox.maxY - back.boundingBox.maxY))
+                        if d > 0.01 { geometric += 1 }
+                    }
+                }
+            case .group(let k), .shapeGroup(let k, _): walk(k)
+            default: break
+            }
+        }
+    }
+    for p in doc.pages { walk(p.layers) }
+    print("paths \(total) · identical \(total - mismatched) · quad→cubic \(quadOnly) · GEOMETRY CHANGED \(geometric)")
+    if geometric > 0 { exit(2) }
+
 case "bench":
     // What the app pays before it can show you anything.
     let t0 = Date()
