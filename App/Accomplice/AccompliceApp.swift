@@ -129,6 +129,20 @@ struct AccompliceApp: App {
                 }
             }
             CommandGroup(replacing: .saveItem) {
+                // Close lives in this placement too, not in .newItem — replacing the
+                // group to add the export items quietly deleted it, so ⌘W had no menu
+                // item to fire and the window delegate's save prompt could never run.
+                Button("Close") { NSApp.keyWindow?.performClose(nil) }
+                    .keyboardShortcut("w", modifiers: .command)
+                Button("Close All") {
+                    // Each still goes through performClose, so an edited tab gets its
+                    // prompt rather than being discarded silently.
+                    for w in NSApp.windows where w.isVisible && w.canBecomeMain {
+                        w.performClose(nil)
+                    }
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
+                Divider()
                 Button("Save") { AppDelegate.shared?.active?.save() }
                     .keyboardShortcut("s", modifiers: .command)
                 Button("Save As…") { AppDelegate.shared?.active?.saveAs() }
