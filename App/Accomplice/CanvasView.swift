@@ -20,7 +20,22 @@ final class PageCanvas: NSView {
         }
     }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
-    var selected: Set<String> = [] { didSet { updateDragSet(); rebuildEditPath(); needsDisplay = true } }
+    var selected: Set<String> = [] {
+        didSet {
+            // Selecting something else leaves vector editing, the way it does in Sketch.
+            if selected != oldValue, editingLayerID != nil, selected != [editingLayerID!] {
+                editingLayerID = nil
+            }
+            updateDragSet(); rebuildEditPath(); needsDisplay = true
+        }
+    }
+
+    /// The layer being point-edited, entered by double-clicking a shape.
+    ///
+    /// Points used to appear as soon as a path was selected, which left no room for a
+    /// single click to mean "add a point" — it already meant "drag the shape". Sketch
+    /// separates the two with a mode, and so does this.
+    private var editingLayerID: String? { didSet { rebuildEditPath(); needsDisplay = true } }
     var onClick: ((CGPoint, Bool) -> Void)?          // point, extend (shift held)
     var onMarquee: ((CGRect, Bool) -> Void)?         // rect, extend
     var onDragBegin: ((String) -> Void)?
@@ -70,7 +85,10 @@ final class PageCanvas: NSView {
     /// transform maths; they're converted back into the layer's own space on commit.
     private func rebuildEditPath() {
         editPath = nil; editLayerID = nil; editTransform = .identity
-        guard tool != .pen, let page, selected.count == 1, let id = selected.first,
+        // The bend tool is a point-editing tool: it implies the mode.
+        let target = tool == .bend ? selected.first : editingLayerID
+        guard tool != .pen, let page, selected.count == 1, let id = target,
+              selected.contains(id),
               let l = page.layer(id), case .path(let cg, _) = l.kind else { return }
         guard let t = transformOf(id, in: page.layers, base: .identity) else { return }
         editTransform = t
@@ -593,11 +611,28 @@ final class PageCanvas: NSView {
         //
         // Not a single click: in point-editing a single click already selects and
         // drags points and starts a marquee, so it has nowhere free to go.
-        if event.clickCount >= 2, editPath != nil {
-            // Shift centres it on the segment rather than dropping it under the pointer.
+        // --- Double-click a shape to edit its points ---
+        if event.clickCount >= 2, editPath == nil, tool == .select {
+            if let hit = layerHit(p), case .path = hit.kind {
+                onClick?(p, false)          // select it, if it wasn't already
+                editingLayerID = hit.id
+                return
+            }
+        }
+
+        // --- In point editing, a single click on the path adds a point ---
+        //
+        // One click, like Sketch. It's only unambiguous because this is a mode you
+        // entered deliberately: existing points and handles are tested first, and a
+        // click nowhere near the path leaves the mode rather than adding anything.
+        if editPath != nil, !isOnPointOrHandle(p) {
             if let t = insertionTarget(at: p, centred: extend) {
                 insertTarget = t
                 if insertPointAtPreview() { return }
+            }
+            if tool == .select {
+                // Missed the path entirely: step out and let the click select normally.
+                editingLayerID = nil
             }
         }
 
@@ -666,19 +701,25 @@ final class PageCanvas: NSView {
         refreshInsertPreview()
     }
 
+    /// True when the pointer is over an existing anchor or handle, which always wins:
+    /// dragging a point you can see must never turn into adding one on top of it.
+    private func isOnPointOrHandle(_ p: CGPoint) -> Bool {
+        guard let vp = editPath else { return false }
+        return vp.points.contains { pt in
+            hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
+                || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
+                || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
+        }
+    }
+
     /// Where an inserted point would land for a pointer at `p`.
     ///
     /// Shift snaps to the middle of the segment. That's the parametric midpoint, which
     /// sits *on* the curve — halfway between the neighbouring points along the path,
     /// and on a straight segment exactly their geometric midpoint.
     private func insertionTarget(at p: CGPoint, centred: Bool) -> (segment: Int, t: CGFloat)? {
-        guard let vp = editPath else { return nil }
-        let onExisting = vp.points.contains { pt in
-            hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
-                || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
-                || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
-        }
-        guard !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2) else { return nil }
+        guard let vp = editPath, !isOnPointOrHandle(p),
+              let hit = vp.closestSegment(to: p, within: grabRadius * 2) else { return nil }
         return (hit.index, centred ? 0.5 : hit.t)
     }
 
@@ -698,6 +739,14 @@ final class PageCanvas: NSView {
             insertTarget = target
             needsDisplay = true
         }
+        // Sketch shows a pen with a plus here. The cursor is what tells you a click
+        // will add rather than select, before you find out by doing it.
+        if spot != nil { NSCursor.crosshair.set() } else { NSCursor.arrow.set() }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if editPath == nil { NSCursor.arrow.set() }
     }
 
     /// Shift can be pressed without the pointer moving, and the preview has to follow.
@@ -816,6 +865,7 @@ final class PageCanvas: NSView {
             if tool == .pen { finishPen(close: false); return }
         case 53:   // escape — abandon
             if tool == .pen { penPoints = []; penCursor = nil; needsDisplay = true; return }
+            if editingLayerID != nil { editingLayerID = nil; return }
         case 51, 117:  // delete
             // A targeted point goes first; otherwise the whole selection goes.
             if let vp = editPath, let i = lastTouchedPoint, vp.points.count > 2 {
