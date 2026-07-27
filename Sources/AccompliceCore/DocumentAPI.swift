@@ -153,6 +153,8 @@ public enum DocumentCommand: Sendable {
     case order(LayerQuery, where: String)   // front | back | forward | backward
     case group(LayerQuery, name: String?)
     case ungroup(LayerQuery)
+    /// Bend text round a circle. nil radius straightens it again.
+    case curve(LayerQuery, radius: Double?, angle: Double?, flipped: Bool?)
 
     public var query: LayerQuery {
         switch self {
@@ -161,6 +163,7 @@ public enum DocumentCommand: Sendable {
         case .setStroke(let q, _, _), .rename(let q, _), .align(let q, _): return q
         case .move(let q, _, _), .resize(let q, _, _): return q
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
+        case .curve(let q, _, _, _): return q
         }
     }
 
@@ -176,6 +179,7 @@ public enum DocumentCommand: Sendable {
         case .rename: return "Rename"
         case .move: return "Move"
         case .resize: return "Resize"
+        case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
         case .align(_, let e): return "Align \(e)"
         case .distribute(_, let a): return "Distribute \(a)"
         case .order(_, let w): return "Order \(w)"
@@ -203,9 +207,15 @@ extension DocumentCommand {
             for k in keys { if let v = d[k] as? String { return v } }
             return nil
         }
-        func n(_ k: String) -> Double? {
-            if let v = d[k] as? Double { return v }
-            if let v = d[k] as? Int { return Double(v) }
+        func n(_ keys: String...) -> Double? {
+            for k in keys {
+                if let v = d[k] as? Double { return v }
+                if let v = d[k] as? Int { return Double(v) }
+            }
+            return nil
+        }
+        func b(_ keys: String...) -> Bool? {
+            for k in keys { if let v = d[k] as? Bool { return v } }
             return nil
         }
 
@@ -232,6 +242,13 @@ extension DocumentCommand {
             return .order(q, where: s("where", "value", "to") ?? fallback)
         case "group": return .group(q, name: s("name", "value"))
         case "ungroup": return .ungroup(q)
+        case "curve", "arc", "curvetext":
+            // "straighten" and an explicit null both mean "take the curve off".
+            let straighten = d["straighten"] as? Bool == true
+            return .curve(q,
+                          radius: straighten ? nil : n("radius", "r"),
+                          angle: n("angle", "rotation"),
+                          flipped: b("flipped", "flip", "upright"))
         default: return nil
         }
     }
@@ -323,6 +340,10 @@ extension DocumentCommand {
           order        where: front|back|forward|backward
           group        name (optional)
           ungroup
+          curve        radius, angle (degrees clockwise from 12 o'clock), flipped
+                       — bends a text layer round a circle centred on its frame.
+                       Use flipped:true for text along the bottom so it reads
+                       upright. {"op":"curve","straighten":true} removes the curve.
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",

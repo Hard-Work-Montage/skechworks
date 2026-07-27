@@ -21,7 +21,7 @@ struct PropertiesPanel: View {
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
                         if !layer.style.shadows.isEmpty { Divider(); shadows(layer) }
-                        if case .text(let t) = layer.kind { Divider(); text(t) }
+                        if case .text(let t) = layer.kind { Divider(); text(t, layer) }
                         if case .shapeGroup(let kids, let rule) = layer.kind {
                             Divider(); combined(kids.count, rule, layer)
                         }
@@ -199,7 +199,7 @@ struct PropertiesPanel: View {
         }
     }
 
-    private func text(_ t: TextRun) -> some View {
+    private func text(_ t: TextRun, _ layer: Layer) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Text")
             row("Font", t.fontName)
@@ -213,6 +213,55 @@ struct PropertiesPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
                 .textSelection(.enabled)
+            curve(t, layer)
+        }
+    }
+
+    /// Bending text round a circle: a radius and an angle, not a path to attach to.
+    private func curve(_ t: TextRun, _ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Toggle("Curve", isOn: Binding(
+                get: { t.arc != nil },
+                set: { on in
+                    guard on != (t.arc != nil) else { return }   // SwiftUI re-sets unchanged values
+                    store.edit(l.id, actionName: on ? "Curve Text" : "Straighten Text") { layer in
+                        guard case .text(var run) = layer.kind else { return }
+                        // Default to a ring that fits the layer, so switching it on
+                        // shows something sensible rather than nothing.
+                        run.arc = on
+                            ? TextArc(radius: min(layer.frame.width, layer.frame.height) / 2)
+                            : nil
+                        layer.kind = .text(run)
+                    }
+                }))
+                .toggleStyle(.switch).controlSize(.mini)
+                .font(.callout)
+
+            if let arc = t.arc {
+                editable("Radius", arc.radius, l) { layer, v in
+                    guard case .text(var run) = layer.kind else { return }
+                    run.arc?.radius = max(1, v)
+                    layer.kind = .text(run)
+                }
+                editable("Angle", arc.angle, l, suffix: "°") { layer, v in
+                    guard case .text(var run) = layer.kind else { return }
+                    run.arc?.angle = v
+                    layer.kind = .text(run)
+                }
+                Toggle("Flip (read upright below)", isOn: Binding(
+                    get: { arc.flipped },
+                    set: { f in
+                        guard f != arc.flipped else { return }
+                        store.edit(l.id, actionName: "Flip Curve") { layer in
+                            guard case .text(var run) = layer.kind else { return }
+                            run.arc?.flipped = f
+                            layer.kind = .text(run)
+                        }
+                    }))
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .font(.callout)
+            }
         }
     }
 

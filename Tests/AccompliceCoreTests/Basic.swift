@@ -639,3 +639,105 @@ private func styledPage() -> Page {
     #expect(turn.problems.count == 1)          // the claim can't stand unchallenged
     #expect(turn.problems[0].contains("setFill"))
 }
+
+// MARK: - Curved text
+
+private func arcRun(_ s: String, radius: CGFloat, angle: CGFloat, flipped: Bool = false) -> TextRun {
+    var run = TextRun()
+    run.string = s
+    run.fontName = "Helvetica"
+    run.fontSize = 24
+    run.arc = TextArc(radius: radius, angle: angle, flipped: flipped)
+    return run
+}
+
+private let arcFrame = CGRect(x: 0, y: 0, width: 400, height: 400)   // centre (200, 200)
+
+@Test func curvedTextSitsOnTheCircleAtTwelveOClock() throws {
+    let p = try #require(TextOutline.path(arcRun("A", radius: 100, angle: 0), in: arcFrame))
+    let b = p.boundingBoxOfPath
+    // Centred on the angle, so horizontally centred on the frame.
+    #expect(abs(b.midX - 200) < 2)
+    // Baseline on the circle: y = 200 - 100. Glyph rises outward (smaller y).
+    #expect(abs(b.maxY - 100) < 2)
+    #expect(b.minY < 100)
+}
+
+@Test func curvedTextFollowsTheAngleRoundTheCircle() throws {
+    // 3 o'clock: on the +x side, and the glyph leans outward past the radius.
+    let p = try #require(TextOutline.path(arcRun("A", radius: 100, angle: 90), in: arcFrame))
+    let b = p.boundingBoxOfPath
+    #expect(abs(b.midY - 200) < 2)
+    #expect(b.minX > 295)          // baseline at x = 300
+    #expect(b.maxX > 300)          // rises outward
+}
+
+@Test func flippedCurvedTextReadsUprightAlongTheBottom() throws {
+    let p = try #require(TextOutline.path(arcRun("A", radius: 100, angle: 180, flipped: true),
+                                          in: arcFrame))
+    let b = p.boundingBoxOfPath
+    #expect(abs(b.midX - 200) < 2)
+    // Baseline on the circle at y = 300, glyph upright so it rises toward the centre.
+    #expect(abs(b.maxY - 300) < 2)
+    #expect(b.minY < 300)
+}
+
+@Test func longCurvedTextWrapsRoundRatherThanRunningStraight() throws {
+    // A string long enough to pass a quarter turn must curve: a straight line of the
+    // same text would be far wider than it is tall.
+    let p = try #require(TextOutline.path(arcRun("25,600 MINUTES OF THIS", radius: 80, angle: 0),
+                                          in: arcFrame))
+    let b = p.boundingBoxOfPath
+    #expect(b.height > 60)         // straight text would be ~24 tall
+    #expect(b.width < 260)         // and ~280 wide
+}
+
+@Test func arcSurvivesSaveAndReload() throws {
+    var doc = Document()
+    var page = Page(name: "Page 1")
+    var layer = Layer(kind: .text(arcRun("8760 HOURS", radius: 120, angle: 45, flipped: true)))
+    layer.name = "ring"
+    layer.frame = arcFrame
+    page.layers = [layer]
+    doc.pages = [page]
+
+    let data = try AcmplcFile.write(document: doc, images: [:])
+    let (back, _) = try AcmplcFile.read(data)
+    guard case .text(let run) = back.pages[0].layers[0].kind, let a = run.arc else {
+        Issue.record("arc lost on reload"); return
+    }
+    #expect(a.radius == 120)
+    #expect(a.angle == 45)
+    #expect(a.flipped)
+}
+
+@Test func curveCommandBendsAndStraightensText() {
+    var page = Page(name: "p")
+    var l = Layer(kind: .text(arcRun("8760 HOURS", radius: 0, angle: 0)))
+    if case .text(var r) = l.kind { r.arc = nil; l.kind = .text(r) }   // start straight
+    l.frame = arcFrame
+    l.name = "hours"
+    page.layers = [l]
+
+    func arc(_ p: Page) -> TextArc? {
+        guard case .text(let r) = p.layers[0].kind else { return nil }
+        return r.arc
+    }
+
+    let bend = DocumentCommand.decodeList(Data(#"""
+    [{"op":"curve","name":"hours","radius":120,"angle":180,"flipped":true}]
+    """#.utf8))
+    #expect(bend.count == 1)
+    _ = page.run(bend)
+    #expect(arc(page)?.radius == 120)
+    #expect(arc(page)?.angle == 180)
+    #expect(arc(page)?.flipped == true)
+
+    // Angle alone must not discard the radius already set.
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"curve","name":"hours","angle":90}]"#.utf8)))
+    #expect(arc(page)?.radius == 120)
+    #expect(arc(page)?.angle == 90)
+
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"curve","name":"hours","straighten":true}]"#.utf8)))
+    #expect(arc(page) == nil)
+}

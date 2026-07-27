@@ -335,6 +335,30 @@ public struct Style: Sendable {
 
 // MARK: - Text
 
+/// Text bent around a circle.
+///
+/// Deliberately an arc rather than attachment to an arbitrary path. Every curved
+/// label Adam actually sets — the minute/hour/day rings on a coin — is a circle,
+/// and text-on-path is fiddly to author and fiddlier to keep stable when the
+/// string length changes. A radius and an angle are two numbers you can reason
+/// about, and they survive an edit to the words.
+public struct TextArc: Sendable, Equatable, Codable {
+    /// Radius of the baseline circle, in layer units. The centre is the centre of
+    /// the layer's frame.
+    public var radius: CGFloat
+    /// Where the string is centred, in degrees clockwise from 12 o'clock.
+    public var angle: CGFloat = 0
+    /// Run the text the other way round, glyphs inverted — what you want along the
+    /// bottom of a coin so it reads the right way up.
+    public var flipped: Bool = false
+
+    public init(radius: CGFloat, angle: CGFloat = 0, flipped: Bool = false) {
+        self.radius = radius
+        self.angle = angle
+        self.flipped = flipped
+    }
+}
+
 public struct TextRun: @unchecked Sendable {
     public var string: String = ""
     public var fontName: String = "Helvetica"
@@ -343,5 +367,7 @@ public struct TextRun: @unchecked Sendable {
     public var kerning: CGFloat = 0
     public var lineHeight: CGFloat = 0      // 0 == use the font's natural leading
     public var alignment: CTTextAlignment = .left
+    /// Straight text when nil, which is nearly all of it.
+    public var arc: TextArc?
     public init() {}
 }

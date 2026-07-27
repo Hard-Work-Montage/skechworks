@@ -23,6 +23,7 @@ public enum TextOutline {
 
     /// Outlines the run inside `frame`, in the layer's local coordinate space (y-down).
     public static func path(_ run: TextRun, in frame: CGRect) -> CGPath? {
+        if let arc = run.arc { return arcPath(run, arc: arc, in: frame) }
         let ctFont = font(run)
         let lines = run.string.components(separatedBy: "\n")
         guard !lines.isEmpty else { return nil }
@@ -70,6 +71,73 @@ public enum TextOutline {
                 }
             }
             y += step
+        }
+        return out.isEmpty ? nil : out.copy()
+    }
+
+    /// Lays the run around a circle centred on the layer's frame.
+    ///
+    /// Glyphs are placed one at a time rather than as a line: each sits at its own
+    /// angle with its own rotation, which is what makes the text follow the curve
+    /// instead of shearing along a chord.
+    ///
+    /// Angles are clockwise from 12 o'clock. In this y-down space a point at θ is
+    /// (sin θ, -cos θ) from the centre and the tangent is (cos θ, sin θ), so a plain
+    /// rotation by θ already lines a glyph's baseline up with the curve.
+    private static func arcPath(_ run: TextRun, arc: TextArc, in frame: CGRect) -> CGPath? {
+        let ctFont = font(run)
+        // One ring, one line. Newlines would need a second radius to mean anything,
+        // and a space is what someone typing a curved label meant anyway.
+        let string = run.string.replacingOccurrences(of: "\n", with: " ")
+        guard !string.isEmpty, arc.radius > 0 else { return nil }
+
+        var attrs: [CFString: Any] = [kCTFontAttributeName: ctFont]
+        if run.kerning != 0 { attrs[kCTKernAttributeName] = run.kerning }
+        let astr = CFAttributedStringCreate(nil, string as CFString, attrs as CFDictionary)!
+        let line = CTLineCreateWithAttributedString(astr)
+
+        // Positions along the (straight) line give the advances; the arc reuses them
+        // as arc length, so kerning and the font's own metrics still apply.
+        var placed: [(glyph: CGGlyph, font: CTFont, x: CGFloat, width: CGFloat)] = []
+        for r in (CTLineGetGlyphRuns(line) as! [CTRun]) {
+            let n = CTRunGetGlyphCount(r)
+            guard n > 0 else { continue }
+            var glyphs = [CGGlyph](repeating: 0, count: n)
+            var positions = [CGPoint](repeating: .zero, count: n)
+            var advances = [CGSize](repeating: .zero, count: n)
+            CTRunGetGlyphs(r, CFRangeMake(0, n), &glyphs)
+            CTRunGetPositions(r, CFRangeMake(0, n), &positions)
+            CTRunGetAdvances(r, CFRangeMake(0, n), &advances)
+            let runFont = (CTRunGetAttributes(r) as NSDictionary)[kCTFontAttributeName] as! CTFont
+            for i in 0..<n {
+                placed.append((glyphs[i], runFont, positions[i].x, advances[i].width))
+            }
+        }
+        guard !placed.isEmpty else { return nil }
+
+        let total = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let centre = CGPoint(x: frame.width / 2, y: frame.height / 2)
+        let start = arc.angle * .pi / 180
+        let direction: CGFloat = arc.flipped ? -1 : 1
+        let out = CGMutablePath()
+
+        for g in placed {
+            guard let glyph = CTFontCreatePathForGlyph(g.font, g.glyph, nil) else { continue }
+            // Distance from the middle of the string to the middle of this glyph,
+            // as arc length; dividing by the radius turns it into an angle.
+            let midpoint = g.x + g.width / 2 - total / 2
+            let theta = start + direction * midpoint / arc.radius
+            let p = CGPoint(x: centre.x + arc.radius * sin(theta),
+                            y: centre.y - arc.radius * cos(theta))
+
+            // Flipped text runs the other way with the glyphs turned over, so it
+            // reads upright along the bottom of a circle rather than upside down.
+            var t = CGAffineTransform(translationX: p.x, y: p.y)
+                .rotated(by: theta + (arc.flipped ? .pi : 0))
+                .translatedBy(x: -g.width / 2, y: 0)
+                .scaledBy(x: 1, y: -1)     // glyph outlines are y-up
+            out.addPath(glyph, transform: t)
+            _ = t
         }
         return out.isEmpty ? nil : out.copy()
     }

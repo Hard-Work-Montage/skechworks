@@ -145,6 +145,28 @@ extension Page {
 
         case .ungroup:
             for id in ids { p.ungroup(id) }
+
+        case .curve(_, let radius, let angle, let flipped):
+            for id in ids {
+                p.updateLayer(id) { l in
+                    guard case .text(var run) = l.kind else { return }
+                    if let radius {
+                        // Editing an existing curve keeps whatever wasn't mentioned.
+                        var a = run.arc ?? TextArc(radius: CGFloat(radius))
+                        a.radius = max(1, CGFloat(radius))
+                        if let angle { a.angle = CGFloat(angle) }
+                        if let flipped { a.flipped = flipped }
+                        run.arc = a
+                    } else if angle != nil || flipped != nil, var a = run.arc {
+                        if let angle { a.angle = CGFloat(angle) }
+                        if let flipped { a.flipped = flipped }
+                        run.arc = a
+                    } else {
+                        run.arc = nil          // straighten
+                    }
+                    l.kind = .text(run)
+                }
+            }
         }
     }
 }

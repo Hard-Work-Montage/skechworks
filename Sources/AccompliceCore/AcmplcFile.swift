@@ -182,6 +182,11 @@ public struct AcmplcFile {
             run.kerning = dbl(t["kerning"]) ?? 0
             run.lineHeight = dbl(t["lineHeight"]) ?? 0
             if let hex = t["color"] as? String, let c = colorFrom(hex, 1) { run.color = c }
+            if let a = t["arc"] as? [String: Any], let r = dbl(a["radius"]) {
+                run.arc = TextArc(radius: r,
+                                  angle: dbl(a["angle"]) ?? 0,
+                                  flipped: a["flipped"] as? Bool ?? false)
+            }
             switch t["align"] as? String {
             case "center": run.alignment = .center
             case "right": run.alignment = .right
@@ -335,9 +340,13 @@ public struct AcmplcFile {
             case .justified: align = "justified"
             default: align = "left"
             }
-            d["text"] = ["string": t.string, "font": t.fontName, "size": t.fontSize,
-                         "color": t.color.hex, "kerning": t.kerning, "lineHeight": t.lineHeight,
-                         "align": align]
+            var text: [String: Any] = ["string": t.string, "font": t.fontName, "size": t.fontSize,
+                                       "color": t.color.hex, "kerning": t.kerning,
+                                       "lineHeight": t.lineHeight, "align": align]
+            if let a = t.arc {
+                text["arc"] = ["radius": a.radius, "angle": a.angle, "flipped": a.flipped]
+            }
+            d["text"] = text
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
         }
