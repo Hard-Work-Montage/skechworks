@@ -173,6 +173,15 @@ public struct Layer: @unchecked Sendable {
     public var style = Style()
     public var kind: LayerKind
 
+    /// Point types for a path layer, one per anchor.
+    ///
+    /// A CGPath has no idea what a point type is, so rebuilding a VectorPath from one
+    /// can only guess from the geometry — and the guess is wrong in exactly the case
+    /// that matters: an Aligned point whose handles happen to be the same length looks
+    /// identical to a Mirrored one and comes back as Mirrored. Choosing the type has to
+    /// stick, so it's stored.
+    public var curveModes: [CurveMode] = []
+
     public init(kind: LayerKind) { self.kind = kind }
 
     public var bounds: CGRect { frame }

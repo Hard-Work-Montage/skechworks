@@ -518,6 +518,9 @@ extension Layer {
             // extent — cheaper than hashing every curve.
             let b = p.boundingBoxOfPath
             s += "|\(Int(b.minX)),\(Int(b.minY)),\(Int(b.width)),\(Int(b.height)),\(closed ? 1 : 0)"
+            // Switching Mirrored to Aligned changes no geometry at all. Left out of
+            // the signature, mutatePage sees no change and throws the edit away.
+            if !curveModes.isEmpty { s += "|" + curveModes.map { String($0.rawValue) }.joined() }
         }
         switch kind {
         case .group(let k), .shapeGroup(let k, _):

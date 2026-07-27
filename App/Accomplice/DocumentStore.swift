@@ -749,6 +749,7 @@ final class DocumentStore: ObservableObject {
             let origin = CGPoint(x: l.frame.minX + box.minX, y: l.frame.minY + box.minY)
             let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
             l.kind = .path(local, closed: vp.closed)
+            l.curveModes = vp.points.map(\.mode)
             l.frame = CGRect(origin: origin, size: box.size)
         }
     }

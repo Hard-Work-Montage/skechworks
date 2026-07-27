@@ -1242,3 +1242,75 @@ private func maxDeviation(_ path: VectorPath, from reference: VectorPath) -> CGF
     // ...but the incoming handle kept its own length.
     #expect(abs(hypot(into.x, into.y) - 10) < 0.01)
 }
+
+@Test func alignedIsNotSilentlyTurnedBackIntoMirrored() {
+    // The bug Adam hit: Aligned and Mirrored behaved identically. Choosing Aligned on
+    // a point whose handles are the same length produced geometry indistinguishable
+    // from Mirrored, and the type was re-guessed from that geometry on every rebuild.
+    // A middle point, so it has handles on both sides — the case where Mirrored and
+    // Aligned are distinguishable at all.
+    let cg = CGMutablePath()
+    cg.move(to: CGPoint(x: 0, y: 200))
+    cg.addCurve(to: CGPoint(x: 200, y: 100), control1: CGPoint(x: 60, y: 200),
+                control2: CGPoint(x: 160, y: 100))
+    cg.addCurve(to: CGPoint(x: 400, y: 200), control1: CGPoint(x: 240, y: 100),
+                control2: CGPoint(x: 340, y: 200))
+    var vp = VectorPath(cgPath: cg)
+    // Handles equal and opposite about the middle point: geometrically Mirrored.
+    #expect(vp.points[1].mode == .mirrored)
+
+    vp.points[1].mode = .asymmetric
+    let round = VectorPath(cgPath: vp.cgPath(), modes: vp.points.map(\.mode))
+    #expect(round.points[1].mode == .asymmetric)
+
+    // Inference alone can't tell them apart, which is why the modes have to travel.
+    #expect(VectorPath(cgPath: vp.cgPath()).points[1].mode == .mirrored)
+}
+
+@Test func alignedKeepsTheOtherHandlesLengthWhileMirroredDoesNot() {
+    func drag(_ mode: CurveMode) -> (moved: CGFloat, other: CGFloat) {
+        var p = VectorPoint(CGPoint(x: 100, y: 100))
+        p.curveFrom = CGPoint(x: 140, y: 100); p.hasCurveFrom = true
+        p.curveTo = CGPoint(x: 90, y: 100); p.hasCurveTo = true      // 40 out, 10 in
+        p.mode = mode
+        p.setHandle(out: true, to: CGPoint(x: 100, y: 180))          // drag out to 80
+        return (hypot(p.curveFrom.x - p.point.x, p.curveFrom.y - p.point.y),
+                hypot(p.curveTo.x - p.point.x, p.curveTo.y - p.point.y))
+    }
+    let aligned = drag(.asymmetric)
+    #expect(abs(aligned.moved - 80) < 0.01)
+    #expect(abs(aligned.other - 10) < 0.01)      // short side keeps its length...
+
+    let mirrored = drag(.mirrored)
+    #expect(abs(mirrored.moved - 80) < 0.01)
+    #expect(abs(mirrored.other - 80) < 0.01)     // ...where mirrored matches it
+}
+
+@Test func pointTypesSurviveSavingAndReopening() throws {
+    var vp = curvedTestPath()
+    vp.points[0].mode = .asymmetric
+    vp.points[1].mode = .disconnected
+
+    var l = Layer(kind: .path(vp.cgPath(), closed: false))
+    l.name = "p"
+    l.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+    l.curveModes = vp.points.map(\.mode)
+    var page = Page(name: "Page 1")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+
+    let (back, _) = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    #expect(back.pages[0].layers[0].curveModes == [.asymmetric, .disconnected])
+}
+
+@Test func changingOnlyThePointTypeCountsAsAChange() {
+    // Mirrored to Aligned moves nothing. If the signature ignores it, the edit is
+    // discarded as a no-op and the choice never lands.
+    var l = Layer(kind: .path(curvedTestPath().cgPath(), closed: false))
+    l.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+    l.curveModes = [.mirrored, .mirrored]
+    let before = l.contentSignature
+    l.curveModes = [.asymmetric, .mirrored]
+    #expect(l.contentSignature != before)
+}

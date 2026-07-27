@@ -172,6 +172,17 @@ public struct VectorPath: Sendable {
         self.init(points: pts, closed: isClosed)
     }
 
+    /// Builds from a path whose point types are known, rather than inferred.
+    ///
+    /// `modes` is ignored when it doesn't match the point count — a path edited
+    /// somewhere that didn't maintain it is better off with the geometric guess than
+    /// with types belonging to different points.
+    public init(cgPath: CGPath, modes: [CurveMode]) {
+        self.init(cgPath: cgPath)
+        guard modes.count == points.count else { return }
+        for i in points.indices { points[i].mode = modes[i] }
+    }
+
     private static func inferMode(_ p: VectorPoint) -> CurveMode {
         guard p.hasCurveFrom || p.hasCurveTo else { return .straight }
         guard p.hasCurveFrom && p.hasCurveTo else { return .disconnected }

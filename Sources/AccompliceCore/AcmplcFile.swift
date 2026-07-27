@@ -165,6 +165,7 @@ public struct AcmplcFile {
     private static func readLayer(_ j: [String: Any]) -> Layer? {
         let kids = { (j["layers"] as? [[String: Any]] ?? []).compactMap(readLayer) }
         let kind: LayerKind
+        var modes: [CurveMode] = []
         switch j["type"] as? String ?? "" {
         case "group":
             kind = .group(kids())
@@ -173,6 +174,9 @@ public struct AcmplcFile {
         case "path":
             guard let d = j["d"] as? String else { return nil }
             kind = .path(PathParser.path(from: d), closed: j["closed"] as? Bool ?? true)
+            if let m = j["pointTypes"] as? [Int] {
+                modes = m.compactMap { CurveMode(rawValue: $0) }
+            }
         case "text":
             guard let t = j["text"] as? [String: Any] else { return nil }
             var run = TextRun()
@@ -202,6 +206,7 @@ public struct AcmplcFile {
         }
 
         var l = Layer(kind: kind)
+        l.curveModes = modes
         l.id = j["id"] as? String ?? UUID().uuidString
         l.name = j["name"] as? String ?? ""
         if let f = j["frame"] as? [String: Any] {
@@ -331,6 +336,7 @@ public struct AcmplcFile {
             d["layers"] = kids.map(layerJSON)
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
+            if !l.curveModes.isEmpty { d["pointTypes"] = l.curveModes.map(\.rawValue) }
         case .text(let t):
             d["type"] = "text"
             let align: String

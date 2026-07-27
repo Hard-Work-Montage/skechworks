@@ -104,7 +104,7 @@ final class PageCanvas: NSView {
         guard let t = transformOf(id, in: page.layers, base: .identity) else { return }
         editTransform = t
         editLayerID = id
-        editPath = VectorPath(cgPath: cg.transformed(by: t))
+        editPath = VectorPath(cgPath: cg.transformed(by: t), modes: l.curveModes)
     }
 
     private func transformOf(_ id: String, in layers: [Layer], base: CGAffineTransform) -> CGAffineTransform? {
@@ -123,7 +123,11 @@ final class PageCanvas: NSView {
     private func commitEdit(_ name: String) {
         guard let vp = editPath, let id = editLayerID else { return }
         // Back into the layer's own space, undoing the transform we applied to edit in.
-        let local = VectorPath(cgPath: vp.cgPath().transformed(by: editTransform.inverted()))
+        var local = VectorPath(cgPath: vp.cgPath().transformed(by: editTransform.inverted()))
+        // Carry the chosen types across; the round trip through CGPath drops them.
+        if local.points.count == vp.points.count {
+            for i in local.points.indices { local.points[i].mode = vp.points[i].mode }
+        }
         onEditPath?(local, id, name)
     }
 
