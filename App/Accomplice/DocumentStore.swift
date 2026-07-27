@@ -324,7 +324,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func insertArtboard() {
-        let size = CGSize(width: 2076, height: 2076)   // a coin, since that's the work
+        let size = CGSize(width: 500, height: 500)
         var l = Layer(kind: .group([]))
         l.name = "Artboard"
         l.isArtboard = true
