@@ -49,6 +49,20 @@ struct AccompliceApp: App {
                 Button("Redo") { AppDelegate.shared?.active?.redo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
+            CommandGroup(replacing: .pasteboard) {
+                Button("Cut") { AppDelegate.shared?.active?.cutSelection() }
+                    .keyboardShortcut("x", modifiers: .command)
+                Button("Copy") { AppDelegate.shared?.active?.copySelection() }
+                    .keyboardShortcut("c", modifiers: .command)
+                Button("Paste") { AppDelegate.shared?.active?.paste() }
+                    .keyboardShortcut("v", modifiers: .command)
+                Button("Duplicate") { AppDelegate.shared?.active?.duplicateSelection() }
+                    .keyboardShortcut("d", modifiers: .command)
+                Divider()
+                Button("Delete") { AppDelegate.shared?.active?.deleteSelection() }
+                Button("Select All") { AppDelegate.shared?.active?.selectAll() }
+                    .keyboardShortcut("a", modifiers: .command)
+            }
             CommandMenu("Tools") {
                 ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
                     Button(t.title) { AppDelegate.shared?.active?.tool = t }

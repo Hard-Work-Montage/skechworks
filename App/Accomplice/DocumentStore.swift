@@ -350,6 +350,85 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Clipboard
+
+    static let pasteboardType = NSPasteboard.PasteboardType("com.accomplice.layers")
+
+    var canCopy: Bool { !selection.isEmpty }
+    var canPaste: Bool {
+        let pb = NSPasteboard.general
+        return pb.data(forType: Self.pasteboardType) != nil || pb.string(forType: .string) != nil
+    }
+
+    func copySelection() {
+        guard let page, !selection.isEmpty else { return }
+        let layers = selection.compactMap { page.layer($0) }
+        guard !layers.isEmpty else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        // Native type for full fidelity; SVG alongside it so a shape can be pasted
+        // straight into another program.
+        if let d = try? AcmplcFile.encodeClipboard(layers: layers, images: images) {
+            pb.setData(d, forType: Self.pasteboardType)
+        }
+        var scratch = Page(name: "clip")
+        scratch.layers = layers
+        pb.setString(SVGWriter(images: images).svg(page: scratch), forType: .string)
+    }
+
+    func cutSelection() {
+        copySelection()
+        deleteSelection()
+    }
+
+    func paste() {
+        guard let src = source, var p = page,
+              let data = NSPasteboard.general.data(forType: Self.pasteboardType),
+              let (layers, assets) = AcmplcFile.decodeClipboard(data), !layers.isEmpty else { return }
+
+        // Fresh ids, nudged so a paste-in-place isn't invisible.
+        let offset: CGFloat = 20
+        let fresh = layers.map { l -> Layer in
+            var c = l.withNewIDs()
+            c.frame.origin = CGPoint(x: c.frame.minX + offset, y: c.frame.minY + offset)
+            return c
+        }
+        // Bring any referenced images across; pasting between documents otherwise
+        // yields a layer pointing at bytes this document has never seen.
+        var newSource = src
+        for (k, v) in assets where src.images[k] == nil {
+            newSource = newSource.adding(image: v, key: k)
+        }
+        source = newSource
+        p.layers.append(contentsOf: fresh)
+        apply(p, at: pageIndex, src: newSource)
+        revision += 1
+        isDirty = true
+        selection = Set(fresh.map(\.id))
+
+        let idx = pageIndex
+        let ids = fresh.map(\.id)
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                store.selection = Set(ids)
+                store.deleteSelection()
+            }
+        }
+        undoManager.setActionName(fresh.count == 1 ? "Paste" : "Paste \(fresh.count) Layers")
+        refreshUndoState()
+    }
+
+    func duplicateSelection() {
+        copySelection()
+        paste()
+        undoManager.setActionName("Duplicate")
+    }
+
+    func selectAll() {
+        guard let page else { return }
+        selection = Set(page.layers.map(\.id))
+    }
+
     // MARK: - Insert
 
     /// Where a newly inserted layer lands: the middle of the current content, or the

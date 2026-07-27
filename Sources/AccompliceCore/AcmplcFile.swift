@@ -83,6 +83,31 @@ public struct AcmplcFile {
         return out
     }
 
+    // MARK: - Clipboard
+
+    /// Serializes layers plus any images they reference, so a copy survives being
+    /// pasted into a different document.
+    public static func encodeClipboard(layers: [Layer], images: [String: Data]) throws -> Data {
+        var assets: [String: String] = [:]
+        for key in layers.reduce(into: Set<String>(), { $0.formUnion($1.imageRefs) }) {
+            if let d = images[key] { assets[key] = d.base64EncodedString() }
+        }
+        return try json(["format": "acmplc-clipboard",
+                         "layers": layers.map(layerJSON),
+                         "assets": assets])
+    }
+
+    public static func decodeClipboard(_ data: Data) -> (layers: [Layer], images: [String: Data])? {
+        guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              j["format"] as? String == "acmplc-clipboard",
+              let raw = j["layers"] as? [[String: Any]] else { return nil }
+        var images: [String: Data] = [:]
+        for (k, v) in j["assets"] as? [String: String] ?? [:] {
+            if let d = Data(base64Encoded: v) { images[k] = d }
+        }
+        return (raw.compactMap(readLayer), images)
+    }
+
     // MARK: - Reading
 
     public enum ReadError: Error, CustomStringConvertible {

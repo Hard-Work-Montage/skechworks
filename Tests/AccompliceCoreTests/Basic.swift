@@ -308,3 +308,48 @@ import Testing
     #expect(removed?.index == 1)
     #expect(page.layers.count == 1)
 }
+
+@Test func clipboardRoundTripsLayersAndTheirImages() throws {
+    // Pasting into a different document has to bring the pixels along, or the layer
+    // arrives pointing at bytes that document has never seen.
+    var pic = Layer(kind: .bitmap(imageRef: "images/abc.png"))
+    pic.frame = CGRect(x: 10, y: 10, width: 100, height: 80)
+    pic.name = "Photo"
+    var shape = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 50, height: 50), transform: nil), closed: true))
+    shape.frame = CGRect(x: 0, y: 0, width: 50, height: 50)
+    shape.style.fills = [Fill(paint: .color(.black))]
+    let group = Layer(kind: .group([pic, shape]))
+
+    let bytes = Data("not really a png".utf8)
+    let encoded = try AcmplcFile.encodeClipboard(layers: [group], images: ["images/abc.png": bytes])
+    let back = try #require(AcmplcFile.decodeClipboard(encoded))
+
+    #expect(back.layers.count == 1)
+    #expect(back.images["images/abc.png"] == bytes)
+    guard case .group(let kids) = back.layers[0].kind else { Issue.record("expected group"); return }
+    #expect(kids.count == 2)
+    #expect(kids[0].name == "Photo")
+}
+
+@Test func newIDsAreFreshAllTheWayDown() {
+    var leaf = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 5, height: 5), transform: nil), closed: true))
+    leaf.id = "leaf"
+    var inner = Layer(kind: .shapeGroup([leaf], .nonZero)); inner.id = "inner"
+    var outer = Layer(kind: .group([inner])); outer.id = "outer"
+
+    let copy = outer.withNewIDs()
+    #expect(copy.id != "outer")
+    guard case .group(let a) = copy.kind, case .shapeGroup(let b, _) = a[0].kind else {
+        Issue.record("structure lost"); return
+    }
+    #expect(a[0].id != "inner")
+    #expect(b[0].id != "leaf")
+    #expect(outer.id == "outer")   // the original is untouched
+}
+
+@Test func imageRefsGatherFromNestedLayers() {
+    let a = Layer(kind: .bitmap(imageRef: "one.png"))
+    let b = Layer(kind: .bitmap(imageRef: "two.png"))
+    let group = Layer(kind: .group([a, Layer(kind: .group([b]))]))
+    #expect(group.imageRefs == ["one.png", "two.png"])
+}

@@ -189,6 +189,30 @@ public struct Layer: @unchecked Sendable {
         return out
     }
 
+    /// A copy with fresh ids throughout. Pasting or duplicating must not reuse ids —
+    /// two layers answering to the same id would make selection and undo ambiguous.
+    public func withNewIDs() -> Layer {
+        var copy = self
+        copy.id = UUID().uuidString
+        switch kind {
+        case .group(let k): copy.kind = .group(k.map { $0.withNewIDs() })
+        case .shapeGroup(let k, let rule): copy.kind = .shapeGroup(k.map { $0.withNewIDs() }, rule)
+        default: break
+        }
+        return copy
+    }
+
+    /// Every image key this layer or its children reference, so a copy can carry its
+    /// assets to another document.
+    public var imageRefs: Set<String> {
+        switch kind {
+        case .bitmap(let ref): return [ref]
+        case .group(let k), .shapeGroup(let k, _):
+            return k.reduce(into: Set<String>()) { $0.formUnion($1.imageRefs) }
+        default: return []
+        }
+    }
+
     /// Resizes the layer, scaling its contents to match.
     ///
     /// Paths are stored in absolute units inside the layer's own space, not normalized
