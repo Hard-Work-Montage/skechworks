@@ -987,3 +987,39 @@ private func curvedTestPath() -> VectorPath {
         #expect(abs(u.y - v.y) < 1)
     }
 }
+
+@Test func centringPutsThePointHalfwayAlongTheSegment() {
+    var vp = curvedTestPath()
+    let expected = VectorPath.evaluate(vp.points[0], vp.points[1], 0.5)
+    guard let made = vp.insertPoint(onSegment: 0, at: 0.5) else { Issue.record("no insert"); return }
+
+    // On the curve, halfway between its neighbours along the path.
+    #expect(hypot(vp.points[made].point.x - expected.x,
+                  vp.points[made].point.y - expected.y) < 0.01)
+
+    // Halfway means halfway: both new segments should be the same length.
+    func arcLength(_ i: Int) -> CGFloat {
+        guard let (a, b) = vp.segment(i) else { return 0 }
+        var total: CGFloat = 0
+        var last = VectorPath.evaluate(a, b, 0)
+        for s in 1...64 {
+            let q = VectorPath.evaluate(a, b, CGFloat(s) / 64)
+            total += hypot(q.x - last.x, q.y - last.y)
+            last = q
+        }
+        return total
+    }
+    let left = arcLength(0), right = arcLength(1)
+    #expect(abs(left - right) / max(left, right) < 0.01)
+}
+
+@Test func centringOnAStraightSegmentIsTheExactMidpoint() {
+    var vp = VectorPath(cgPath: {
+        let cg = CGMutablePath()
+        cg.move(to: CGPoint(x: 10, y: 20))
+        cg.addLine(to: CGPoint(x: 110, y: 220))
+        return cg
+    }())
+    vp.insertPoint(onSegment: 0, at: 0.5)
+    #expect(vp.points[1].point == CGPoint(x: 60, y: 120))
+}

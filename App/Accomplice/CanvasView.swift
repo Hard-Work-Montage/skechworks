@@ -47,6 +47,10 @@ final class PageCanvas: NSView {
     private var penCursor: CGPoint?
     /// Where a double-click would drop a new point, while hovering an edited path.
     private var insertPreview: CGPoint?
+    /// The segment and parameter that preview refers to, so the keyboard can use it.
+    private var insertTarget: (segment: Int, t: CGFloat)?
+    /// Last known pointer position in page space, for the keyboard shortcuts.
+    private var hoverPoint: CGPoint?
 
     /// The selected path, exploded into editable points (page space).
     private var editPath: VectorPath?
@@ -589,18 +593,11 @@ final class PageCanvas: NSView {
         //
         // Not a single click: in point-editing a single click already selects and
         // drags points and starts a marquee, so it has nowhere free to go.
-        if event.clickCount >= 2, let vp = editPath {
-            let onExisting = vp.points.contains { pt in
-                hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
-                    || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
-                    || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
-            }
-            if !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2),
-               let made = editPath?.insertPoint(onSegment: hit.index, at: hit.t) {
-                lastTouchedPoint = made
-                commitEdit("Add Point")
-                needsDisplay = true
-                return
+        if event.clickCount >= 2, editPath != nil {
+            // Shift centres it on the segment rather than dropping it under the pointer.
+            if let t = insertionTarget(at: p, centred: extend) {
+                insertTarget = t
+                if insertPointAtPreview() { return }
             }
         }
 
@@ -665,24 +662,82 @@ final class PageCanvas: NSView {
 
         // Show where a point would land while editing one. Double-click is not a
         // gesture anyone guesses at, so the path has to offer it.
-        let wanted: CGPoint? = editPath.flatMap { vp in
-            let onExisting = vp.points.contains { pt in
-                hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
-                    || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
-                    || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
-            }
-            guard !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2),
-                  let (a, b) = vp.segment(hit.index) else { return nil }
-            return VectorPath.evaluate(a, b, hit.t)
+        hoverPoint = p
+        refreshInsertPreview()
+    }
+
+    /// Where an inserted point would land for a pointer at `p`.
+    ///
+    /// Shift snaps to the middle of the segment. That's the parametric midpoint, which
+    /// sits *on* the curve — halfway between the neighbouring points along the path,
+    /// and on a straight segment exactly their geometric midpoint.
+    private func insertionTarget(at p: CGPoint, centred: Bool) -> (segment: Int, t: CGFloat)? {
+        guard let vp = editPath else { return nil }
+        let onExisting = vp.points.contains { pt in
+            hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
+                || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
+                || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
         }
-        if wanted != insertPreview {
-            insertPreview = wanted
+        guard !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2) else { return nil }
+        return (hit.index, centred ? 0.5 : hit.t)
+    }
+
+    private func refreshInsertPreview() {
+        guard let p = hoverPoint, let vp = editPath else {
+            if insertPreview != nil { insertPreview = nil; insertTarget = nil; needsDisplay = true }
+            return
+        }
+        let centred = NSEvent.modifierFlags.contains(.shift)
+        let target = insertionTarget(at: p, centred: centred)
+        let spot = target.flatMap { t -> CGPoint? in
+            guard let (a, b) = vp.segment(t.segment) else { return nil }
+            return VectorPath.evaluate(a, b, t.t)
+        }
+        if spot != insertPreview {
+            insertPreview = spot
+            insertTarget = target
             needsDisplay = true
         }
     }
 
+    /// Shift can be pressed without the pointer moving, and the preview has to follow.
+    override func flagsChanged(with event: NSEvent) {
+        refreshInsertPreview()
+        super.flagsChanged(with: event)
+    }
+
+    /// Adds a point where the preview shows, for the keyboard path.
+    @discardableResult
+    private func insertPointAtPreview() -> Bool {
+        guard let t = insertTarget, let made = editPath?.insertPoint(onSegment: t.segment, at: t.t)
+        else { return false }
+        lastTouchedPoint = made
+        commitEdit("Add Point")
+        refreshInsertPreview()
+        needsDisplay = true
+        return true
+    }
+
+    /// Removes the point under the pointer, or the last one touched.
+    @discardableResult
+    private func removePointUnderCursor() -> Bool {
+        guard let vp = editPath, vp.points.count > 2 else { return false }
+        var index = hoverPoint.flatMap { p in
+            vp.points.firstIndex { hypot(p.x - $0.point.x, p.y - $0.point.y) <= grabRadius }
+        }
+        if index == nil { index = lastTouchedPoint }
+        guard let i = index, vp.points.indices.contains(i) else { return false }
+        editPath?.removePoint(i)
+        lastTouchedPoint = nil
+        commitEdit("Delete Point")
+        refreshInsertPreview()
+        needsDisplay = true
+        return true
+    }
+
     override func mouseExited(with event: NSEvent) {
-        if insertPreview != nil { insertPreview = nil; needsDisplay = true }
+        hoverPoint = nil
+        refreshInsertPreview()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -776,6 +831,16 @@ final class PageCanvas: NSView {
             return
         case 27 where event.modifierFlags.contains(.command):   // ⌘-
             onZoom?(.zoomOut)
+            return
+        // Illustrator's add/remove anchor keys, live while editing a path. Bare, so
+        // they don't collide with the ⌘ zoom pair above.
+        case 24, 69:      // = / + , main row and keypad
+            if editPath != nil, insertPointAtPreview() { return }
+            super.keyDown(with: event)
+            return
+        case 27, 78:      // - / _ , main row and keypad
+            if editPath != nil, removePointUnderCursor() { return }
+            super.keyDown(with: event)
             return
         case 123: onNudge?(-step, 0)   // left
         case 124: onNudge?(step, 0)    // right
