@@ -60,7 +60,7 @@ struct ContentView: View {
                         .resizable().interpolation(.high)
                         .frame(width: 22, height: 22)
                         .clipShape(RoundedRectangle(cornerRadius: 5))
-                        .padding(.leading, 6)   // was flush against the group's edge
+                        .padding(.leading, 14)   // clear of the sidebar divider
                 }
             }
             ToolbarItem(placement: .navigation) {
