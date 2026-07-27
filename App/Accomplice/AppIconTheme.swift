@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import SwiftUI
 
 /// The app icon's colourway.
@@ -23,6 +24,31 @@ enum AppIconTheme: String, CaseIterable, Identifiable {
         guard let url = Bundle.main.url(forResource: rawValue, withExtension: "png") else { return nil }
         return NSImage(contentsOf: url)
     }
+
+    /// A properly resampled thumbnail.
+    ///
+    /// The masters are 1024px. Handing one to SwiftUI and asking for 60pt makes it
+    /// reduce by ~17x in a single step, which aliases into visible jaggies no amount
+    /// of `.interpolation(.high)` fixes. ImageIO's thumbnail path does a real
+    /// multi-step downsample, so edges stay smooth.
+    func thumbnail(points: CGFloat) -> NSImage? {
+        // Enough pixels for any attached display, so it stays crisp dragged between screens.
+        let maxPixel = Int(points * 3)
+        let key = "\(rawValue)@\(maxPixel)"
+        if let hit = Self.thumbnailCache[key] { return hit }
+        guard let url = Bundle.main.url(forResource: rawValue, withExtension: "png"),
+              let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+              ] as CFDictionary) else { return nil }
+        let img = NSImage(cgImage: cg, size: NSSize(width: points, height: points))
+        Self.thumbnailCache[key] = img
+        return img
+    }
+
+    nonisolated(unsafe) private static var thumbnailCache: [String: NSImage] = [:]
 
     static let defaultsKey = "appIconTheme"
 
@@ -61,7 +87,7 @@ struct SettingsView: View {
                             AppIconTheme.current = theme
                         } label: {
                             VStack(spacing: 5) {
-                                if let img = theme.image {
+                                if let img = theme.thumbnail(points: 60) {
                                     Image(nsImage: img)
                                         .resizable().interpolation(.high)
                                         .frame(width: 60, height: 60)

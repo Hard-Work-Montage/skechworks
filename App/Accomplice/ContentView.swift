@@ -55,7 +55,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 // The logo sits left of the insert menu, the way Sketch does it.
-                if let icon = AppIconTheme.current.image {
+                if let icon = AppIconTheme.current.thumbnail(points: 22) {
                     Image(nsImage: icon)
                         .resizable().interpolation(.high)
                         .frame(width: 22, height: 22)
