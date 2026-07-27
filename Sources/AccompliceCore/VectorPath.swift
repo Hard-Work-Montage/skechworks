@@ -201,36 +201,214 @@ public struct VectorPath: Sendable {
         points[j] = b
     }
 
-    /// Removes a point, leaving the neighbouring curve as intact as possible rather
-    /// than collapsing it to a straight line.
+    /// Removes a point, refitting the curve that spans the gap.
+    ///
+    /// Deleting a point used to hand the neighbours the deleted point's handles,
+    /// which threw away the tangents and visibly flattened the curve. Instead the
+    /// endpoints and their tangent *directions* are held fixed — a split never
+    /// changes either — and the two handle lengths are solved by least squares
+    /// against the curve being replaced. Undoing a split comes back exact, and any
+    /// other deletion gets the closest single cubic there is.
     public mutating func removePoint(_ i: Int) {
         guard points.indices.contains(i), points.count > 1 else { return }
         let prev = (i - 1 + points.count) % points.count
         let next = (i + 1) % points.count
-        if points.count > 2, closed || (i > 0 && i < points.count - 1) {
-            if points[i].hasCurveTo { points[prev].curveFrom = points[i].curveTo; points[prev].hasCurveFrom = true }
-            if points[i].hasCurveFrom { points[next].curveTo = points[i].curveFrom; points[next].hasCurveTo = true }
+
+        if points.count > 2, closed || (i > 0 && i < points.count - 1),
+           let (a, b) = refitAcross(prev: prev, gone: i, next: next) {
+            points[prev].curveFrom = a
+            points[prev].hasCurveFrom = true
+            points[next].curveTo = b
+            points[next].hasCurveTo = true
+            if points[prev].mode == .straight { points[prev].mode = .disconnected }
+            if points[next].mode == .straight { points[next].mode = .disconnected }
         }
         points.remove(at: i)
     }
 
-    /// Nearest segment to a point, for hit-testing the bend tool.
-    public func closestSegment(to p: CGPoint, within tolerance: CGFloat) -> (index: Int, distance: CGFloat)? {
-        var best: (Int, CGFloat)?
-        for i in 0..<segmentCount {
-            guard let (a, b) = segment(i) else { continue }
-            let steps = 16
-            for s in 0...steps {
-                let t = CGFloat(s) / CGFloat(steps)
-                let q = Self.evaluate(a, b, t)
-                let d = hypot(q.x - p.x, q.y - p.y)
-                if d <= tolerance, best == nil || d < best!.1 { best = (i, d) }
+    /// Least-squares fit of one cubic to the two segments either side of `gone`.
+    ///
+    /// Returns the two control points, or nil if the span is degenerate.
+    private func refitAcross(prev: Int, gone: Int, next: Int) -> (CGPoint, CGPoint)? {
+        let p0 = points[prev].point
+        let p3 = points[next].point
+        let mid = points[gone].point
+
+        // Tangents stay as they are; only their lengths are unknown.
+        func unit(_ from: CGPoint, _ to: CGPoint) -> CGPoint? {
+            let d = CGPoint(x: to.x - from.x, y: to.y - from.y)
+            let len = hypot(d.x, d.y)
+            guard len > 0.0001 else { return nil }
+            return CGPoint(x: d.x / len, y: d.y / len)
+        }
+        guard let t1 = unit(p0, points[prev].hasCurveFrom ? points[prev].curveFrom : mid),
+              let t2 = unit(p3, points[next].hasCurveTo ? points[next].curveTo : mid)
+        else { return nil }
+
+        // Sample the curve we're replacing, and parameterise by chord length —
+        // uniform parameterisation biases the fit toward whichever half is longer.
+        var samples: [CGPoint] = []
+        for (a, b) in [(points[prev], points[gone]), (points[gone], points[next])] {
+            let steps = 24
+            for s in 0...steps where !(s == 0 && !samples.isEmpty) {
+                samples.append(Self.evaluate(a, b, CGFloat(s) / CGFloat(steps)))
             }
         }
-        return best.map { (index: $0.0, distance: $0.1) }
+        var us: [CGFloat] = [0]
+        var total: CGFloat = 0
+        for k in 1..<samples.count {
+            total += hypot(samples[k].x - samples[k-1].x, samples[k].y - samples[k-1].y)
+            us.append(total)
+        }
+        guard total > 0.0001 else { return nil }
+        us = us.map { $0 / total }
+
+        // Chord length is only an estimate of the parameter, and the error it leaves
+        // is visible. Fit, then slide each sample along the fitted curve to where it
+        // actually sits closest (Newton-Raphson), then fit again.
+        var result: (CGPoint, CGPoint)?
+        for pass in 0..<3 {
+            guard let fit = solve(samples, us, p0, p3, t1, t2) else { break }
+            result = fit
+            guard pass < 2 else { break }
+            us = reparameterise(samples, us, p0, fit.0, fit.1, p3)
+        }
+        return result
     }
 
-    static func evaluate(_ a: VectorPoint, _ b: VectorPoint, _ t: CGFloat) -> CGPoint {
+    /// One least-squares solve for the two handle lengths, parameters held fixed.
+    private func solve(_ samples: [CGPoint], _ us: [CGFloat],
+                       _ p0: CGPoint, _ p3: CGPoint,
+                       _ t1: CGPoint, _ t2: CGPoint) -> (CGPoint, CGPoint)? {
+        var c00: CGFloat = 0, c01: CGFloat = 0, c11: CGFloat = 0
+        var x0: CGFloat = 0, x1: CGFloat = 0
+        for (k, u) in us.enumerated() {
+            let mu = 1 - u
+            let b0 = mu * mu * mu, b1 = 3 * mu * mu * u, b2 = 3 * mu * u * u, b3 = u * u * u
+            let a1 = CGPoint(x: t1.x * b1, y: t1.y * b1)
+            let a2 = CGPoint(x: t2.x * b2, y: t2.y * b2)
+            c00 += a1.x * a1.x + a1.y * a1.y
+            c01 += a1.x * a2.x + a1.y * a2.y
+            c11 += a2.x * a2.x + a2.y * a2.y
+            // What's left once the fixed endpoint terms are accounted for.
+            let rest = CGPoint(x: samples[k].x - (b0 + b1) * p0.x - (b2 + b3) * p3.x,
+                               y: samples[k].y - (b0 + b1) * p0.y - (b2 + b3) * p3.y)
+            x0 += rest.x * a1.x + rest.y * a1.y
+            x1 += rest.x * a2.x + rest.y * a2.y
+        }
+        let det = c00 * c11 - c01 * c01
+        guard abs(det) > 1e-9 else { return nil }
+        let alpha1 = (x0 * c11 - x1 * c01) / det
+        let alpha2 = (c00 * x1 - c01 * x0) / det
+        // A negative length would fold the handle back through the anchor.
+        let span = hypot(p3.x - p0.x, p3.y - p0.y)
+        let a1 = max(0, min(alpha1, span * 3))
+        let a2 = max(0, min(alpha2, span * 3))
+        return (CGPoint(x: p0.x + t1.x * a1, y: p0.y + t1.y * a1),
+                CGPoint(x: p3.x + t2.x * a2, y: p3.y + t2.y * a2))
+    }
+
+    /// Moves each sample's parameter to where it really lies closest on the curve.
+    private func reparameterise(_ samples: [CGPoint], _ us: [CGFloat],
+                                _ p0: CGPoint, _ p1: CGPoint,
+                                _ p2: CGPoint, _ p3: CGPoint) -> [CGFloat] {
+        func at(_ u: CGFloat) -> CGPoint {
+            let mu = 1 - u
+            return CGPoint(x: mu*mu*mu*p0.x + 3*mu*mu*u*p1.x + 3*mu*u*u*p2.x + u*u*u*p3.x,
+                           y: mu*mu*mu*p0.y + 3*mu*mu*u*p1.y + 3*mu*u*u*p2.y + u*u*u*p3.y)
+        }
+        func d1(_ u: CGFloat) -> CGPoint {
+            let mu = 1 - u
+            return CGPoint(x: 3*mu*mu*(p1.x-p0.x) + 6*mu*u*(p2.x-p1.x) + 3*u*u*(p3.x-p2.x),
+                           y: 3*mu*mu*(p1.y-p0.y) + 6*mu*u*(p2.y-p1.y) + 3*u*u*(p3.y-p2.y))
+        }
+        func d2(_ u: CGFloat) -> CGPoint {
+            CGPoint(x: 6*(1-u)*(p2.x - 2*p1.x + p0.x) + 6*u*(p3.x - 2*p2.x + p1.x),
+                    y: 6*(1-u)*(p2.y - 2*p1.y + p0.y) + 6*u*(p3.y - 2*p2.y + p1.y))
+        }
+        return zip(samples, us).map { d, u in
+            let q = at(u), q1 = d1(u), q2 = d2(u)
+            let diff = CGPoint(x: q.x - d.x, y: q.y - d.y)
+            let denom = q1.x*q1.x + q1.y*q1.y + diff.x*q2.x + diff.y*q2.y
+            guard abs(denom) > 1e-9 else { return u }
+            return max(0, min(1, u - (diff.x*q1.x + diff.y*q1.y) / denom))
+        }
+    }
+
+    /// Inserts a point on a segment without changing the curve's shape.
+    ///
+    /// Splits the cubic with de Casteljau rather than dropping a point on the line
+    /// and refitting: the two halves it produces are exactly the original curve, so
+    /// adding a point somewhere to adjust it doesn't first nudge everything else.
+    ///
+    /// Returns the index of the new point.
+    @discardableResult
+    public mutating func insertPoint(onSegment i: Int, at t: CGFloat) -> Int? {
+        guard i >= 0, i < segmentCount, let (a0, b0) = segment(i) else { return nil }
+        let t = max(0.001, min(0.999, t))
+        var a = a0, b = b0
+        // Treat a straight segment as a cubic with controls at its ends, so the same
+        // split works for both and a line stays a line.
+        let p0 = a.point
+        let p1 = a.hasCurveFrom ? a.curveFrom : a.point
+        let p2 = b.hasCurveTo ? b.curveTo : b.point
+        let p3 = b.point
+
+        func lerp(_ u: CGPoint, _ v: CGPoint) -> CGPoint {
+            CGPoint(x: u.x + (v.x - u.x) * t, y: u.y + (v.y - u.y) * t)
+        }
+        let q0 = lerp(p0, p1), q1 = lerp(p1, p2), q2 = lerp(p2, p3)
+        let r0 = lerp(q0, q1), r1 = lerp(q1, q2)
+        let mid = lerp(r0, r1)
+
+        let wasStraight = !a.hasCurveFrom && !b.hasCurveTo
+        var made = VectorPoint(mid)
+        if wasStraight {
+            made.mode = .straight
+        } else {
+            made.curveTo = r0; made.hasCurveTo = true
+            made.curveFrom = r1; made.hasCurveFrom = true
+            made.mode = .mirrored
+            a.curveFrom = q0; a.hasCurveFrom = true
+            b.curveTo = q2; b.hasCurveTo = true
+        }
+
+        let j = (i + 1) % points.count
+        points[i] = a
+        points[j] = b
+        let at = i + 1
+        points.insert(made, at: at)
+        return at
+    }
+
+    /// Nearest segment to a point, for hit-testing the bend tool.
+    public func closestSegment(to p: CGPoint, within tolerance: CGFloat)
+        -> (index: Int, distance: CGFloat, t: CGFloat)? {
+        var best: (Int, CGFloat, CGFloat)?
+        for i in 0..<segmentCount {
+            guard let (a, b) = segment(i) else { continue }
+            // Two passes: coarse to find the neighbourhood, fine around it, so the
+            // inserted point lands where the pointer is rather than on a 1/16 step.
+            var lo: CGFloat = 0, hi: CGFloat = 1
+            for _ in 0..<3 {
+                let steps = 16
+                for s in 0...steps {
+                    let t = lo + (hi - lo) * CGFloat(s) / CGFloat(steps)
+                    let q = Self.evaluate(a, b, t)
+                    let d = hypot(q.x - p.x, q.y - p.y)
+                    if d <= tolerance, best == nil || d < best!.1 { best = (i, d, t) }
+                }
+                guard let b2 = best, b2.0 == i else { break }
+                let span = (hi - lo) / 16
+                lo = max(0, b2.2 - span); hi = min(1, b2.2 + span)
+            }
+        }
+        return best.map { (index: $0.0, distance: $0.1, t: $0.2) }
+    }
+
+    /// A point on a segment, at parameter t. Public so the canvas can show where
+    /// an inserted point would land.
+    public static func evaluate(_ a: VectorPoint, _ b: VectorPoint, _ t: CGFloat) -> CGPoint {
         let p0 = a.point
         let p1 = a.hasCurveFrom ? a.curveFrom : a.point
         let p2 = b.hasCurveTo ? b.curveTo : b.point

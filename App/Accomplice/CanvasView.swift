@@ -45,6 +45,8 @@ final class PageCanvas: NSView {
     /// matches how Adam draws — click, click, click, then adjust.
     private var penPoints: [VectorPoint] = []
     private var penCursor: CGPoint?
+    /// Where a double-click would drop a new point, while hovering an edited path.
+    private var insertPreview: CGPoint?
 
     /// The selected path, exploded into editable points (page space).
     private var editPath: VectorPath?
@@ -401,6 +403,21 @@ final class PageCanvas: NSView {
             else { ctx.fillEllipse(in: box); ctx.strokeEllipse(in: box) }
             _ = i
         }
+
+        // A ghost point with a cross through it: where a double-click would land.
+        if let g = insertPreview {
+            let r = pointRadius
+            let box = CGRect(x: g.x - r, y: g.y - r, width: r * 2, height: r * 2)
+            ctx.setFillColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1.4 / sc)
+            ctx.fillEllipse(in: box)
+            ctx.strokeEllipse(in: box)
+            let arm = r * 0.55
+            ctx.move(to: CGPoint(x: g.x - arm, y: g.y)); ctx.addLine(to: CGPoint(x: g.x + arm, y: g.y))
+            ctx.move(to: CGPoint(x: g.x, y: g.y - arm)); ctx.addLine(to: CGPoint(x: g.x, y: g.y + arm))
+            ctx.strokePath()
+        }
     }
 
     private func drawPenPreview(_ ctx: CGContext) {
@@ -539,7 +556,7 @@ final class PageCanvas: NSView {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds,
-                                       options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect],
+                                       options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
                                        owner: self))
     }
 
@@ -566,6 +583,25 @@ final class PageCanvas: NSView {
                 needsDisplay = true
             }
             return
+        }
+
+        // --- Double-click the path to add a point ---
+        //
+        // Not a single click: in point-editing a single click already selects and
+        // drags points and starts a marquee, so it has nowhere free to go.
+        if event.clickCount >= 2, let vp = editPath {
+            let onExisting = vp.points.contains { pt in
+                hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
+                    || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
+                    || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
+            }
+            if !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2),
+               let made = editPath?.insertPoint(onSegment: hit.index, at: hit.t) {
+                lastTouchedPoint = made
+                commitEdit("Add Point")
+                needsDisplay = true
+                return
+            }
         }
 
         // --- Bend: grab the nearest segment of the edited path ---
@@ -618,10 +654,35 @@ final class PageCanvas: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard tool == .pen, !penPoints.isEmpty else { return }
         let local = convert(event.locationInWindow, from: nil)
-        penCursor = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
-        needsDisplay = true
+        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+
+        if tool == .pen, !penPoints.isEmpty {
+            penCursor = p
+            needsDisplay = true
+            return
+        }
+
+        // Show where a point would land while editing one. Double-click is not a
+        // gesture anyone guesses at, so the path has to offer it.
+        let wanted: CGPoint? = editPath.flatMap { vp in
+            let onExisting = vp.points.contains { pt in
+                hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius
+                    || (pt.hasCurveFrom && hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius)
+                    || (pt.hasCurveTo && hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius)
+            }
+            guard !onExisting, let hit = vp.closestSegment(to: p, within: grabRadius * 2),
+                  let (a, b) = vp.segment(hit.index) else { return nil }
+            return VectorPath.evaluate(a, b, hit.t)
+        }
+        if wanted != insertPreview {
+            insertPreview = wanted
+            needsDisplay = true
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if insertPreview != nil { insertPreview = nil; needsDisplay = true }
     }
 
     override func mouseDragged(with event: NSEvent) {

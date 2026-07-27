@@ -911,3 +911,79 @@ private let arcFrame = CGRect(x: 0, y: 0, width: 400, height: 400)   // centre (
     #expect(box.minY + ring.frame.minY >= 0)
     #expect(box.maxY + ring.frame.minY <= 400)
 }
+
+// MARK: - Adding points to a path
+
+private func curvedTestPath() -> VectorPath {
+    let cg = CGMutablePath()
+    cg.move(to: CGPoint(x: 0, y: 200))
+    cg.addCurve(to: CGPoint(x: 400, y: 200),
+                control1: CGPoint(x: 60, y: 0), control2: CGPoint(x: 340, y: 0))
+    return VectorPath(cgPath: cg)
+}
+
+@Test func insertingAPointDoesNotMoveTheCurve() {
+    var vp = curvedTestPath()
+    let before = (0...40).map { VectorPath.evaluate(vp.points[0], vp.points[1], CGFloat($0) / 40) }
+
+    let made = vp.insertPoint(onSegment: 0, at: 0.37)
+    #expect(made == 1)
+    #expect(vp.points.count == 3)
+
+    // Walk both halves and compare against the original curve. Splitting with
+    // de Casteljau is exact, so adding a point must not nudge the shape at all.
+    var after: [CGPoint] = []
+    for s in 0...40 {
+        let t = CGFloat(s) / 40
+        // 0.37 of the original curve is now the whole of segment 0.
+        let (seg, local) = t <= 0.37 ? (0, t / 0.37) : (1, (t - 0.37) / 0.63)
+        guard let (a, b) = vp.segment(seg) else { Issue.record("missing segment"); return }
+        after.append(VectorPath.evaluate(a, b, local))
+    }
+    for (u, v) in zip(before, after) {
+        #expect(abs(u.x - v.x) < 0.01)
+        #expect(abs(u.y - v.y) < 0.01)
+    }
+}
+
+@Test func insertingOnAStraightSegmentKeepsItStraight() {
+    var vp = VectorPath(cgPath: {
+        let cg = CGMutablePath()
+        cg.move(to: .zero)
+        cg.addLine(to: CGPoint(x: 100, y: 0))
+        return cg
+    }())
+    vp.insertPoint(onSegment: 0, at: 0.5)
+    #expect(vp.points.count == 3)
+    #expect(vp.points[1].point == CGPoint(x: 50, y: 0))
+    // No handles invented, so the line doesn't develop a kink when it's next dragged.
+    #expect(!vp.points[1].hasCurveTo)
+    #expect(!vp.points[1].hasCurveFrom)
+}
+
+@Test func theInsertedPointLandsWhereYouClicked() {
+    var vp = curvedTestPath()
+    // Somewhere on the curve, found the way the canvas finds it.
+    let target = VectorPath.evaluate(vp.points[0], vp.points[1], 0.7)
+    guard let hit = vp.closestSegment(to: target, within: 50) else {
+        Issue.record("no segment found"); return
+    }
+    guard let made = vp.insertPoint(onSegment: hit.index, at: hit.t) else {
+        Issue.record("insert failed"); return
+    }
+    let placed = vp.points[made].point
+    #expect(hypot(placed.x - target.x, placed.y - target.y) < 1)
+}
+
+@Test func insertingThenRemovingReturnsTheSamePath() {
+    var vp = curvedTestPath()
+    let before = (0...20).map { VectorPath.evaluate(vp.points[0], vp.points[1], CGFloat($0) / 20) }
+    guard let made = vp.insertPoint(onSegment: 0, at: 0.5) else { Issue.record("no insert"); return }
+    vp.removePoint(made)
+    #expect(vp.points.count == 2)
+    let after = (0...20).map { VectorPath.evaluate(vp.points[0], vp.points[1], CGFloat($0) / 20) }
+    for (u, v) in zip(before, after) {
+        #expect(abs(u.x - v.x) < 1)
+        #expect(abs(u.y - v.y) < 1)
+    }
+}
