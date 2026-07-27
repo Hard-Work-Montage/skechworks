@@ -86,3 +86,41 @@ import CoreGraphics
     }
     Issue.record("no artboard named \(want)")
 }
+
+/// A masked group, rendered, so the clipping can be looked at rather than asserted.
+@Test func renderMaskPreview() throws {
+    guard let out = ProcessInfo.processInfo.environment["MASK_OUT"] else { return }
+
+    func stripes() -> Layer {
+        // Stands in for a photo: obvious enough that a wrong clip is unmistakable.
+        let p = CGMutablePath()
+        for i in 0..<20 {
+            p.addRect(CGRect(x: CGFloat(i) * 20, y: 0, width: 10, height: 400))
+        }
+        var l = Layer(kind: .path(p, closed: true))
+        l.name = "Stripes"
+        l.frame = CGRect(x: -50, y: -50, width: 400, height: 400)
+        l.style.fills = [Fill(paint: .color(Color(r: 0.85, g: 0.15, b: 0.1, a: 1)))]
+        return l
+    }
+
+    var circle = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 300, height: 300),
+                                          transform: nil), closed: true))
+    circle.name = "Circle"
+    circle.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    circle.hasClippingMask = true
+
+    var group = Layer(kind: .group([circle, stripes()]))
+    group.name = "Masked"
+    group.frame = CGRect(x: 20, y: 20, width: 300, height: 300)
+
+    // The same group again, resized: the mask must scale with its contents.
+    var bigger = group
+    bigger.frame.origin = CGPoint(x: 360, y: 20)
+    bigger.resize(to: CGSize(width: 180, height: 180))
+
+    var page = Page(name: "masks")
+    page.layers = [group, bigger]
+    let img = try #require(Renderer(images: [:]).render(page: page, maxDimension: 700))
+    try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
+}

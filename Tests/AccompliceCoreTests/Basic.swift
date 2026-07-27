@@ -1314,3 +1314,108 @@ private func maxDeviation(_ path: VectorPath, from reference: VectorPath) -> CGF
     l.curveModes = [.asymmetric, .mirrored]
     #expect(l.contentSignature != before)
 }
+
+// MARK: - Masks
+
+/// Adam's arrangement: a circle underneath marked as the mask, a bitmap above it.
+private func maskedGroup() -> Layer {
+    var circle = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                          transform: nil), closed: true))
+    circle.name = "Circle"
+    circle.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+    circle.hasClippingMask = true
+
+    var photo = Layer(kind: .bitmap(imageRef: "photo.png"))
+    photo.name = "Photo"
+    photo.frame = CGRect(x: -50, y: -50, width: 400, height: 400)
+
+    var group = Layer(kind: .group([circle, photo]))   // mask first: it clips what's above
+    group.name = "Masked"
+    group.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+    return group
+}
+
+@Test func aMaskClipsTheLayersAboveItAndIsNotItselfPainted() {
+    var page = Page(name: "p")
+    page.layers = [maskedGroup()]
+    let drawables = Compose.flatten(page.layers)
+
+    // The circle defines the clip rather than being drawn.
+    #expect(drawables.count == 1)
+    let photo = try! #require(drawables.first)
+    #expect(photo.layer.name == "Photo")
+    #expect(photo.clip != nil)
+
+    // And the clip is the circle, in page coordinates.
+    let box = photo.clip!.boundingBoxOfPath
+    #expect(abs(box.width - 200) < 1)
+    #expect(abs(box.height - 200) < 1)
+}
+
+@Test func ignoreMaskExemptsALayerFromTheClip() {
+    var group = maskedGroup()
+    guard case .group(var kids) = group.kind else { Issue.record("no kids"); return }
+    kids[1].breaksMaskChain = true
+    group.kind = .group(kids)
+
+    var page = Page(name: "p")
+    page.layers = [group]
+    let drawables = Compose.flatten(page.layers)
+    #expect(drawables.first?.clip == nil)
+}
+
+@Test func resizingAGroupScalesEverythingInsideAtTheSameRate() {
+    // The old Sketch behaviour Adam wants kept: drag the group, the mask and its
+    // contents scale together rather than the group's box sliding over fixed art.
+    var group = maskedGroup()
+    group.resize(to: CGSize(width: 400, height: 400))       // 2x
+
+    guard case .group(let kids) = group.kind else { Issue.record("no kids"); return }
+    let circle = kids[0], photo = kids[1]
+    #expect(circle.frame.size == CGSize(width: 400, height: 400))
+    #expect(photo.frame == CGRect(x: -100, y: -100, width: 800, height: 800))
+
+    // The mask geometry scaled too, not just its frame — otherwise the clip would
+    // stay the old size and crop the enlarged photo to a small circle.
+    guard case .path(let p, _) = circle.kind else { Issue.record("not a path"); return }
+    let box = p.boundingBoxOfPath
+    #expect(abs(box.width - 400) < 1)
+    #expect(abs(box.height - 400) < 1)
+}
+
+@Test func aMaskSurvivesSavingAndReopening() throws {
+    var page = Page(name: "Page 1")
+    page.layers = [maskedGroup()]
+    var doc = Document()
+    doc.pages = [page]
+
+    let (back, _) = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    guard case .group(let kids) = back.pages[0].layers[0].kind else {
+        Issue.record("group lost"); return
+    }
+    #expect(kids[0].hasClippingMask)
+}
+
+@Test func aShapeDrawnOnTopStillMasksWhatWasBelowIt() {
+    // You draw the circle last, so it's above the photo — where a mask has nothing to
+    // clip. Marking it must not be a no-op.
+    var photo = Layer(kind: .bitmap(imageRef: "photo.png"))
+    photo.name = "Photo"
+    photo.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+    var circle = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                          transform: nil), closed: true))
+    circle.name = "Circle"
+    circle.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+
+    var page = Page(name: "p")
+    page.layers = [photo, circle]           // circle on top, as drawn
+
+    page.updateLayer(circle.id) { $0.hasClippingMask = true }
+    page.sendToBack([circle.id])            // what toggleMask does
+
+    #expect(page.layers[0].name == "Circle")
+    let drawables = Compose.flatten(page.layers)
+    #expect(drawables.count == 1)
+    #expect(drawables[0].layer.name == "Photo")
+    #expect(drawables[0].clip != nil)
+}

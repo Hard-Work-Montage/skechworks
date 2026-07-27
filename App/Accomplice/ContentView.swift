@@ -15,6 +15,8 @@ struct ContentView: View {
     /// a group programmatically — so the tree is flattened by hand. That's what makes
     /// "select a shape on the canvas and its layer is revealed and highlighted"
     /// possible, which is the entire point.
+    @State private var renamingID: String?
+    @State private var renameText = ""
     @State private var expanded: Set<String> = []
 
     private struct LayerRow: Identifiable {
@@ -234,6 +236,16 @@ struct ContentView: View {
                     // Only fires when the list itself has focus, so it can't fight a
                     // text field in the inspector for the delete key.
                     .onDeleteCommand { store.deleteSelection() }
+                    .alert("Rename Layer", isPresented: Binding(
+                        get: { renamingID != nil },
+                        set: { if !$0 { renamingID = nil } })) {
+                        TextField("Name", text: $renameText)
+                        Button("Rename") {
+                            if let id = renamingID { store.rename(id, to: renameText) }
+                            renamingID = nil
+                        }
+                        Button("Cancel", role: .cancel) { renamingID = nil }
+                    }
                     .onChange(of: store.selection) { _, new in
                         guard let first = new.first else { return }
                         reveal(new)
@@ -272,6 +284,61 @@ struct ContentView: View {
                 .foregroundStyle(row.node.isVisible ? .primary : .tertiary)
         }
         .padding(.leading, CGFloat(row.depth) * 12)
+        .contextMenu { layerMenu(row) }
+    }
+
+    /// Sketch's layer menu, minus what this doesn't have.
+    ///
+    /// Right-clicking selects first: acting on a hidden selection because you
+    /// right-clicked something else is how you delete the wrong layer.
+    @ViewBuilder
+    private func layerMenu(_ row: LayerRow) -> some View {
+        let id = row.node.id
+        let layer = store.page?.layer(id)
+
+        Group {
+            Button("Rename…") {
+                select(id)
+                renamingID = id
+                renameText = layer?.name ?? ""
+            }
+            Divider()
+            Button("Cut") { select(id); store.cutSelection() }
+            Button("Copy") { select(id); store.copySelection() }
+            Button("Paste") { select(id); store.paste() }
+            Button("Duplicate") { select(id); store.duplicateSelection() }
+            Divider()
+            Button("Group") { select(id); store.groupSelection() }
+            Button("Ungroup") { select(id); store.ungroupSelection() }
+                .disabled(row.node.children == nil)
+        }
+        Group {
+            Divider()
+            Menu("Move") {
+                Button("Bring to Front") { select(id); store.bringToFront() }
+                Button("Bring Forward") { select(id); store.bringForward() }
+                Button("Send Backward") { select(id); store.sendBackward() }
+                Button("Send to Back") { select(id); store.sendToBack() }
+            }
+            Divider()
+            Button(layer?.hasClippingMask == true ? "Remove Mask" : "Use as Mask") {
+                select(id); store.toggleMask()
+            }
+            Button(layer?.breaksMaskChain == true ? "Honour Mask" : "Ignore Mask") {
+                select(id); store.toggleIgnoreMask()
+            }
+            Divider()
+            Button(layer?.isVisible == false ? "Show Layer" : "Hide Layer") {
+                select(id); store.toggleLockOrHide(hide: true)
+            }
+            Divider()
+            Button("Delete", role: .destructive) { select(id); store.deleteSelection() }
+        }
+    }
+
+    /// Right-clicking a layer that isn't selected acts on it, not on the old selection.
+    private func select(_ id: String) {
+        if !store.selection.contains(id) { store.selection = [id] }
     }
 
     @ViewBuilder

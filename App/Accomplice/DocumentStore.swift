@@ -518,6 +518,41 @@ final class DocumentStore: ObservableObject {
         if !freed.isEmpty { selection = Set(freed) }
     }
 
+    /// Marks the selection as a clipping mask, or clears it.
+    ///
+    /// A mask clips the layers above it inside its own group, which is what makes the
+    /// circle-plus-bitmap arrangement work: circle underneath, marked as the mask,
+    /// bitmap above it and clipped to the circle.
+    func toggleMask() {
+        guard let page, let first = selection.compactMap({ page.layer($0) }).first else { return }
+        let on = !first.hasClippingMask
+        let ids = selection
+        mutatePage(on ? "Use as Mask" : "Remove Mask") { p in
+            for id in ids { p.updateLayer(id) { $0.hasClippingMask = on } }
+            // A mask clips what's above it, and you almost always draw the shape last,
+            // so it starts on top with nothing above it to clip. Left where it is,
+            // "Use as Mask" would appear to do nothing at all. One undo puts it back.
+            if on { p.sendToBack(ids) }
+        }
+    }
+
+    /// Exempts a layer from the mask above it — Sketch's "Ignore Mask".
+    func toggleIgnoreMask() {
+        guard let page, let first = selection.compactMap({ page.layer($0) }).first else { return }
+        let on = !first.breaksMaskChain
+        let ids = selection
+        mutatePage(on ? "Ignore Mask" : "Honour Mask") { p in
+            for id in ids { p.updateLayer(id) { $0.breaksMaskChain = on } }
+        }
+    }
+
+    /// Renames a layer, for the layer list and its context menu.
+    func rename(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        edit(id, actionName: "Rename Layer") { $0.name = trimmed }
+    }
+
     func toggleLockOrHide(hide: Bool) {
         guard !selection.isEmpty, let page else { return }
         let anyVisible = selection.compactMap { page.layer($0) }.contains { $0.isVisible }

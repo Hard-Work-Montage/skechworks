@@ -136,6 +136,11 @@ struct AccompliceApp: App {
                 Button("Ungroup") { AppDelegate.shared?.active?.ungroupSelection() }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
                 Divider()
+                Button("Use as Mask") { AppDelegate.shared?.active?.toggleMask() }
+                    .keyboardShortcut("m", modifiers: [.control, .command])
+                Button("Ignore Mask") { AppDelegate.shared?.active?.toggleIgnoreMask() }
+                    .keyboardShortcut("i", modifiers: [.control, .command])
+                Divider()
                 Button("Hide/Show Layer") { AppDelegate.shared?.active?.toggleLockOrHide(hide: true) }
                     .keyboardShortcut("h", modifiers: [.command, .shift])
             }
