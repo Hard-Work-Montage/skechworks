@@ -612,3 +612,30 @@ private func styledPage() -> Page {
     untouched.updateLayer("x") { _ in }
     #expect(untouched.contentSignature == original)
 }
+
+@Test func setFillAcceptsTheKeyTheModelActuallyUsed() {
+    // Verbatim from qwen3-coder:30b, asked to "update all the black fills to dark
+    // gray". It used "value" where the schema said "hex"; the strict decoder dropped
+    // the command and the model's "Changed all black fills" stood with nothing behind it.
+    let reply = """
+    {"say":"Changed all black fills to dark gray.",
+     "commands":[{"op":"setFill","fill":"#000000","value":"#333333"}]}
+    """
+    let turn = ModelTurn.decode(Data(reply.utf8))
+    #expect(turn.commands.count == 1)
+    #expect(turn.problems.isEmpty)
+    guard case .setFill(let q, let hex) = turn.commands[0] else {
+        Issue.record("expected setFill"); return
+    }
+    #expect(q.fill == "#000000")     // selector: which layers
+    #expect(hex == "#333333")        // parameter: the new colour
+}
+
+@Test func anUnreadableCommandIsReportedNotDropped() {
+    // ##"..."## because the JSON contains `"#`, which closes a #"..."# literal early.
+    let reply = ##"{"say":"Done!","commands":[{"op":"setFill","fill":"#000000"}]}"##
+    let turn = ModelTurn.decode(Data(reply.utf8))
+    #expect(turn.commands.isEmpty)
+    #expect(turn.problems.count == 1)          // the claim can't stand unchallenged
+    #expect(turn.problems[0].contains("setFill"))
+}

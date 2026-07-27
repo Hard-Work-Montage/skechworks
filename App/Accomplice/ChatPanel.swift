@@ -155,6 +155,14 @@ private struct MessageRow: View {
                         }
                     }
                 }
+                if message.nothingHappened {
+                    Label("No changes were made", systemImage: "circle.slash")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                ForEach(Array(message.problems.enumerated()), id: \.offset) { _, p in
+                    Label(p, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
                 if message.awaitingConfirmation {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(message.confirmPrompt, systemImage: "exclamationmark.triangle")

@@ -195,7 +195,14 @@ extension DocumentCommand {
     public static func decode(_ any: Any) -> DocumentCommand? {
         guard let d = any as? [String: Any], let op = d["op"] as? String else { return nil }
         let q = decodeQuery(d)
-        func s(_ k: String) -> String? { d[k] as? String }
+        /// Models pick reasonable-but-different parameter names — a real reply used
+        /// "value" for a colour where the schema said "hex". Rejecting that dropped
+        /// the whole command and left the model's claim standing with nothing behind
+        /// it. Accept the obvious synonyms instead of spending a round trip.
+        func s(_ keys: String...) -> String? {
+            for k in keys { if let v = d[k] as? String { return v } }
+            return nil
+        }
         func n(_ k: String) -> Double? {
             if let v = d[k] as? Double { return v }
             if let v = d[k] as? Int { return Double(v) }
@@ -205,34 +212,59 @@ extension DocumentCommand {
         switch op.lowercased() {
         case "select": return .select(q)
         case "delete": return .delete(q)
-        case "setfill", "fill": return s("hex").map { .setFill(q, hex: $0) }
-        case "setstroke", "stroke": return s("hex").map { .setStroke(q, hex: $0, width: n("width")) }
+        case "setfill", "fill":
+            return s("hex", "value", "color", "colour", "to").map { .setFill(q, hex: $0) }
+        case "setstroke", "stroke":
+            return s("hex", "value", "color", "colour", "to").map { .setStroke(q, hex: $0, width: n("width")) }
         case "setopacity", "opacity":
             guard let v = n("value") else { return nil }
             return .setOpacity(q, value: v > 1 ? v / 100 : v)   // accept 50 or 0.5
         case "setvisible", "show", "hide":
             let v = (d["value"] as? Bool) ?? (op.lowercased() == "show")
             return .setVisible(q, value: v)
-        case "rename": return s("pattern").map { .rename(q, pattern: $0) }
+        case "rename": return s("pattern", "value", "to", "name").map { .rename(q, pattern: $0) }
         case "move": return .move(q, dx: n("dx") ?? 0, dy: n("dy") ?? 0)
         case "resize": return .resize(q, width: n("width"), height: n("height"))
-        case "align": return s("edge").map { .align(q, edge: $0) }
-        case "distribute": return .distribute(q, axis: s("axis") ?? "horizontal")
-        case "order", "arrange": return .order(q, where: s("where") ?? "front")
-        case "group": return .group(q, name: s("name"))
+        case "align": return s("edge", "value", "to").map { .align(q, edge: $0) }
+        case "distribute": return .distribute(q, axis: s("axis", "value") ?? "horizontal")
+        case "order", "arrange", "bringtofront", "sendtoback":
+            let fallback = op.lowercased() == "sendtoback" ? "back" : "front"
+            return .order(q, where: s("where", "value", "to") ?? fallback)
+        case "group": return .group(q, name: s("name", "value"))
         case "ungroup": return .ungroup(q)
         default: return nil
         }
     }
 
     public static func decodeList(_ data: Data) -> [DocumentCommand] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) else { return [] }
-        if let arr = root as? [Any] { return arr.compactMap(decode) }
-        if let obj = root as? [String: Any] {
-            if let arr = obj["commands"] as? [Any] { return arr.compactMap(decode) }
-            return [decode(obj)].compactMap { $0 }
+        decodeReport(data).commands
+    }
+
+    /// Decoding, with the failures kept.
+    ///
+    /// Dropping an unreadable command silently is how a model's "done!" ends up
+    /// attached to nothing happening. Whatever couldn't be read gets reported.
+    public static func decodeReport(_ data: Data) -> (commands: [DocumentCommand], problems: [String]) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) else {
+            return ([], ["The reply wasn't valid JSON."])
         }
-        return []
+        var raw: [Any] = []
+        if let arr = root as? [Any] { raw = arr }
+        else if let obj = root as? [String: Any] {
+            if let arr = obj["commands"] as? [Any] { raw = arr }
+            else if obj["op"] != nil { raw = [obj] }
+        }
+        var commands: [DocumentCommand] = []
+        var problems: [String] = []
+        for item in raw {
+            if let c = decode(item) {
+                commands.append(c)
+            } else {
+                let op = (item as? [String: Any])?["op"] as? String ?? "?"
+                problems.append("Couldn't read a “\(op)” command — missing or unexpected parameters.")
+            }
+        }
+        return (commands, problems)
     }
 
     private static func decodeQuery(_ d: [String: Any]) -> LayerQuery {
@@ -406,13 +438,18 @@ public struct ModelTurn: Sendable {
         self.commands = commands
     }
 
+    public var problems: [String] = []
+
     public static func decode(_ data: Data) -> ModelTurn {
-        let commands = DocumentCommand.decodeList(data)
+        let report = DocumentCommand.decodeReport(data)
+        let commands = report.commands
         var say = ""
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             say = (obj["say"] as? String) ?? (obj["message"] as? String) ?? ""
         }
-        return ModelTurn(say: say, commands: commands)
+        var turn = ModelTurn(say: say, commands: commands)
+        turn.problems = report.problems
+        return turn
     }
 
     /// Whether this turn is worth stopping for.

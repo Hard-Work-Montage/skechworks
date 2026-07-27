@@ -12,6 +12,10 @@ struct ChatMessage: Identifiable {
     var applied: [String] = []
     /// Held back pending a yes — only for the destructive-or-huge case.
     var pending: [DocumentCommand] = []
+    /// Commands that arrived but couldn't be read.
+    var problems: [String] = []
+    /// The model spoke but nothing ran. Shown, never hidden.
+    var nothingHappened = false
     var confirmPrompt = ""
     var awaitingConfirmation = false
 
@@ -51,9 +55,14 @@ final class ChatSession: ObservableObject {
                 trimHistory()
 
                 var reply = ChatMessage(role: .assistant, text: turn.turn.say)
+                reply.problems = turn.turn.problems
                 if turn.turn.commands.isEmpty {
-                    // Talking, not doing — a question or an explanation.
+                    // Talking, not doing. Say so plainly: a model will happily report
+                    // "Changed all the black fills" having sent nothing, and letting
+                    // that stand unchallenged is worse than any wrong edit — you'd
+                    // never know to check.
                     if reply.text.isEmpty { reply.text = "I couldn't turn that into an edit." }
+                    reply.nothingHappened = true
                     messages.append(reply)
                 } else {
                     let affected = store.countAffected(turn.turn.commands)
