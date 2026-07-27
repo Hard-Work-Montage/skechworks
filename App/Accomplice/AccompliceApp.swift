@@ -14,6 +14,7 @@ struct DocumentWindow: View {
         ContentView()
             .environmentObject(store)
             .frame(minWidth: 900, minHeight: 560)
+            .background(WindowTabbing())
             .onAppear {
                 AppDelegate.shared?.register(store)
                 if store.source == nil && store.url == nil { store.newDocument() }

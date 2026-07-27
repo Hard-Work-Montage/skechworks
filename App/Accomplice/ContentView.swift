@@ -50,7 +50,9 @@ struct ContentView: View {
                             selectionCount: selectionCount)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 420)
         }
-        .navigationTitle(store.url?.lastPathComponent ?? "Accomplice")
+        // "Untitled" rather than the app name: with several new documents open, every
+        // tab reading "Accomplice" tells you nothing.
+        .navigationTitle(store.displayName)
         .navigationSubtitle(store.isDirty ? "Edited" : "")
         .toolbar {
             ToolbarItem(placement: .navigation) {
