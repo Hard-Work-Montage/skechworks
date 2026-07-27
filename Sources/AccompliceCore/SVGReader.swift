@@ -307,7 +307,7 @@ public final class SVGReader: NSObject {
 
     // MARK: - Value parsing
 
-    static func numbers(_ s: String) -> [CGFloat] {
+    public static func numbers(_ s: String) -> [CGFloat] {
         var out: [CGFloat] = []
         var cur = ""
         for ch in s {
@@ -325,20 +325,21 @@ public final class SVGReader: NSObject {
         return out
     }
 
-    static func length(_ s: String?) -> CGFloat? {
+    public static func length(_ s: String?) -> CGFloat? {
         guard let s, !s.isEmpty else { return nil }
         if s.hasSuffix("%"), let v = Double(s.dropLast()) { return CGFloat(v / 100) }
         return numbers(s).first
     }
 
-    static func gradientReference(_ s: String) -> String? {
+    public static func gradientReference(_ s: String) -> String? {
         guard s.hasPrefix("url(") else { return nil }
         return s.dropFirst(4).drop(while: { $0 == "#" })
             .prefix(while: { $0 != ")" })
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
     }
 
-    static func color(_ raw: String, alpha: CGFloat) -> Color? {
+    /// Public so the scripting layer can accept the same colour syntax a user would type.
+    public static func color(_ raw: String, alpha: CGFloat) -> Color? {
         let s = raw.trimmingCharacters(in: .whitespaces).lowercased()
         if s == "none" || s.hasPrefix("url(") { return nil }
         if s.hasPrefix("#") {
@@ -371,7 +372,7 @@ public final class SVGReader: NSObject {
         "orange": (1, 0.65, 0),
     ]
 
-    static func transform(_ s: String) -> CGAffineTransform {
+    public static func transform(_ s: String) -> CGAffineTransform {
         var t = CGAffineTransform.identity
         var scanner = s[...]
         while let open = scanner.firstIndex(of: "("), let close = scanner.firstIndex(of: ")") {

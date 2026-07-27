@@ -226,6 +226,24 @@ case "vpcheck":
     print("paths \(total) · identical \(total - mismatched) · quad→cubic \(quadOnly) · GEOMETRY CHANGED \(geometric)")
     if geometric > 0 { exit(2) }
 
+case "artboards":
+    // Exercises the same isolate() path the app's Export Artboards uses.
+    let (doc, images) = load()
+    let dir = outDir("artboards")
+    var n = 0
+    for page in doc.pages {
+        for board in page.artboards {
+            guard let iso = page.isolate(board.id) else { continue }
+            let svg = SVGWriter(images: images).svg(page: iso.page, bounds: iso.bounds)
+            let f = dir.appendingPathComponent("\(board.name.replacingOccurrences(of: " ", with: "-")).svg")
+            try? Data(svg.utf8).write(to: f)
+            print(String(format: "  %-16s %.0fx%.0f", (board.name as NSString).utf8String!,
+                         iso.bounds.width, iso.bounds.height))
+            n += 1
+        }
+    }
+    print("exported \(n) artboards")
+
 case "bench":
     // What the app pays before it can show you anything.
     let t0 = Date()

@@ -1,4 +1,6 @@
 import AppKit
+import AccompliceCore
+import CoreGraphics
 import SwiftUI
 
 /// One store per window.
@@ -113,6 +115,29 @@ struct AccompliceApp: App {
                     .keyboardShortcut("e", modifiers: .command)
                 Button("Export All Pages as SVG…") { AppDelegate.shared?.active?.exportAllPages() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
+                Divider()
+                Menu("Export Selected") {
+                    ForEach(DocumentStore.ExportFormat.allCases) { f in
+                        Menu(f.title) {
+                            ForEach([1, 2, 3], id: \.self) { s in
+                                Button("\(s)x") {
+                                    AppDelegate.shared?.active?.exportSelected(format: f, scale: CGFloat(s))
+                                }
+                            }
+                        }
+                    }
+                }
+                Menu("Export Artboards") {
+                    ForEach(DocumentStore.ExportFormat.allCases) { f in
+                        Menu(f.title) {
+                            ForEach([1, 2, 3], id: \.self) { s in
+                                Button("\(s)x") {
+                                    AppDelegate.shared?.active?.exportArtboards(format: f, scale: CGFloat(s))
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

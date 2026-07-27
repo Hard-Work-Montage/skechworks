@@ -492,3 +492,79 @@ private func makePage(_ ids: [String]) -> Page {
     #expect(p.layer("a")?.frame == before[0])
     #expect(p.layer("b")?.frame == before[1])
 }
+
+private func styledPage() -> Page {
+    var p = Page(name: "Coins")
+    func shape(_ id: String, _ name: String, fill: Color?, w: CGFloat = 100) -> Layer {
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: w, height: 50), transform: nil), closed: true))
+        l.id = id; l.name = name
+        l.frame = CGRect(x: 0, y: 0, width: w, height: 50)
+        if let f = fill { l.style.fills = [Fill(paint: .color(f))] }
+        return l
+    }
+    var text = Layer(kind: .text({ var t = TextRun(); t.string = "ONE YEAR SOBER"; return t }()))
+    text.id = "t1"; text.name = "Ring"
+    text.frame = CGRect(x: 0, y: 0, width: 200, height: 40)
+
+    var board = Layer(kind: .group([shape("s3", "Inner", fill: .black)]))
+    board.id = "ab"; board.name = "front"; board.isArtboard = true
+    board.frame = CGRect(x: 0, y: 0, width: 500, height: 500)
+
+    p.layers = [shape("s1", "Circle", fill: .black),
+                shape("s2", "Halo", fill: Color(r: 1, g: 1, b: 1, a: 1), w: 300),
+                text, board]
+    return p
+}
+
+@Test func queriesFindLayersByTheThingsAModelWouldSay() {
+    let p = styledPage()
+    #expect(Set(p.find({ var q = LayerQuery(); q.fill = "#000000"; return q }())) == ["s1", "s3"])
+    #expect(p.find({ var q = LayerQuery(); q.type = "text"; return q }()) == ["t1"])
+    #expect(p.find({ var q = LayerQuery(); q.type = "artboard"; return q }()) == ["ab"])
+    #expect(p.find({ var q = LayerQuery(); q.text = "sober"; return q }()) == ["t1"])   // case-insensitive
+    #expect(p.find({ var q = LayerQuery(); q.name = "hal"; return q }()) == ["s2"])
+    #expect(p.find({ var q = LayerQuery(); q.minWidth = 250; return q }()).contains("s2"))
+}
+
+@Test func queryLimitCapsTheBlastRadius() {
+    let p = styledPage()
+    var q = LayerQuery(); q.limit = 1
+    #expect(p.find(q).count == 1)
+}
+
+@Test func commandsDecodeFromTheJSONAModelWouldWrite() {
+    let json = """
+    {"commands":[
+      {"op":"setOpacity","type":"path","fill":"#000000","value":50},
+      {"op":"rename","where":{"type":"text"},"pattern":"label-{i}"},
+      {"op":"hide","name":"Halo"}
+    ]}
+    """
+    let cmds = DocumentCommand.decodeList(Data(json.utf8))
+    #expect(cmds.count == 3)
+
+    guard case .setOpacity(let q, let v) = cmds[0] else { Issue.record("expected setOpacity"); return }
+    #expect(q.fill == "#000000")
+    #expect(v == 0.5)                       // 50 accepted as a percentage
+
+    guard case .rename(let q2, let pattern) = cmds[1] else { Issue.record("expected rename"); return }
+    #expect(q2.type == "text")              // nested "where" understood too
+    #expect(pattern == "label-{i}")
+
+    guard case .setVisible(_, let visible) = cmds[2] else { Issue.record("expected setVisible"); return }
+    #expect(visible == false)               // bare "hide" implies false
+}
+
+@Test func describeStaysSmallEnoughForAContextWindow() {
+    let p = styledPage()
+    let text = p.describe()
+    #expect(text.contains("artboard “front”"))
+    #expect(text.contains("fill #000000"))
+    #expect(text.contains("ONE YEAR SOBER"))
+    // Geometry is summarised, never dumped — a coin page is ~900k curve points, and
+    // a context window is not the place for them. Look for path-data syntax
+    // specifically rather than a bare letter, which "Coins" happens to contain.
+    let looksLikePathData = text.range(of: "[MLCQZ] *-?[0-9]", options: .regularExpression)
+    #expect(looksLikePathData == nil)
+    #expect(text.count < 2000)
+}

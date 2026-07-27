@@ -385,6 +385,138 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Scripting
+
+    /// Runs a batch of commands as ONE undo step.
+    ///
+    /// Whole-batch undo matters more here than anywhere else in the app: a model can
+    /// touch two hundred layers in a sentence, and unpicking that click by click is
+    /// not an undo story anyone would accept.
+    @discardableResult
+    func run(_ commands: [DocumentCommand]) -> String {
+        guard !commands.isEmpty, page != nil else { return "Nothing to do." }
+        var report: [String] = []
+        var pendingSelection: Set<String>?
+        let name = commands.count == 1 ? commands[0].summary : "\(commands.count) Changes"
+        let currentSelection = selection
+
+        mutatePage(name) { p in
+            for c in commands {
+                let ids = p.find(c.query, selection: currentSelection)
+                if ids.isEmpty {
+                    report.append("\(c.summary): no matching layers")
+                    continue
+                }
+                if case .select = c {
+                    pendingSelection = Set(ids)
+                } else {
+                    DocumentStore.apply(c, ids: ids, to: &p)
+                }
+                report.append("\(c.summary): \(ids.count) layer\(ids.count == 1 ? "" : "s")")
+            }
+        }
+        if let sel = pendingSelection { selection = sel }
+        return report.isEmpty ? "Nothing matched." : report.joined(separator: "\n")
+    }
+
+    /// Split out from `run` purely so the type checker can cope — a switch this wide
+    /// with closures inline defeats it.
+    private static func apply(_ c: DocumentCommand, ids: [String], to p: inout Page) {
+        let set = Set(ids)
+        switch c {
+        case .select:
+            break   // handled by the caller; selection isn't a document change
+
+        case .delete:
+            for id in ids { p.removeLayer(id) }
+
+        case .setFill(_, let hex):
+            guard let col = SVGReader.color(hex, alpha: 1) else { return }
+            for id in ids {
+                p.updateLayer(id) { $0.style.fills = [Fill(paint: .color(col))] }
+            }
+
+        case .setStroke(_, let hex, let width):
+            guard let col = SVGReader.color(hex, alpha: 1) else { return }
+            for id in ids {
+                p.updateLayer(id) { l in
+                    var b = l.style.borders.first ?? Border()
+                    b.color = col
+                    if let w = width { b.thickness = CGFloat(w) }
+                    l.style.borders = [b]
+                }
+            }
+
+        case .setOpacity(_, let v):
+            let clamped = max(0, min(1, CGFloat(v)))
+            for id in ids { p.updateLayer(id) { $0.style.opacity = clamped } }
+
+        case .setVisible(_, let v):
+            for id in ids { p.updateLayer(id) { $0.isVisible = v } }
+
+        case .rename(_, let pattern):
+            for (i, id) in ids.enumerated() {
+                p.updateLayer(id) { l in
+                    var out = pattern.replacingOccurrences(of: "{i}", with: String(i + 1))
+                    out = out.replacingOccurrences(of: "{name}", with: l.name)
+                    l.name = out
+                }
+            }
+
+        case .move(_, let dx, let dy):
+            for id in ids {
+                p.updateLayer(id) { l in
+                    l.frame.origin = CGPoint(x: l.frame.minX + CGFloat(dx),
+                                             y: l.frame.minY + CGFloat(dy))
+                }
+            }
+
+        case .resize(_, let w, let h):
+            for id in ids {
+                p.updateLayer(id) { l in
+                    let newW: CGFloat = w.map { CGFloat($0) } ?? l.frame.width
+                    let newH: CGFloat = h.map { CGFloat($0) } ?? l.frame.height
+                    l.resize(to: CGSize(width: newW, height: newH))
+                }
+            }
+
+        case .align(_, let edge):
+            let map: [String: AlignEdge] = [
+                "left": .left, "centre": .horizontalCentre, "center": .horizontalCentre,
+                "right": .right, "top": .top, "middle": .verticalMiddle, "bottom": .bottom,
+            ]
+            if let e = map[edge.lowercased()] { p.align(set, to: e) }
+
+        case .distribute(_, let axis):
+            let vertical = axis.lowercased().hasPrefix("v")
+            p.distribute(set, along: vertical ? .vertical : .horizontal)
+
+        case .order(_, let dir):
+            switch dir.lowercased() {
+            case "front": p.bringToFront(set)
+            case "back": p.sendToBack(set)
+            case "forward": p.bringForward(set)
+            default: p.sendBackward(set)
+            }
+
+        case .group(_, let gname):
+            p.group(set, named: gname ?? "Group")
+
+        case .ungroup:
+            for id in ids { p.ungroup(id) }
+        }
+    }
+
+    /// What a model is shown before it decides anything.
+    func describeDocument() -> String {
+        guard let page else { return "No document open." }
+        var out = "document: \(displayName)\n"
+        out += "pages: \((source?.pages ?? []).map(\.name).joined(separator: ", "))\n"
+        out += "selection: \(selection.count) layer\(selection.count == 1 ? "" : "s")\n\n"
+        out += page.describe()
+        return out
+    }
+
     // MARK: - Arrange
 
     /// Structural edits (reordering, grouping) change the shape of the tree rather
@@ -850,6 +982,69 @@ final class DocumentStore: ObservableObject {
         } catch {
             status = "Export failed: \(error.localizedDescription)"
         }
+    }
+
+    enum ExportFormat: String, CaseIterable, Identifiable {
+        case svg, png, jpg
+        var id: String { rawValue }
+        var title: String { rawValue.uppercased() }
+    }
+
+    /// Exports each selected layer to its own file, the way Sketch's Export Selected
+    /// works — one artboard, one file, sized to that artboard rather than the page.
+    func exportSelected(format: ExportFormat = .svg, scale: CGFloat = 1) {
+        guard let page, !selection.isEmpty else { return }
+        let targets = selection.compactMap { page.isolate($0) }
+        guard !targets.isEmpty else { return }
+        exportIsolated(targets, format: format, scale: scale, what: "selection")
+    }
+
+    /// Every artboard on the current page, named after the artboard.
+    func exportArtboards(format: ExportFormat = .svg, scale: CGFloat = 1) {
+        guard let page else { return }
+        let boards = page.artboards
+        guard !boards.isEmpty else {
+            status = "This page has no artboards"
+            NSSound.beep()
+            return
+        }
+        let targets = boards.compactMap { page.isolate($0.id) }
+        exportIsolated(targets, format: format, scale: scale, what: "artboards")
+    }
+
+    private func exportIsolated(_ targets: [(page: Page, bounds: CGRect, rotatedAncestor: Bool)],
+                                format: ExportFormat, scale: CGFloat, what: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        panel.message = "Export \(targets.count) \(what) as \(format.title)"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+
+        let imgs = images
+        var written = 0
+        var rotatedWarnings = 0
+        for t in targets {
+            if t.rotatedAncestor { rotatedWarnings += 1 }
+            let base = slug(t.page.name)
+            let suffix = scale == 1 ? "" : "@\(Int(scale))x"
+            let file = dir.appendingPathComponent("\(base)\(suffix).\(format.rawValue)")
+            switch format {
+            case .svg:
+                let svg = SVGWriter(images: imgs).svg(page: t.page, bounds: t.bounds)
+                if (try? Data(svg.utf8).write(to: file)) != nil { written += 1 }
+            case .png, .jpg:
+                let r = Renderer(images: imgs,
+                                 background: format == .jpg ? Color(r: 1, g: 1, b: 1, a: 1) : nil)
+                let maxDim = max(t.bounds.width, t.bounds.height) * scale
+                guard let img = r.render(page: t.page, maxDimension: maxDim, bounds: t.bounds),
+                      let data = format == .png ? Renderer.png(img) : Renderer.jpeg(img) else { continue }
+                if (try? data.write(to: file)) != nil { written += 1 }
+            }
+        }
+        status = "Exported \(written) \(format.title)\(written == 1 ? "" : "s")"
+            + (rotatedWarnings > 0 ? " · \(rotatedWarnings) had a rotated parent and may be offset" : "")
     }
 
     func exportAllPages() {
