@@ -103,6 +103,7 @@ final class PageCanvas: NSView {
     }
     var onDragEnd: ((CGSize) -> Void)?
     var onNudge: ((CGFloat, CGFloat) -> Void)?
+    var onDelete: (() -> Void)?
 
     /// Live drag state. The model isn't touched until mouse-up; until then the canvas
     /// just offsets the already-composed drawables belonging to the dragged subtree.
@@ -669,14 +670,16 @@ final class PageCanvas: NSView {
             if tool == .pen { finishPen(close: false); return }
         case 53:   // escape — abandon
             if tool == .pen { penPoints = []; penCursor = nil; needsDisplay = true; return }
-        case 51, 117:  // delete — remove the selected point
-            if let vp = editPath, let i = draggingPoint ?? lastTouchedPoint,
-               vp.points.count > 2 {
+        case 51, 117:  // delete
+            // A targeted point goes first; otherwise the whole selection goes.
+            if let vp = editPath, let i = lastTouchedPoint, vp.points.count > 2 {
                 editPath?.removePoint(i)
                 lastTouchedPoint = nil
                 commitEdit("Delete Point")
                 return
             }
+            onDelete?()
+            return
         case 123: onNudge?(-step, 0)   // left
         case 124: onNudge?(step, 0)    // right
         case 125: onNudge?(0, step)    // down (canvas is y-down)
@@ -793,6 +796,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onDragBegin = { id in store.beginDrag(id) }
         canvas.onDragEnd = { offset in store.endDrag(offset: offset) }
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
+        canvas.onDelete = { store.deleteSelection() }
         canvas.onResizeBegin = { store.beginResize() }
         canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }

@@ -46,6 +46,41 @@ public struct Page: @unchecked Sendable {
 
     public func layer(_ id: String) -> Layer? { Page.find(id, in: layers) }
 
+    /// Removes a layer from anywhere in the tree, reporting where it was so it can be
+    /// put back. Undo has to restore position, not just existence.
+    @discardableResult
+    public mutating func removeLayer(_ id: String) -> (parent: String?, index: Int, layer: Layer)? {
+        func drop(_ ls: inout [Layer], _ parent: String?) -> (String?, Int, Layer)? {
+            for i in ls.indices {
+                if ls[i].id == id { return (parent, i, ls.remove(at: i)) }
+                switch ls[i].kind {
+                case .group(var k):
+                    if let hit = drop(&k, ls[i].id) { ls[i].kind = .group(k); return hit }
+                case .shapeGroup(var k, let rule):
+                    if let hit = drop(&k, ls[i].id) { ls[i].kind = .shapeGroup(k, rule); return hit }
+                default: continue
+                }
+            }
+            return nil
+        }
+        return drop(&layers, nil)
+    }
+
+    /// Puts a layer back where it came from.
+    public mutating func insertLayer(_ layer: Layer, parent: String?, index: Int) {
+        guard let parent else {
+            layers.insert(layer, at: min(index, layers.count))
+            return
+        }
+        updateLayer(parent) { p in
+            switch p.kind {
+            case .group(var k): k.insert(layer, at: min(index, k.count)); p.kind = .group(k)
+            case .shapeGroup(var k, let rule): k.insert(layer, at: min(index, k.count)); p.kind = .shapeGroup(k, rule)
+            default: break
+            }
+        }
+    }
+
     /// Ancestor ids from outermost inwards, excluding the layer itself. The layer list
     /// uses this to reveal a nested layer picked on the canvas.
     public func ancestors(of id: String) -> [String] {

@@ -186,6 +186,9 @@ struct ContentView: View {
                             .id(row.node.id)
                     }
                     .listStyle(.sidebar)
+                    // Only fires when the list itself has focus, so it can't fight a
+                    // text field in the inspector for the delete key.
+                    .onDeleteCommand { store.deleteSelection() }
                     .onChange(of: store.selection) { _, new in
                         guard let first = new.first else { return }
                         reveal(new)

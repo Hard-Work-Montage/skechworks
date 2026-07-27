@@ -278,3 +278,33 @@ import Testing
     #expect(page.ancestors(of: "outer") == [])
     #expect(page.ancestors(of: "missing") == [])
 }
+
+@Test func removingALayerReportsWhereItWasSoUndoCanRestoreIt() {
+    var a = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 5, height: 5), transform: nil), closed: true))
+    a.id = "a"
+    var b = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 5, height: 5), transform: nil), closed: true))
+    b.id = "b"
+    var group = Layer(kind: .group([a, b])); group.id = "g"
+    var page = Page(name: "P")
+    page.layers = [group]
+
+    let removed = page.removeLayer("b")
+    #expect(removed?.parent == "g")
+    #expect(removed?.index == 1)
+    #expect(page.layer("b") == nil)
+
+    // Undo puts it back in the same parent at the same index.
+    page.insertLayer(removed!.layer, parent: removed!.parent, index: removed!.index)
+    guard case .group(let kids) = page.layer("g")!.kind else { Issue.record("expected group"); return }
+    #expect(kids.map(\.id) == ["a", "b"])
+}
+
+@Test func removingATopLevelLayerHasNoParent() {
+    var l = Layer(kind: .group([])); l.id = "top"
+    var page = Page(name: "P")
+    page.layers = [Layer(kind: .group([])), l]
+    let removed = page.removeLayer("top")
+    #expect(removed?.parent == nil)
+    #expect(removed?.index == 1)
+    #expect(page.layers.count == 1)
+}

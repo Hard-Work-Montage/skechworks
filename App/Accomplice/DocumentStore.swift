@@ -298,6 +298,44 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    /// Deletes everything selected as ONE undo step, restoring each layer to its exact
+    /// place in the tree on undo — including nested ones.
+    func deleteSelection() {
+        guard let src = source, var p = page, !selection.isEmpty else { return }
+        var removed: [(parent: String?, index: Int, layer: Layer)] = []
+        // Deepest-last so re-inserting in reverse rebuilds the tree correctly.
+        for id in selection { if let r = p.removeLayer(id) { removed.append(r) } }
+        guard !removed.isEmpty else { return }
+
+        apply(p, at: pageIndex, src: src)
+        revision += 1
+        isDirty = true
+        selection = []
+        let idx = pageIndex
+        let name = removed.count == 1 ? "Delete \(removed[0].layer.name)" : "Delete \(removed.count) Layers"
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.restore(removed, pageIndex: idx, actionName: name) }
+        }
+        undoManager.setActionName(name)
+        refreshUndoState()
+    }
+
+    private func restore(_ items: [(parent: String?, index: Int, layer: Layer)],
+                         pageIndex idx: Int, actionName: String) {
+        guard let src = source, var p = src.page(at: idx) else { return }
+        for r in items.reversed() { p.insertLayer(r.layer, parent: r.parent, index: r.index) }
+        if pageIndex != idx { pageIndex = idx }
+        apply(p, at: idx, src: src)
+        revision += 1
+        isDirty = true
+        selection = Set(items.map { $0.layer.id })
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.deleteSelection() }
+        }
+        undoManager.setActionName(actionName)
+        refreshUndoState()
+    }
+
     private func reinsertLayer(_ layer: Layer, at i: Int, pageIndex idx: Int, actionName: String) {
         guard let src = source, var p = src.page(at: idx) else { return }
         p.layers.insert(layer, at: min(i, p.layers.count))
