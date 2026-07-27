@@ -269,6 +269,13 @@ struct PropertiesPanel: View {
     }
 
     /// Sketch's four point types, where they belong: on the point, not in the toolbar.
+    ///
+    /// Words, not glyphs. Four handle diagrams at 14pt are indistinguishable — Sketch's
+    /// own are, which is why it needs a tooltip on each to tell you what you're
+    /// looking at. A control you have to hover to read isn't doing its job.
+    ///
+    /// The names are one word each so four fit the column; the tooltips carry Sketch's
+    /// exact phrasing, so what you already know still maps.
     private func pointType(_ pt: DocumentStore.EditingPoint) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle("Point Type")
@@ -276,19 +283,33 @@ struct PropertiesPanel: View {
                 get: { pt.mode },
                 set: { m in if m != pt.mode { store.setPointMode(m) } }
             )) {
-                Image(systemName: "arrowtriangle.up").tag(CurveMode.straight)
-                    .help("Straight — no handles")
-                Image(systemName: "circle.and.line.horizontal").tag(CurveMode.mirrored)
-                    .help("Mirrored — handles equal and opposite")
-                Image(systemName: "line.diagonal").tag(CurveMode.asymmetric)
-                    .help("Asymmetric — in line, independent lengths")
-                Image(systemName: "scribble").tag(CurveMode.disconnected)
-                    .help("Disconnected — handles fully independent")
+                ForEach(CurveMode.allCases, id: \.self) { m in
+                    Text(Self.pointTypeName(m)).tag(m)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            Text(["", "Straight", "Mirrored", "Asymmetric", "Disconnected"][pt.mode.rawValue])
+            .controlSize(.small)
+            Text(Self.pointTypeHint(pt.mode))
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private static func pointTypeName(_ m: CurveMode) -> String {
+        switch m {
+        case .straight: return "Straight"
+        case .mirrored: return "Mirrored"
+        case .asymmetric: return "Aligned"
+        case .disconnected: return "Free"
+        }
+    }
+
+    private static func pointTypeHint(_ m: CurveMode) -> String {
+        switch m {
+        case .straight: return "No handles — a corner."
+        case .mirrored: return "Mirror angle and length."
+        case .asymmetric: return "Mirror angle, lengths independent."
+        case .disconnected: return "Handles fully independent."
         }
     }
 
