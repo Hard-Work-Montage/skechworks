@@ -71,6 +71,25 @@ final class DocumentStore: ObservableObject {
     var images: [String: Data] { source?.images ?? [:] }
     var pageCount: Int { source?.pageCount ?? 0 }
 
+    /// A blank document: one page, no file behind it yet.
+    func newDocument() {
+        var doc = Document()
+        doc.pages = [Page(name: "Page 1")]
+        source = DocumentSource.eager(doc, images: [:])
+        coverPage = 0
+        url = nil
+        undoManager.removeAllActions()
+        isDirty = false
+        canUndo = false; canRedo = false
+        selection = []
+        fontWarnings = []
+        pageIndex = 0
+        loadCurrentPage()
+        status = "New document"
+    }
+
+    var displayName: String { url?.lastPathComponent ?? "Untitled" }
+
     func open(_ url: URL) {
         isLoading = true
         page = nil
@@ -396,6 +415,30 @@ final class DocumentStore: ObservableObject {
     /// Rewrites the whole .acmplc.png. Every page is parsed first — including ones
     /// never opened — so untouched pages survive a save unchanged.
     func save() {
+        guard source != nil else { return }
+        guard url != nil else { saveAs(); return }
+        writeToDisk()
+    }
+
+    /// Asks where to put a document that has never been written.
+    func saveAs() {
+        guard source != nil else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = (url?.lastPathComponent ?? "Untitled.acmplc.png")
+        panel.message = "Save as an Accomplice document"
+        panel.allowsOtherFileTypes = true
+        guard panel.runModal() == .OK, var out = panel.url else { return }
+        // Keep the compound extension: it's what makes the file read as an image
+        // everywhere, which is the whole point of the format.
+        if !out.lastPathComponent.hasSuffix(".acmplc.png") {
+            out = out.deletingPathExtension()
+                .appendingPathExtension("acmplc.png")
+        }
+        url = out
+        writeToDisk()
+    }
+
+    private func writeToDisk() {
         guard let src = source, let url else { return }
         isLoading = true
         status = "Saving…"

@@ -28,7 +28,9 @@ public struct Page: @unchecked Sendable {
     /// has no intrinsic frame — we derive one at render time.
     public func contentBounds() -> CGRect {
         let r = layers.filter(\.isVisible).map(\.bounds).reduce(CGRect.null) { $0.union($1) }
-        return r.isNull ? CGRect(x: 0, y: 0, width: 1, height: 1) : r
+        // An empty page still needs somewhere to draw. A 1x1 rect would zoom-to-fit to
+        // an absurd magnification and make the pen tool unusable on a new document.
+        return r.isNull ? CGRect(x: 0, y: 0, width: 1000, height: 1000) : r
     }
 
     /// Applies `body` to the layer with `id`, wherever it sits in the tree.
