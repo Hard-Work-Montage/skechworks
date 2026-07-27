@@ -31,6 +31,7 @@ struct AccompliceApp: App {
         WindowGroup(id: "document") {
             DocumentWindow()
         }
+        Settings { SettingsView() }
         .commands {
             // Each window owns its own document now, so menu items act on whichever
             // one is frontmost rather than on a single app-wide store.
@@ -101,6 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         super.init()
         AppDelegate.shared = self
+    }
+
+    func applicationDidFinishLaunching(_ n: Notification) {
+        AppDelegate.shared = self
+        // Reapply the chosen colourway; a signed bundle can't rewrite its own .icns,
+        // so the choice only exists at runtime.
+        AppIconTheme.current.apply()
     }
 
     func applicationWillFinishLaunching(_ n: Notification) {

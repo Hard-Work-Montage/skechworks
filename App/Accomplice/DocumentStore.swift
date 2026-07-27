@@ -312,6 +312,83 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Insert
+
+    /// Where a newly inserted layer lands: the middle of the current content, or the
+    /// origin on an empty page.
+    private func insertionPoint(_ size: CGSize) -> CGPoint {
+        let b = page?.contentBounds() ?? CGRect(x: 0, y: 0, width: 1000, height: 1000)
+        let hasContent = !(page?.layers.isEmpty ?? true)
+        let c = hasContent ? CGPoint(x: b.midX, y: b.midY) : CGPoint(x: b.midX, y: b.midY)
+        return CGPoint(x: c.x - size.width / 2, y: c.y - size.height / 2)
+    }
+
+    func insertArtboard() {
+        let size = CGSize(width: 2076, height: 2076)   // a coin, since that's the work
+        var l = Layer(kind: .group([]))
+        l.name = "Artboard"
+        l.isArtboard = true
+        l.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
+        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        addLayer(l, actionName: "Insert Artboard")
+    }
+
+    func insertRectangle() {
+        let size = CGSize(width: 200, height: 200)
+        let p = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
+        var l = Layer(kind: .path(p, closed: true))
+        l.name = "Rectangle"
+        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        l.style.fills = [Fill(paint: .color(.black))]
+        addLayer(l, actionName: "Insert Rectangle")
+    }
+
+    func insertOval() {
+        let size = CGSize(width: 200, height: 200)
+        let p = CGPath(ellipseIn: CGRect(origin: .zero, size: size), transform: nil)
+        var l = Layer(kind: .path(p, closed: true))
+        l.name = "Oval"
+        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        l.style.fills = [Fill(paint: .color(.black))]
+        addLayer(l, actionName: "Insert Oval")
+    }
+
+    func insertText() {
+        var run = TextRun()
+        run.string = "Type something"
+        run.fontName = "Helvetica"
+        run.fontSize = 48
+        run.alignment = .center
+        let size = CGSize(width: 400, height: 70)
+        var l = Layer(kind: .text(run))
+        l.name = "Text"
+        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        addLayer(l, actionName: "Insert Text")
+    }
+
+    func insertImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic, .gif]
+        panel.canChooseDirectories = false
+        panel.message = "Choose an image to place"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url), let src = source else { return }
+
+        // Content-addressed, matching how the format stores assets, so placing the same
+        // photo twice doesn't duplicate the bytes.
+        let key = "images/\(Zip.crc32(data))-\(data.count).png"
+        let oriented = BitmapImage.load(data)
+        let display = oriented?.displaySize ?? CGSize(width: 400, height: 400)
+        let scale = min(1, 800 / max(display.width, display.height))
+        let size = CGSize(width: display.width * scale, height: display.height * scale)
+
+        source = src.adding(image: data, key: key)
+        var l = Layer(kind: .bitmap(imageRef: key))
+        l.name = url.deletingPathExtension().lastPathComponent
+        l.frame = CGRect(origin: insertionPoint(size), size: size)
+        addLayer(l, actionName: "Place Image")
+    }
+
     /// Builds a layer from points drawn on the canvas (page space).
     ///
     /// Geometry is stored in the layer's OWN space with the frame carrying the offset,

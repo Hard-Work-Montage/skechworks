@@ -54,6 +54,37 @@ struct ContentView: View {
         .navigationSubtitle(store.isDirty ? "Edited" : "")
         .toolbar {
             ToolbarItem(placement: .navigation) {
+                // The logo sits left of the insert menu, the way Sketch does it.
+                if let icon = AppIconTheme.current.image {
+                    Image(nsImage: icon)
+                        .resizable().interpolation(.high)
+                        .frame(width: 22, height: 22)
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+            }
+            ToolbarItem(placement: .navigation) {
+                Menu {
+                    Button("Artboard") { store.insertArtboard() }
+                        .keyboardShortcut("a", modifiers: [.command, .shift])
+                    Divider()
+                    Button("Rectangle") { store.insertRectangle() }
+                        .keyboardShortcut("r", modifiers: [])
+                    Button("Oval") { store.insertOval() }
+                        .keyboardShortcut("o", modifiers: [])
+                    Button("Vector") { store.tool = .pen }
+                        .keyboardShortcut("p", modifiers: [])
+                    Divider()
+                    Button("Text") { store.insertText() }
+                        .keyboardShortcut("t", modifiers: [])
+                    Button("Image…") { store.insertImage() }
+                } label: {
+                    Label("Insert", systemImage: "plus")
+                }
+                .menuIndicator(.hidden)
+                .help("Insert artboard, shape, vector, text or image")
+                .disabled(store.source == nil)
+            }
+            ToolbarItem(placement: .navigation) {
                 Button { store.openPanel() } label: { Label("Open", systemImage: "folder") }
                     .help("Open an .acmplc.png or .sketch file")
             }

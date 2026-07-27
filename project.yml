@@ -27,6 +27,12 @@ targets:
     platform: macOS
     sources:
       - path: App/Accomplice
+        excludes:
+          - "Icons/**"
+      # Blue-folder-free: the colourways ship as flat resources so
+      # Bundle.main.url(forResource:) finds them by name.
+      - path: App/Accomplice/Icons
+        buildPhase: resources
     dependencies:
       - target: AccompliceCore
         embed: true
@@ -34,6 +40,7 @@ targets:
       path: App/Accomplice/Info.plist
       properties:
         CFBundleDisplayName: Accomplice
+        CFBundleIconFile: AppIcon
         CFBundleShortVersionString: "0.1"
         CFBundleVersion: "1"
         LSApplicationCategoryType: public.app-category.graphics-design

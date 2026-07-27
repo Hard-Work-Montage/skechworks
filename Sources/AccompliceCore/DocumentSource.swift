@@ -57,6 +57,22 @@ public final class DocumentSource: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// A copy carrying one more asset. Placing an image has to add its bytes to the
+    /// document, and images are otherwise fixed at load time.
+    public func adding(image data: Data, key: String) -> DocumentSource {
+        var imgs = images
+        imgs[key] = data
+        let copy = DocumentSource(sourceApp: sourceApp, images: imgs, pages: pages,
+                                  coverPage: coverPage, resolve: resolve)
+        lock.lock()
+        let snapshot = cache
+        lock.unlock()
+        copy.lock.lock()
+        copy.cache = snapshot
+        copy.lock.unlock()
+        return copy
+    }
+
     /// Forces everything. Only for operations that genuinely need the whole document,
     /// like Export All — never on open.
     public func fullDocument() -> Document {
