@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var renamingID: String?
     @State private var renameText = ""
     @State private var expanded: Set<String> = []
+    @StateObject private var drag = LayerDragState()
+    private let layerRowHeight: CGFloat = 24
 
     private struct LayerRow: Identifiable {
         let node: LayerNode
@@ -233,6 +235,7 @@ struct ContentView: View {
                             .id(row.node.id)
                     }
                     .listStyle(.sidebar)
+                    .onDrop(of: [.text], delegate: LayerRootDropDelegate(state: drag, store: store))
                     // Only fires when the list itself has focus, so it can't fight a
                     // text field in the inspector for the delete key.
                     .onDeleteCommand { store.deleteSelection() }
@@ -284,7 +287,42 @@ struct ContentView: View {
                 .foregroundStyle(row.node.isVisible ? .primary : .tertiary)
         }
         .padding(.leading, CGFloat(row.depth) * 12)
+        .frame(height: layerRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())          // the whole row is a drop target, not just the text
+        .overlay(alignment: .top) {
+            if drag.spot == .above(row.node.id) { dropLine(row.depth) }
+        }
+        .overlay(alignment: .bottom) {
+            if drag.spot == .below(row.node.id) { dropLine(row.depth) }
+        }
+        .background {
+            // Highlight the container itself, so "into" reads differently from "between".
+            if drag.spot == .inside(row.node.id) {
+                RoundedRectangle(cornerRadius: 4).fill(.tint.opacity(0.25))
+            }
+        }
+        .opacity(drag.dragging.contains(row.node.id) ? 0.4 : 1)
+        .onDrag {
+            // Dragging an unselected row acts on that row, matching the context menu.
+            if !store.selection.contains(row.node.id) { store.selection = [row.node.id] }
+            drag.dragging = store.selection
+            return NSItemProvider(object: row.node.id as NSString)
+        }
+        .onDrop(of: [.text], delegate: LayerDropDelegate(
+            rowID: row.node.id,
+            isContainer: store.page?.layer(row.node.id)?.isContainer ?? false,
+            rowHeight: layerRowHeight,
+            state: drag,
+            store: store,
+            expanded: expanded,
+            expand: { expanded.insert($0) }))
         .contextMenu { layerMenu(row) }
+    }
+
+    private func dropLine(_ depth: Int) -> some View {
+        Rectangle().fill(.tint).frame(height: 2)
+            .padding(.leading, CGFloat(depth) * 12)
     }
 
     /// Sketch's layer menu, minus what this doesn't have.

@@ -1430,3 +1430,197 @@ private func maskedGroup() -> Layer {
     #expect(CurveMode(rawValue: 4) == .disconnected)   // "Free"
     #expect(CurveMode.allCases.map(\.rawValue) == [1, 2, 3, 4])
 }
+
+// MARK: - Reordering and reparenting
+
+private func pageWithArtboardAndLooseImage() -> Page {
+    var art = Layer(kind: .group([]))
+    art.name = "Frame"
+    art.isArtboard = true
+    art.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
+    art.frame = CGRect(x: 500, y: 300, width: 400, height: 400)
+
+    var photo = Layer(kind: .bitmap(imageRef: "etsy_01.png"))
+    photo.name = "etsy_01"
+    photo.frame = CGRect(x: 420, y: 250, width: 500, height: 500)   // overlapping, at page level
+
+    var page = Page(name: "p")
+    page.layers = [art, photo]
+    return page
+}
+
+@Test func draggingAnImageIntoAnArtboardMakesItAChildWithoutMovingIt() {
+    var page = pageWithArtboardAndLooseImage()
+    let art = page.layers[0].id, photo = page.layers[1].id
+    let wasAt = page.absoluteOrigin(of: photo)!
+
+    let moved = page.reparent([photo], into: art, at: 0)
+    #expect(moved)
+
+    // It's inside the artboard now...
+    #expect(page.layers.count == 1)
+    #expect(page.children(of: art).map(\.name) == ["etsy_01"])
+    // ...and hasn't moved on the canvas. Frames are relative to the container, so a
+    // move that ignored that would shift it by the artboard's offset.
+    #expect(page.absoluteOrigin(of: photo) == wasAt)
+    #expect(page.layer(photo)!.frame.origin == CGPoint(x: -80, y: -50))
+}
+
+@Test func anArtboardChildIsClippedToTheArtboard() {
+    var page = pageWithArtboardAndLooseImage()
+    let art = page.layers[0].id, photo = page.layers[1].id
+
+    // Loose on the page: nothing crops it.
+    #expect(Compose.flatten(page.layers).first(where: { $0.layer.id == photo })?.clip == nil)
+
+    page.reparent([photo], into: art, at: 0)
+    let inside = Compose.flatten(page.layers).first { $0.layer.id == photo }
+    let clip = try! #require(inside?.clip)
+    // Cropped to the artboard's edge — the whole point of dragging it in.
+    let box = clip.boundingBoxOfPath
+    #expect(abs(box.width - 400) < 1)
+    #expect(abs(box.height - 400) < 1)
+}
+
+@Test func draggingOutOfAnArtboardAlsoKeepsItInPlace() {
+    var page = pageWithArtboardAndLooseImage()
+    let art = page.layers[0].id, photo = page.layers[1].id
+    page.reparent([photo], into: art, at: 0)
+    let wasAt = page.absoluteOrigin(of: photo)!
+
+    let out = page.reparent([photo], into: nil, at: 0)
+    #expect(out)
+    #expect(page.layers.count == 2)
+    #expect(page.absoluteOrigin(of: photo) == wasAt)
+    #expect(page.layer(photo)!.frame.origin == CGPoint(x: 420, y: 250))
+}
+
+@Test func reorderingWithinAContainerLandsWhereYouDropped() {
+    var page = Page(name: "p")
+    page.layers = ["a", "b", "c", "d"].map { n in
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+        l.name = n
+        return l
+    }
+    let d = page.layers[3].id
+    page.reparent([d], into: nil, at: 1)
+    #expect(page.layers.map(\.name) == ["a", "d", "b", "c"])
+
+    // And moving down: the index has to account for the layer leaving its old slot.
+    let a = page.layers[0].id
+    page.reparent([a], into: nil, at: 3)
+    #expect(page.layers.map(\.name) == ["d", "b", "a", "c"])
+}
+
+@Test func aGroupCannotBeDroppedInsideItself() {
+    var page = Page(name: "p")
+    var inner = Layer(kind: .group([]))
+    inner.name = "Inner"
+    inner.frame = CGRect(x: 10, y: 10, width: 50, height: 50)
+    var outer = Layer(kind: .group([inner]))
+    outer.name = "Outer"
+    outer.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    page.layers = [outer]
+
+    // Would detach the whole subtree from the document.
+    let intoChild = page.reparent([outer.id], into: inner.id, at: 0)
+    let intoSelf = page.reparent([outer.id], into: outer.id, at: 0)
+    #expect(!intoChild)
+    #expect(!intoSelf)
+    #expect(page.layers.count == 1)
+    #expect(page.children(of: outer.id).count == 1)
+}
+
+@Test func layersCannotBeDroppedIntoSomethingThatIsNotAContainer() {
+    var page = pageWithArtboardAndLooseImage()
+    var rect = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    rect.name = "Rect"
+    page.layers.append(rect)
+    let intoPath = page.reparent([page.layers[1].id], into: rect.id, at: 0)
+    #expect(!intoPath)
+}
+
+@Test func draggingSeveralLayersKeepsTheirOrder() {
+    var page = Page(name: "p")
+    page.layers = ["a", "b", "c", "d"].map { n in
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+        l.name = n
+        return l
+    }
+    let b = page.layers[1].id, c = page.layers[2].id
+    page.reparent([c, b], into: nil, at: 0)      // passed in the wrong order on purpose
+    #expect(page.layers.map(\.name) == ["b", "c", "a", "d"])
+}
+
+// MARK: - Where a drop lands
+
+private func nestedPage() -> (Page, art: String, kid: String, loose: String) {
+    var kid = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    kid.name = "Inside"
+    kid.frame = CGRect(x: 10, y: 10, width: 10, height: 10)
+
+    var art = Layer(kind: .group([kid]))
+    art.name = "Frame"
+    art.isArtboard = true
+    art.frame = CGRect(x: 100, y: 100, width: 400, height: 400)
+
+    var loose = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    loose.name = "Loose"
+
+    var page = Page(name: "p")
+    page.layers = [art, loose]
+    return (page, art.id, kid.id, loose.id)
+}
+
+@Test func droppingOnTheMiddleOfAnArtboardPutsItInside() {
+    let (page, art, _, _) = nestedPage()
+    let landing = DropSpot.inside(art).resolve(in: page, expanded: [])
+    #expect(landing?.parent == art)
+    #expect(landing?.index == 1)      // after the child already there
+}
+
+@Test func droppingBetweenTopLevelRowsStaysAtTopLevel() {
+    let (page, art, _, loose) = nestedPage()
+    #expect(DropSpot.above(art).resolve(in: page, expanded: [])?.parent == nil)
+    #expect(DropSpot.above(art).resolve(in: page, expanded: [])?.index == 0)
+    #expect(DropSpot.below(loose).resolve(in: page, expanded: [])?.index == 2)
+}
+
+@Test func droppingJustBelowAnOpenArtboardMeansInsideIt() {
+    // The row under an expanded container IS its first child, so "below the artboard"
+    // has to mean the top of its contents. Reading it as "after the whole subtree"
+    // would put the layer somewhere it visually isn't.
+    let (page, art, _, _) = nestedPage()
+    let open = DropSpot.below(art).resolve(in: page, expanded: [art])
+    #expect(open?.parent == art)
+    #expect(open?.index == 0)
+
+    // Collapsed, the same gesture means "after the artboard" at the top level.
+    let shut = DropSpot.below(art).resolve(in: page, expanded: [])
+    #expect(shut?.parent == nil)
+    #expect(shut?.index == 1)
+}
+
+@Test func droppingAroundAChildStaysInsideItsParent() {
+    let (page, art, kid, _) = nestedPage()
+    let landing = DropSpot.below(kid).resolve(in: page, expanded: [art])
+    #expect(landing?.parent == art)
+    #expect(landing?.index == 1)
+}
+
+@Test func onlyContainersReportThemselvesAsDropTargets() {
+    let (page, art, kid, _) = nestedPage()
+    #expect(page.layer(art)!.isContainer)
+    #expect(!page.layer(kid)!.isContainer)
+}
+
+@Test func theWholeDropPathWorksEndToEnd() {
+    // What the delegate does, without the UI: resolve a spot, then move.
+    var (page, art, _, loose) = nestedPage()
+    let wasAt = page.absoluteOrigin(of: loose)!
+    let landing = try! #require(DropSpot.inside(art).resolve(in: page, expanded: []))
+    let moved = page.reparent([loose], into: landing.parent, at: landing.index)
+    #expect(moved)
+    #expect(page.children(of: art).map(\.name) == ["Inside", "Loose"])
+    #expect(page.absoluteOrigin(of: loose) == wasAt)
+}

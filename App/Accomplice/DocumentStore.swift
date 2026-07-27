@@ -546,6 +546,16 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Moves layers in the tree — reordering, or dragging into an artboard or group.
+    @discardableResult
+    func moveLayers(_ ids: [String], into parent: String?, at index: Int) -> Bool {
+        var ok = false
+        mutatePage("Move Layer") { page in
+            ok = page.reparent(ids, into: parent, at: index)
+        }
+        return ok
+    }
+
     /// Renames a layer, for the layer list and its context menu.
     func rename(_ id: String, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
