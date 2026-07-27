@@ -155,6 +155,9 @@ public enum DocumentCommand: Sendable {
     case ungroup(LayerQuery)
     /// Bend text round a circle. nil radius straightens it again.
     case curve(LayerQuery, radius: Double?, angle: Double?, flipped: Bool?)
+    /// Create a layer. Takes no selector — there's nothing to select yet.
+    case add(AddSpec)
+    case duplicate(LayerQuery, dx: Double, dy: Double, times: Int)
 
     public var query: LayerQuery {
         switch self {
@@ -164,6 +167,8 @@ public enum DocumentCommand: Sendable {
         case .move(let q, _, _), .resize(let q, _, _): return q
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
         case .curve(let q, _, _, _): return q
+        case .duplicate(let q, _, _, _): return q
+        case .add: return LayerQuery()
         }
     }
 
@@ -180,6 +185,8 @@ public enum DocumentCommand: Sendable {
         case .move: return "Move"
         case .resize: return "Resize"
         case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
+        case .add(let spec): return "Add \(spec.kind.capitalized)"
+        case .duplicate(_, _, _, let n): return n > 1 ? "Duplicate ×\(n)" : "Duplicate"
         case .align(_, let e): return "Align \(e)"
         case .distribute(_, let a): return "Distribute \(a)"
         case .order(_, let w): return "Order \(w)"
@@ -242,6 +249,30 @@ extension DocumentCommand {
             return .order(q, where: s("where", "value", "to") ?? fallback)
         case "group": return .group(q, name: s("name", "value"))
         case "ungroup": return .ungroup(q)
+        case "add", "create", "insert", "new":
+            var spec = AddSpec()
+            // The kind can arrive as the op's argument or baked into the op name.
+            spec.kind = (s("kind", "type", "shape", "what", "value") ?? "rect").lowercased()
+            spec.name = s("name", "label")
+            spec.text = s("text", "string", "content")
+            spec.font = s("font", "fontName")
+            spec.fill = s("fill", "color", "colour", "background")
+            spec.parent = s("parent", "in", "into", "artboard")
+            spec.x = n("x", "left"); spec.y = n("y", "top")
+            spec.width = n("width", "w"); spec.height = n("height", "h")
+            spec.fontSize = n("fontSize", "size")
+            return .add(spec)
+        case "addartboard", "newartboard", "createartboard":
+            var spec = AddSpec()
+            spec.kind = "artboard"
+            spec.name = s("name", "label", "value")
+            spec.x = n("x"); spec.y = n("y")
+            spec.width = n("width", "w"); spec.height = n("height", "h")
+            spec.fill = s("fill", "color", "colour", "background")
+            return .add(spec)
+        case "duplicate", "copy", "clone":
+            return .duplicate(q, dx: n("dx", "offsetX") ?? 20, dy: n("dy", "offsetY") ?? 20,
+                              times: Int(n("times", "count", "copies") ?? 1))
         case "curve", "arc", "curvetext":
             // "straighten" and an explicit null both mean "take the curve off".
             let straighten = d["straighten"] as? Bool == true
@@ -340,7 +371,17 @@ extension DocumentCommand {
           order        where: front|back|forward|backward
           group        name (optional)
           ungroup
+          add          kind: artboard|rect|ellipse|text|line, plus any of
+                       name, x, y, width, height, fill, text, font, fontSize,
+                       and parent (the name of an artboard to put it inside).
+                       Everything is optional — omit what you don't care about and
+                       sensible defaults are used. This is how you CREATE layers;
+                       every other operation only changes ones that already exist.
+          duplicate    dx, dy, times
           curve        radius, angle (degrees clockwise from 12 o'clock), flipped
+                       Inside an artboard the ring is centred on the artboard, so
+                       don't try to position the text first — set angle 180 for the
+                       bottom, 0 for the top, 90 for the right.
                        — bends a text layer round a circle centred on its frame.
                        Use flipped:true for text along the bottom so it reads
                        upright. {"op":"curve","straighten":true} removes the curve.
@@ -349,12 +390,27 @@ extension DocumentCommand {
         {"say":"Dropped the black paths to 50%.",
          "commands":[{"op":"setOpacity","type":"path","fill":"#000000","value":0.5}]}
 
+        Example — "make a new artboard":
+        {"say":"Added a 500×500 artboard.",
+         "commands":[{"op":"add","kind":"artboard","name":"Artboard"}]}
+
         Example — the request is ambiguous:
         {"say":"Do you mean the artboards themselves, or the shapes inside them?",
          "commands":[]}
 
-        Commands run in order, and a command with no selector acts on whatever the
-        previous select matched. Prefer one precise command over a select+act pair.
+        Commands run in order. A command with no selector acts on whatever the
+        previous select matched, or on the layer the previous "add" created. After
+        adding something, leave the selector OFF the commands that follow — naming it
+        again risks matching other layers that happen to share the name or type, and
+        changing those too.
+
+        Example — "add curved text along the bottom of a new artboard":
+        {"say":"Added the artboard and curved the text along its bottom.",
+         "commands":[{"op":"add","kind":"artboard","name":"Back"},
+                     {"op":"add","kind":"text","text":"8760 HOURS","parent":"Back"},
+                     {"op":"curve","radius":200,"angle":180,"flipped":true}]}
+
+        Prefer one precise command over a select+act pair.
         """
     }
 }

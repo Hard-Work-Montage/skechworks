@@ -67,3 +67,22 @@ import CoreGraphics
     let expected = straightBox.height + sagitta
     #expect(abs(curvedBox.height - expected) < expected * 0.12)
 }
+
+/// Renders one artboard from a file by name, so a scripted edit can be looked at.
+@Test func renderArtboardPreview() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard let file = env["ART_FILE"], let want = env["ART_NAME"],
+          let out = env["ART_OUT"] else { return }
+
+    let (doc, images) = try AcmplcFile.read(url: URL(fileURLWithPath: file))
+    for page in doc.pages {
+        guard let id = page.layers.first(where: { $0.name == want })?.id,
+              let iso = page.isolate(id) else { continue }
+        let img = try #require(Renderer(images: images).render(page: iso.page,
+                                                              maxDimension: 700,
+                                                              bounds: iso.bounds))
+        try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
+        return
+    }
+    Issue.record("no artboard named \(want)")
+}

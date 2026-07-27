@@ -623,48 +623,21 @@ final class DocumentStore: ObservableObject {
         return CGPoint(x: c.x - size.width / 2, y: c.y - size.height / 2)
     }
 
-    func insertArtboard() {
-        let size = CGSize(width: 500, height: 500)
-        var l = Layer(kind: .group([]))
-        l.name = "Artboard"
-        l.isArtboard = true
-        l.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
-        l.frame = CGRect(origin: insertionPoint(size), size: size)
-        addLayer(l, actionName: "Insert Artboard")
+    /// The insert menu and the chat create layers the same way — Page.add is the
+    /// single implementation, so an artboard made by asking for one is identical to
+    /// an artboard made from the menu.
+    private func insert(_ kind: String, _ actionName: String) {
+        var spec = AddSpec()
+        spec.kind = kind
+        var made: String?
+        mutatePage(actionName) { made = $0.add(spec) }
+        if let made { selection = [made] }
     }
 
-    func insertRectangle() {
-        let size = CGSize(width: 200, height: 200)
-        let p = CGPath(rect: CGRect(origin: .zero, size: size), transform: nil)
-        var l = Layer(kind: .path(p, closed: true))
-        l.name = "Rectangle"
-        l.frame = CGRect(origin: insertionPoint(size), size: size)
-        l.style.fills = [Fill(paint: .color(.black))]
-        addLayer(l, actionName: "Insert Rectangle")
-    }
-
-    func insertOval() {
-        let size = CGSize(width: 200, height: 200)
-        let p = CGPath(ellipseIn: CGRect(origin: .zero, size: size), transform: nil)
-        var l = Layer(kind: .path(p, closed: true))
-        l.name = "Oval"
-        l.frame = CGRect(origin: insertionPoint(size), size: size)
-        l.style.fills = [Fill(paint: .color(.black))]
-        addLayer(l, actionName: "Insert Oval")
-    }
-
-    func insertText() {
-        var run = TextRun()
-        run.string = "Type something"
-        run.fontName = "Helvetica"
-        run.fontSize = 48
-        run.alignment = .center
-        let size = CGSize(width: 400, height: 70)
-        var l = Layer(kind: .text(run))
-        l.name = "Text"
-        l.frame = CGRect(origin: insertionPoint(size), size: size)
-        addLayer(l, actionName: "Insert Text")
-    }
+    func insertArtboard()  { insert("artboard", "Insert Artboard") }
+    func insertRectangle() { insert("rect", "Insert Rectangle") }
+    func insertOval()      { insert("ellipse", "Insert Oval") }
+    func insertText()      { insert("text", "Insert Text") }
 
     func insertImage() {
         let panel = NSOpenPanel()

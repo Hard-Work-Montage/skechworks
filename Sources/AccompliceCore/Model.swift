@@ -177,6 +177,21 @@ public struct Layer: @unchecked Sendable {
 
     public var bounds: CGRect { frame }
 
+    /// Grows a curved text layer's frame to hold the whole ring.
+    ///
+    /// The arc is centred on the frame's centre, so a 400x70 text box can't contain a
+    /// radius-200 circle — the glyphs land outside the layer and, inside an artboard
+    /// that clips, vanish entirely while every command still reports success. Keeps
+    /// the centre put, so curving text doesn't move it.
+    public mutating func fitFrameToArc() {
+        guard case .text(let run) = kind, let arc = run.arc else { return }
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        // Radius to the baseline, plus room for the glyphs either side of it.
+        let reach = arc.radius + run.fontSize * 1.5
+        frame = CGRect(x: centre.x - reach, y: centre.y - reach,
+                       width: reach * 2, height: reach * 2)
+    }
+
     /// This layer's id plus every descendant's. Dragging a group has to move all of
     /// its drawables, and the canvas needs to know which ones without recomposing.
     public var subtreeIDs: Set<String> {

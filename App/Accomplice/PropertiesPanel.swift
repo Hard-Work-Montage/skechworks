@@ -233,6 +233,7 @@ struct PropertiesPanel: View {
                             ? TextArc(radius: min(layer.frame.width, layer.frame.height) / 2)
                             : nil
                         layer.kind = .text(run)
+                        layer.fitFrameToArc()
                     }
                 }))
                 .toggleStyle(.switch).controlSize(.mini)
@@ -243,6 +244,7 @@ struct PropertiesPanel: View {
                     guard case .text(var run) = layer.kind else { return }
                     run.arc?.radius = max(1, v)
                     layer.kind = .text(run)
+                    layer.fitFrameToArc()
                 }
                 editable("Angle", arc.angle, l, suffix: "°") { layer, v in
                     guard case .text(var run) = layer.kind else { return }

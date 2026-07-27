@@ -741,3 +741,173 @@ private let arcFrame = CGRect(x: 0, y: 0, width: 400, height: 400)   // centre (
     _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"curve","name":"hours","straighten":true}]"#.utf8)))
     #expect(arc(page) == nil)
 }
+
+// MARK: - Creating layers
+
+@Test func chatCanCreateAnArtboard() {
+    var page = Page(name: "p")
+    // "make a new artboard" — the request that had nothing behind it.
+    let cmds = DocumentCommand.decodeList(Data(#"[{"op":"add","kind":"artboard"}]"#.utf8))
+    #expect(cmds.count == 1)
+    let run = page.run(cmds)
+    #expect(page.layers.count == 1)
+    #expect(page.layers[0].isArtboard)
+    #expect(page.layers[0].frame.size == CGSize(width: 500, height: 500))
+    #expect(run.selection?.count == 1)          // and it ends up selected
+}
+
+@Test func addAcceptsTheOpNameAloneWithoutAKind() {
+    // Models reach for op:"addArtboard" as readily as op:"add",kind:"artboard".
+    let cmds = DocumentCommand.decodeList(Data(#"[{"op":"addArtboard","name":"Front"}]"#.utf8))
+    var page = Page(name: "p")
+    _ = page.run(cmds)
+    #expect(page.layers.count == 1)
+    #expect(page.layers[0].isArtboard)
+    #expect(page.layers[0].name == "Front")
+}
+
+@Test func addPlacesAShapeInsideANamedArtboard() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"add","kind":"artboard","name":"Front"}]"#.utf8)))
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"ellipse","name":"Disc","parent":"Front","fill":"#ff0000"}]
+    """.utf8)))
+
+    #expect(page.layers.count == 1)                  // nested, not a sibling
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("no kids"); return }
+    #expect(kids.count == 1)
+    #expect(kids[0].name == "Disc")
+    // Positioned relative to the artboard, so it lands inside it rather than off-page.
+    #expect(kids[0].frame.minX >= 0)
+    #expect(kids[0].frame.maxX <= 500)
+}
+
+@Test func addCreatesCurvableText() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"text","text":"8760 HOURS","fontSize":30,"name":"hours"},
+     {"op":"curve","name":"hours","radius":200,"flipped":true}]
+    """.utf8)))
+    guard case .text(let run) = page.layers[0].kind else { Issue.record("not text"); return }
+    #expect(run.string == "8760 HOURS")
+    #expect(run.arc?.radius == 200)
+    #expect(run.arc?.flipped == true)
+}
+
+@Test func duplicateMakesTheAskedForNumberOfCopies() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"add","kind":"rect","name":"box"}]"#.utf8)))
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"duplicate","name":"box","times":3,"dx":50,"dy":0}]"#.utf8)))
+    #expect(page.layers.count == 4)
+    // Distinct ids, or selection and editing would act on all of them at once.
+    #expect(Set(page.layers.map(\.id)).count == 4)
+    let xs = page.layers.map(\.frame.minX).sorted()
+    #expect(xs[1] - xs[0] == 50)
+}
+
+@Test func addPrefersAnExactlyNamedParentOverALooseMatch() {
+    // A real run: the Texas file already had "back", the model created "Back", and
+    // the circle went silently into the old coin instead of the new artboard.
+    var page = Page(name: "p")
+    var old = Layer(kind: .group([]))
+    old.name = "back"
+    old.isArtboard = true
+    old.frame = CGRect(x: 0, y: 0, width: 2000, height: 2000)
+    page.layers = [old]
+
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"artboard","name":"Back","width":400,"height":400},
+     {"op":"add","kind":"ellipse","name":"Disc","parent":"Back"}]
+    """.utf8)))
+
+    guard case .group(let oldKids) = page.layers[0].kind,
+          case .group(let newKids) = page.layers[1].kind else {
+        Issue.record("expected two artboards"); return
+    }
+    #expect(page.layers[1].name == "Back")
+    #expect(newKids.count == 1)            // the disc landed in the new artboard
+    #expect(newKids[0].name == "Disc")
+    #expect(oldKids.isEmpty)               // and not in the old one
+}
+
+@Test func addFallsBackToACaseInsensitiveParent() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"add","kind":"artboard","name":"Front"}]"#.utf8)))
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"add","kind":"rect","name":"Box","parent":"front"}]"#.utf8)))
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("no group"); return }
+    #expect(kids.count == 1)
+}
+
+@Test func coordinatesInsideAnArtboardAreRelativeToIt() {
+    // The artboard sits far from the origin, as it does in a real multi-coin page.
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"artboard","name":"Back","x":2000,"y":1400,"width":400,"height":400},
+     {"op":"add","kind":"ellipse","name":"Disc","parent":"Back","x":100,"y":100,"width":200,"height":200}]
+    """.utf8)))
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("no kids"); return }
+    // 100 from the artboard's corner, not 100 minus the artboard's origin.
+    #expect(kids[0].frame.origin == CGPoint(x: 100, y: 100))
+    #expect(kids[0].frame.maxX <= 400)      // stays inside
+}
+
+@Test func anUnpositionedChildIsCentredInItsArtboard() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"artboard","name":"Back","x":900,"y":900,"width":400,"height":400},
+     {"op":"add","kind":"ellipse","parent":"Back","width":200,"height":200}]
+    """.utf8)))
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("no kids"); return }
+    #expect(kids[0].frame.origin == CGPoint(x: 100, y: 100))
+}
+
+@Test func curvingTextGrowsTheFrameToHoldTheRing() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"text","text":"8760 HOURS","fontSize":30,"width":400,"height":70},
+     {"op":"curve","radius":200,"angle":180,"flipped":true}]
+    """.utf8)))
+    let l = page.layers[0]
+    // A radius-200 ring needs ~400+ across; a 400x70 box would clip it away entirely.
+    #expect(l.frame.width >= 400)
+    #expect(l.frame.height >= 400)
+
+    // Every glyph has to land inside the layer, or an artboard will clip it off.
+    guard case .text(let run) = l.kind else { Issue.record("not text"); return }
+    let box = TextOutline.path(run, in: CGRect(origin: .zero, size: l.frame.size))!.boundingBoxOfPath
+    #expect(box.minX >= 0)
+    #expect(box.minY >= 0)
+    #expect(box.maxX <= l.frame.width)
+    #expect(box.maxY <= l.frame.height)
+}
+
+@Test func curvingTextKeepsItWhereItWas() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"text","text":"HOURS","x":300,"y":300,"width":400,"height":70},
+     {"op":"curve","radius":150}]
+    """.utf8)))
+    // Centre stays put: curving must not also move the text.
+    #expect(abs(page.layers[0].frame.midX - 500) < 0.01)
+    #expect(abs(page.layers[0].frame.midY - 335) < 0.01)
+}
+
+@Test func aRingInsideAnArtboardIsConcentricWithIt() {
+    var page = Page(name: "p")
+    _ = page.run(DocumentCommand.decodeList(Data("""
+    [{"op":"add","kind":"artboard","name":"Back","width":400,"height":400},
+     {"op":"add","kind":"text","text":"8760 HOURS","fontSize":24,"parent":"Back","x":50,"y":320},
+     {"op":"curve","radius":150,"angle":180,"flipped":true}]
+    """.utf8)))
+    guard case .group(let kids) = page.layers[0].kind else { Issue.record("no kids"); return }
+    let ring = kids[0]
+    // Concentric with the 400x400 artboard, despite being placed near its bottom.
+    #expect(abs(ring.frame.midX - 200) < 0.01)
+    #expect(abs(ring.frame.midY - 200) < 0.01)
+
+    // And the glyphs land inside the artboard rather than being clipped away.
+    guard case .text(let run) = ring.kind else { Issue.record("not text"); return }
+    let box = TextOutline.path(run, in: CGRect(origin: .zero, size: ring.frame.size))!.boundingBoxOfPath
+    #expect(box.minY + ring.frame.minY >= 0)
+    #expect(box.maxY + ring.frame.minY <= 400)
+}

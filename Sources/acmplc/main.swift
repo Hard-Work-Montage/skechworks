@@ -314,7 +314,7 @@ case "ask":
     // Every model-facing bug so far — the strict `hex` key, the unscoped delete —
     // survived unit tests and died the moment a real reply came back. Assumptions
     // about what a model emits are worth nothing; this makes checking cheap.
-    let (doc0, _) = load()
+    let (doc0, askImages) = load()
     var doc = doc0
     let pageIndex = value("--page").flatMap(Int.init) ?? 0
     guard pageIndex < doc.pages.count else { fail("no page \(pageIndex)") }
@@ -376,6 +376,14 @@ case "ask":
     print(changed ? "DOCUMENT CHANGED" : "DOCUMENT UNCHANGED")
     // A model claiming work it didn't do is the failure this command exists to catch.
     if !turn.say.isEmpty && !turn.commands.isEmpty && !changed { exit(3) }
+    if let out = value("--save") {
+        // Lets the result be looked at, not just reported on.
+        // Carry the images through: writing with an empty map silently strips every
+        // embedded bitmap, which would make this harness destructive.
+        let data = try! AcmplcFile.write(document: doc, images: askImages)
+        try! data.write(to: URL(fileURLWithPath: out))
+        print("saved \(out)")
+    }
     if !turn.problems.isEmpty { exit(4) }
 
 case "claim", "unclaim":
