@@ -35,6 +35,13 @@ final class DocumentStore: ObservableObject {
         }
     }
     @Published var tool: Tool = .select
+    /// Zoom is a request, not a value — the canvas owns the magnification because
+    /// only it knows the viewport. See ZoomIntent.
+    @Published var zoomRequest = ZoomRequest()
+
+    func zoom(_ intent: ZoomIntent) {
+        zoomRequest = ZoomRequest(serial: zoomRequest.serial + 1, intent: intent)
+    }
 
     /// Convenience for the inspector, which shows one layer's properties.
     var selectedLayerID: String? {

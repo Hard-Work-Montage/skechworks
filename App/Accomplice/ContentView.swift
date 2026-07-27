@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 // editing lands means the inspector has somewhere to grow into.
 struct ContentView: View {
     @EnvironmentObject var store: DocumentStore
-    @State private var zoomToken = 0
     @State private var showCommandBar = false
 
     /// Which groups are open in the layer list.
@@ -97,7 +96,7 @@ struct ContentView: View {
                 .help("Select (V) · Pen (P) · Bend (B)")
             }
             ToolbarItem {
-                Button { zoomToken += 1 } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
+                Button { store.zoom(.fit) } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
                     .help("Fit page to window")
                     .disabled(store.page == nil)
             }
@@ -299,7 +298,7 @@ struct ContentView: View {
     private var canvas: some View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
-                                selection: $store.selection, zoomToken: zoomToken,
+                                selection: $store.selection, zoom: store.zoomRequest,
                                 revision: store.revision, tool: store.tool,
                                 pageToken: store.pageToken)
             if store.isLoading || store.isPageLoading {

@@ -86,6 +86,20 @@ struct AccompliceApp: App {
                 Button("Select All") { AppDelegate.shared?.active?.selectAll() }
                     .keyboardShortcut("a", modifiers: .command)
             }
+            // Sketch's zoom shortcuts, since that's the muscle memory coming in.
+            CommandGroup(before: .sidebar) {
+                Button("Zoom In") { AppDelegate.shared?.active?.zoom(.zoomIn) }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("Zoom Out") { AppDelegate.shared?.active?.zoom(.zoomOut) }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("Actual Size") { AppDelegate.shared?.active?.zoom(.actualSize) }
+                    .keyboardShortcut("0", modifiers: .command)
+                Button("Zoom to Fit") { AppDelegate.shared?.active?.zoom(.fit) }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Zoom to Selection") { AppDelegate.shared?.active?.zoom(.toSelection) }
+                    .keyboardShortcut("2", modifiers: .command)
+                Divider()
+            }
             CommandMenu("Arrange") {
                 Button("Bring Forward") { AppDelegate.shared?.active?.bringForward() }
                     .keyboardShortcut("]", modifiers: .command)

@@ -104,6 +104,7 @@ final class PageCanvas: NSView {
     var onDragEnd: ((CGSize) -> Void)?
     var onNudge: ((CGFloat, CGFloat) -> Void)?
     var onDelete: (() -> Void)?
+    var onZoom: ((ZoomIntent) -> Void)?
 
     /// Live drag state. The model isn't touched until mouse-up; until then the canvas
     /// just offsets the already-composed drawables belonging to the dragged subtree.
@@ -130,6 +131,14 @@ final class PageCanvas: NSView {
             if let f = frameOf(id, in: page.layers, base: .identity) { r = r.union(f) }
         }
         return r.isNull ? nil : r
+    }
+
+    /// The selection in view coordinates, for zoom-to-selection. Empty when nothing
+    /// is selected, which the caller treats as "fit the page instead".
+    var selectionRectInView: CGRect {
+        guard let r = selectionBounds else { return .zero }
+        return CGRect(x: r.minX - bounds1.minX, y: r.minY - bounds1.minY,
+                      width: r.width, height: r.height)
     }
 
     private func handlePoint(_ h: Handle, in r: CGRect) -> CGPoint {
@@ -701,6 +710,12 @@ final class PageCanvas: NSView {
             }
             onDelete?()
             return
+        case 24 where event.modifierFlags.contains(.command):   // ⌘= — unshifted ⌘+
+            onZoom?(.zoomIn)
+            return
+        case 27 where event.modifierFlags.contains(.command):   // ⌘-
+            onZoom?(.zoomOut)
+            return
         case 123: onNudge?(-step, 0)   // left
         case 124: onNudge?(step, 0)    // right
         case 125: onNudge?(0, step)    // down (canvas is y-down)
@@ -753,13 +768,13 @@ struct CanvasRepresentable: NSViewRepresentable {
     let page: Page?
     let images: [String: Data]
     @Binding var selection: Set<String>
-    let zoomToken: Int
+    let zoom: ZoomRequest
     let revision: Int
     let tool: DocumentStore.Tool
     let pageToken: Int
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
+        let scroll = ZoomingScrollView()
         scroll.contentView = CenteringClipView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -779,7 +794,6 @@ struct CanvasRepresentable: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let canvas = context.coordinator.canvas else { return }
         let pageChanged = context.coordinator.lastPageToken != pageToken
-            || context.coordinator.lastZoomToken != zoomToken
         canvas.images = images
         canvas.page = page
         canvas.selected = selection
@@ -787,9 +801,12 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.revision = revision
         canvas.tool = tool
         wire(canvas)
+        if context.coordinator.lastZoomSerial != zoom.serial {
+            context.coordinator.lastZoomSerial = zoom.serial
+            apply(zoom.intent, scroll: scroll, canvas: canvas)
+        }
         if pageChanged, let page {
             context.coordinator.lastPageToken = pageToken
-            context.coordinator.lastZoomToken = zoomToken
             // Fit on arrival: these pages range from 180pt to 15,000pt wide, so a
             // fixed default zoom would be useless most of the time.
             let b = page.contentBounds()
@@ -808,6 +825,22 @@ struct CanvasRepresentable: NSViewRepresentable {
         }
     }
 
+    /// Carries out a zoom request against the live scroll view.
+    private func apply(_ intent: ZoomIntent, scroll: NSScrollView, canvas: PageCanvas) {
+        guard let zoomer = scroll as? ZoomingScrollView else { return }
+        canvas.layoutSubtreeIfNeeded()
+        switch intent {
+        case .zoomIn:      zoomer.zoom(by: ZoomingScrollView.step)
+        case .zoomOut:     zoomer.zoom(by: 1 / ZoomingScrollView.step)
+        case .actualSize:  zoomer.setMagnification(1, centeredAt: canvas.contentRectInView.centre)
+        case .fit:         zoomer.fit(canvas.contentRectInView)
+        case .toSelection:
+            // Falls back to fit rather than doing nothing, which would read as broken.
+            let rect = canvas.selectionRectInView
+            zoomer.fit(rect.isEmpty ? canvas.contentRectInView : rect)
+        }
+    }
+
     private func wire(_ canvas: PageCanvas) {
         canvas.onClick = { [weak canvas] pt, extend in
             store.select(canvas?.layerHit(pt)?.id, extend: extend)
@@ -820,6 +853,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onDragEnd = { offset in store.endDrag(offset: offset) }
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
         canvas.onDelete = { store.deleteSelection() }
+        canvas.onZoom = { store.zoom($0) }
         canvas.onResizeBegin = { store.beginResize() }
         canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
@@ -831,6 +865,11 @@ struct CanvasRepresentable: NSViewRepresentable {
     final class Coordinator {
         var canvas: PageCanvas?
         var lastPageToken: Int = -1
-        var lastZoomToken: Int = -1
+        var lastZoomSerial: Int = 0
     }
+}
+
+
+extension CGRect {
+    var centre: CGPoint { CGPoint(x: midX, y: midY) }
 }
