@@ -97,6 +97,43 @@ extension Page {
         return true
     }
 
+    /// Where a layer's container sits, in page coordinates.
+    public func parentOrigin(of id: String) -> CGPoint {
+        var o = CGPoint.zero
+        for a in ancestors(of: id) {
+            guard let anc = layer(a) else { continue }
+            o.x += anc.frame.minX
+            o.y += anc.frame.minY
+        }
+        return o
+    }
+
+    /// Scales layers about a point given in PAGE coordinates.
+    ///
+    /// Frames are stored relative to their container, and the resize anchor comes from
+    /// the selection on screen, which is absolute. Applying one to the other directly
+    /// works only for layers sitting at the top level — anything inside a group or an
+    /// artboard gets thrown by its container's offset, which reads as the object
+    /// re-centring itself the moment you let go of the handle.
+    ///
+    /// `startFrames` are the frames as they were when the drag began, so a gesture
+    /// stays exact instead of accumulating rounding on every mouse move.
+    public mutating func scale(_ ids: [String], about anchor: CGPoint, by scale: CGSize,
+                               from startFrames: [String: CGRect]) {
+        for id in ids {
+            guard let start = startFrames[id] else { continue }
+            let parent = parentOrigin(of: id)
+            let absolute = CGPoint(x: parent.x + start.minX, y: parent.y + start.minY)
+            let moved = CGPoint(x: anchor.x + (absolute.x - anchor.x) * scale.width,
+                                y: anchor.y + (absolute.y - anchor.y) * scale.height)
+            updateLayer(id) { l in
+                l.frame.origin = CGPoint(x: moved.x - parent.x, y: moved.y - parent.y)
+                l.resize(to: CGSize(width: max(1, start.width * scale.width),
+                                    height: max(1, start.height * scale.height)))
+            }
+        }
+    }
+
     /// Direct children of a container, or the page's own layers.
     public func children(of parent: String?) -> [Layer] {
         guard let parent else { return layers }

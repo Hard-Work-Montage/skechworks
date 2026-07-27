@@ -1688,3 +1688,83 @@ private func nestedPage() -> (Page, art: String, kid: String, loose: String) {
     l.breaksMaskChain = true
     #expect(l.contentSignature != plain)
 }
+
+// MARK: - Resizing
+
+/// Adam's structure: artboard > group > image, so the image is two containers deep.
+private func nestedImagePage() -> (Page, image: String) {
+    var photo = Layer(kind: .bitmap(imageRef: "etsy_01.png"))
+    photo.name = "etsy_01"
+    photo.frame = CGRect(x: 50, y: 50, width: 200, height: 200)     // relative to the group
+
+    var group = Layer(kind: .group([photo]))
+    group.name = "Group"
+    group.frame = CGRect(x: 100, y: 100, width: 300, height: 300)   // relative to the artboard
+
+    var art = Layer(kind: .group([group]))
+    art.name = "Frame"
+    art.isArtboard = true
+    art.frame = CGRect(x: 200, y: 200, width: 600, height: 600)
+
+    var page = Page(name: "p")
+    page.layers = [art]
+    return (page, photo.id)
+}
+
+@Test func draggingTheBottomRightHandleGrowsFromTheTopLeftCorner() {
+    // Nested two deep: the anchor is in page coordinates, the frame is relative to the
+    // group. Mixing them threw the layer by the containers' combined offset, which
+    // looked like the object re-centring itself on release.
+    var (page, photo) = nestedImagePage()
+    let before = page.absoluteOrigin(of: photo)!          // 200+100+50 = 350, 350
+    #expect(before == CGPoint(x: 350, y: 350))
+
+    // Grab the bottom-right handle: the anchor is the top-left, which must not move.
+    page.scale([photo], about: before, by: CGSize(width: 2, height: 2),
+               from: [photo: page.layer(photo)!.frame])
+
+    #expect(page.absoluteOrigin(of: photo) == before)      // top-left pinned
+    #expect(page.layer(photo)!.frame.size == CGSize(width: 400, height: 400))
+}
+
+@Test func draggingTheTopLeftHandleKeepsTheBottomRightCorner() {
+    var (page, photo) = nestedImagePage()
+    let start = page.layer(photo)!.frame
+    let topLeft = page.absoluteOrigin(of: photo)!
+    let bottomRight = CGPoint(x: topLeft.x + start.width, y: topLeft.y + start.height)
+
+    page.scale([photo], about: bottomRight, by: CGSize(width: 0.5, height: 0.5),
+               from: [photo: start])
+
+    let now = page.absoluteOrigin(of: photo)!
+    let size = page.layer(photo)!.frame.size
+    #expect(size == CGSize(width: 100, height: 100))
+    // The corner you weren't dragging stays put.
+    #expect(abs(now.x + size.width - bottomRight.x) < 0.01)
+    #expect(abs(now.y + size.height - bottomRight.y) < 0.01)
+}
+
+@Test func resizingATopLevelLayerStillWorks() {
+    // The case that always worked, so the fix doesn't trade one for the other.
+    var page = Page(name: "p")
+    var l = Layer(kind: .bitmap(imageRef: "x.png"))
+    l.frame = CGRect(x: 40, y: 40, width: 100, height: 100)
+    page.layers = [l]
+
+    page.scale([l.id], about: CGPoint(x: 40, y: 40), by: CGSize(width: 3, height: 3),
+               from: [l.id: l.frame])
+    #expect(page.layers[0].frame == CGRect(x: 40, y: 40, width: 300, height: 300))
+}
+
+@Test func resizingUsesTheFramesFromWhenTheDragStarted() {
+    // Re-applying to the live frame instead of the starting one compounds the scale
+    // across a gesture, so the layer runs away as you drag.
+    var (page, photo) = nestedImagePage()
+    let start = page.layer(photo)!.frame
+    let anchor = page.absoluteOrigin(of: photo)!
+
+    for s in [1.5, 2.0, 2.5] {
+        page.scale([photo], about: anchor, by: CGSize(width: s, height: s), from: [photo: start])
+    }
+    #expect(page.layer(photo)!.frame.size == CGSize(width: 500, height: 500))
+}

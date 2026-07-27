@@ -311,12 +311,8 @@ final class DocumentStore: ObservableObject {
         let start = resizeStart
         resizeStart = [:]
         guard !start.isEmpty, scale.width != 1 || scale.height != 1 else { return }
-        edit(Array(start.keys), actionName: "Resize") { l in
-            guard let f = start[l.id] else { return }
-            l.frame.origin = CGPoint(x: anchor.x + (f.minX - anchor.x) * scale.width,
-                                     y: anchor.y + (f.minY - anchor.y) * scale.height)
-            l.resize(to: CGSize(width: max(1, f.width * scale.width),
-                                height: max(1, f.height * scale.height)))
+        mutatePage("Resize") { page in
+            page.scale(Array(start.keys), about: anchor, by: scale, from: start)
         }
     }
 
