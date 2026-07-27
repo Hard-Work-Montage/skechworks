@@ -15,16 +15,92 @@ final class PageCanvas: NSView {
             composedFor = nil
             recompose()
             growBounds()
+            rebuildEditPath()
             needsDisplay = true
         }
     }
     var images: [String: Data] = [:] { didSet { needsDisplay = true } }
-    var selected: Set<String> = [] { didSet { updateDragSet(); needsDisplay = true } }
+    var selected: Set<String> = [] { didSet { updateDragSet(); rebuildEditPath(); needsDisplay = true } }
     var onClick: ((CGPoint, Bool) -> Void)?          // point, extend (shift held)
     var onMarquee: ((CGRect, Bool) -> Void)?         // rect, extend
     var onDragBegin: ((String) -> Void)?
     var onResizeBegin: (() -> Void)?
     var onResizeEnd: ((CGSize, CGPoint) -> Void)?
+    var onDrawPath: ((VectorPath) -> Void)?
+    var onEditPath: ((VectorPath, String, String) -> Void)?
+
+    var tool: DocumentStore.Tool = .select {
+        didSet {
+            guard tool != oldValue else { return }
+            if tool != .pen { finishPen(close: false) }
+            rebuildEditPath()
+            needsDisplay = true
+        }
+    }
+
+    // MARK: - Pen / point editing state
+
+    /// Points placed so far by the pen, in page space. Corner-first: a click drops an
+    /// anchor with no handles, and you curve it afterwards with the bend tool. That
+    /// matches how Adam draws — click, click, click, then adjust.
+    private var penPoints: [VectorPoint] = []
+    private var penCursor: CGPoint?
+
+    /// The selected path, exploded into editable points (page space).
+    private var editPath: VectorPath?
+    private var editLayerID: String?
+    private var editTransform: CGAffineTransform = .identity
+    private var draggingPoint: Int?
+    private var draggingHandle: (index: Int, out: Bool)?
+    private var bendingSegment: Int?
+    private var lastTouchedPoint: Int?
+
+    private var pointRadius: CGFloat { 4 / max(0.01, currentScale) }
+    private var grabRadius: CGFloat { 7 / max(0.01, currentScale) }
+
+    /// Rebuilds the editable point list when the selection changes.
+    ///
+    /// Points live in page space so hit-testing and dragging need no per-event
+    /// transform maths; they're converted back into the layer's own space on commit.
+    private func rebuildEditPath() {
+        editPath = nil; editLayerID = nil; editTransform = .identity
+        guard tool != .pen, let page, selected.count == 1, let id = selected.first,
+              let l = page.layer(id), case .path(let cg, _) = l.kind else { return }
+        guard let t = transformOf(id, in: page.layers, base: .identity) else { return }
+        editTransform = t
+        editLayerID = id
+        editPath = VectorPath(cgPath: cg.transformed(by: t))
+    }
+
+    private func transformOf(_ id: String, in layers: [Layer], base: CGAffineTransform) -> CGAffineTransform? {
+        for l in layers {
+            let t = Compose.transform(l).concatenating(base)
+            if l.id == id { return t }
+            switch l.kind {
+            case .group(let k), .shapeGroup(let k, _):
+                if let hit = transformOf(id, in: k, base: t) { return hit }
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    private func commitEdit(_ name: String) {
+        guard let vp = editPath, let id = editLayerID else { return }
+        // Back into the layer's own space, undoing the transform we applied to edit in.
+        let local = VectorPath(cgPath: vp.cgPath().transformed(by: editTransform.inverted()))
+        onEditPath?(local, id, name)
+    }
+
+    func finishPen(close: Bool) {
+        guard penPoints.count >= 2 else { penPoints = []; penCursor = nil; return }
+        var vp = VectorPath(points: penPoints, closed: close)
+        if close, vp.points.count > 2 { vp.closed = true }
+        penPoints = []
+        penCursor = nil
+        onDrawPath?(vp)
+        needsDisplay = true
+    }
     var onDragEnd: ((CGSize) -> Void)?
     var onNudge: ((CGFloat, CGFloat) -> Void)?
 
@@ -273,11 +349,70 @@ final class PageCanvas: NSView {
         }
 
         drawHandles(ctx)
+        drawPointOverlay(ctx)
+        drawPenPreview(ctx)
         drawArtboardLabels()
         ctx.restoreGState()
     }
 
+    /// Anchors and handles for the path being edited.
+    private func drawPointOverlay(_ ctx: CGContext) {
+        guard let vp = editPath, tool != .pen else { return }
+        let sc = max(0.01, currentScale)
+
+        // The path itself, so the shape reads while you're moving points around.
+        ctx.addPath(vp.cgPath())
+        ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.7).cgColor)
+        ctx.setLineWidth(1 / sc)
+        ctx.strokePath()
+
+        for (i, p) in vp.points.enumerated() {
+            // Handles first, so anchors sit on top of their own lines.
+            for (has, h) in [(p.hasCurveFrom, p.curveFrom), (p.hasCurveTo, p.curveTo)] where has {
+                ctx.move(to: p.point); ctx.addLine(to: h)
+                ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.5).cgColor)
+                ctx.setLineWidth(1 / sc)
+                ctx.strokePath()
+                let hr = pointRadius * 0.8
+                ctx.addEllipse(in: CGRect(x: h.x - hr, y: h.y - hr, width: hr * 2, height: hr * 2))
+                ctx.setFillColor(NSColor.controlAccentColor.cgColor)
+                ctx.fillPath()
+            }
+            let r = pointRadius
+            let box = CGRect(x: p.point.x - r, y: p.point.y - r, width: r * 2, height: r * 2)
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1.4 / sc)
+            // Corners draw square, smooth points round — the shape tells you the mode.
+            if p.isCorner { ctx.fill(box); ctx.stroke(box) }
+            else { ctx.fillEllipse(in: box); ctx.strokeEllipse(in: box) }
+            _ = i
+        }
+    }
+
+    private func drawPenPreview(_ ctx: CGContext) {
+        guard tool == .pen, !penPoints.isEmpty else { return }
+        let sc = max(0.01, currentScale)
+        var preview = VectorPath(points: penPoints, closed: false)
+        if let c = penCursor { preview.points.append(VectorPoint(c)) }
+        ctx.addPath(preview.cgPath())
+        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setLineWidth(1.2 / sc)
+        ctx.strokePath()
+
+        for (i, p) in penPoints.enumerated() {
+            let r = pointRadius
+            let box = CGRect(x: p.point.x - r, y: p.point.y - r, width: r * 2, height: r * 2)
+            // The first point is the one you click to close, so make it obvious.
+            ctx.setFillColor(i == 0 ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1.4 / sc)
+            ctx.fill(box); ctx.stroke(box)
+        }
+    }
+
     private func drawHandles(_ ctx: CGContext) {
+        guard editPath == nil, tool == .select else { return }
         guard var r = selectionBounds, !dragging, !marqueeing else { return }
         if let h = activeHandle {
             let a = anchorPoint(h, in: r)
@@ -371,6 +506,14 @@ final class PageCanvas: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds,
+                                       options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect],
+                                       owner: self))
+    }
+
     override func mouseDown(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
@@ -383,6 +526,43 @@ final class PageCanvas: NSView {
         // re-selects first, so a single press can select and then move. Clicking bare
         // canvas starts a marquee instead.
         window?.makeFirstResponder(self)
+
+        // --- Pen: click to drop a corner point ---
+        if tool == .pen {
+            if let first = penPoints.first, penPoints.count >= 2,
+               hypot(p.x - first.point.x, p.y - first.point.y) <= grabRadius {
+                finishPen(close: true)          // clicking the first point closes it
+            } else {
+                penPoints.append(VectorPoint(p))
+                needsDisplay = true
+            }
+            return
+        }
+
+        // --- Bend: grab the nearest segment of the edited path ---
+        if tool == .bend, let vp = editPath,
+           let hit = vp.closestSegment(to: p, within: grabRadius * 2) {
+            bendingSegment = hit.index
+            return
+        }
+
+        // --- Point editing on the selected path ---
+        if let vp = editPath {
+            for (i, pt) in vp.points.enumerated() {
+                if pt.hasCurveFrom, hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius {
+                    draggingHandle = (i, true); return
+                }
+                if pt.hasCurveTo, hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius {
+                    draggingHandle = (i, false); return
+                }
+            }
+            for (i, pt) in vp.points.enumerated()
+            where hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius {
+                draggingPoint = i
+                lastTouchedPoint = i
+                return
+            }
+        }
 
         // Handles win over everything: they sit on the selection's edge, which is
         // usually on top of the art you'd otherwise hit.
@@ -408,9 +588,26 @@ final class PageCanvas: NSView {
         }
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        guard tool == .pen, !penPoints.isEmpty else { return }
+        let local = convert(event.locationInWindow, from: nil)
+        penCursor = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        needsDisplay = true
+    }
+
     override func mouseDragged(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+
+        if let i = draggingPoint {
+            editPath?.points[i].move(to: p); needsDisplay = true; return
+        }
+        if let h = draggingHandle {
+            editPath?.points[h.index].setHandle(out: h.out, to: p); needsDisplay = true; return
+        }
+        if let seg = bendingSegment {
+            editPath?.bend(segment: seg, to: p); needsDisplay = true; return
+        }
         if let h = activeHandle, let r = selectionBounds {
             let a = resizeAnchor
             var sx: CGFloat = 1, sy: CGFloat = 1
@@ -439,6 +636,9 @@ final class PageCanvas: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
+        if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
+        if bendingSegment != nil { bendingSegment = nil; commitEdit("Bend Curve"); return }
         if activeHandle != nil {
             activeHandle = nil
             let s = resizeScale
@@ -465,6 +665,18 @@ final class PageCanvas: NSView {
     override func keyDown(with event: NSEvent) {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
+        case 36:   // return — finish an open path
+            if tool == .pen { finishPen(close: false); return }
+        case 53:   // escape — abandon
+            if tool == .pen { penPoints = []; penCursor = nil; needsDisplay = true; return }
+        case 51, 117:  // delete — remove the selected point
+            if let vp = editPath, let i = draggingPoint ?? lastTouchedPoint,
+               vp.points.count > 2 {
+                editPath?.removePoint(i)
+                lastTouchedPoint = nil
+                commitEdit("Delete Point")
+                return
+            }
         case 123: onNudge?(-step, 0)   // left
         case 124: onNudge?(step, 0)    // right
         case 125: onNudge?(0, step)    // down (canvas is y-down)
@@ -519,6 +731,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     @Binding var selection: Set<String>
     let zoomToken: Int
     let revision: Int
+    let tool: DocumentStore.Tool
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
@@ -546,6 +759,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.page = page
         canvas.selected = selection
         canvas.revision = revision
+        canvas.tool = tool
         wire(canvas)
         if pageChanged, let page {
             context.coordinator.lastPageName = page.name
@@ -581,6 +795,8 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
         canvas.onResizeBegin = { store.beginResize() }
         canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
+        canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
+        canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

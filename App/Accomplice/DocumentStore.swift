@@ -17,6 +17,25 @@ final class DocumentStore: ObservableObject {
     /// touch every edit path.
     @Published var selection: Set<String> = []
 
+    enum Tool: String, CaseIterable {
+        case select, pen, bend
+        var symbol: String {
+            switch self {
+            case .select: return "cursorarrow"
+            case .pen: return "pencil.tip"
+            case .bend: return "point.topleft.down.to.point.bottomright.curvepath"
+            }
+        }
+        var title: String {
+            switch self {
+            case .select: return "Select (V)"
+            case .pen: return "Pen (P)"
+            case .bend: return "Bend (B)"
+            }
+        }
+    }
+    @Published var tool: Tool = .select
+
     /// Convenience for the inspector, which shows one layer's properties.
     var selectedLayerID: String? {
         get { selection.count == 1 ? selection.first : nil }
@@ -225,6 +244,93 @@ final class DocumentStore: ObservableObject {
     }
 
     func cancelResize() { resizeStart = [:] }
+
+    // MARK: - Adding and removing layers
+
+    /// Appends a layer (the pen tool's output) as one undoable step.
+    func addLayer(_ layer: Layer, actionName: String = "Draw Path") {
+        guard var p = page, let src = source else { return }
+        p.layers.append(layer)
+        apply(p, at: pageIndex, src: src)
+        revision += 1
+        isDirty = true
+        selection = [layer.id]
+        let idx = pageIndex
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.removeLayer(layer.id, pageIndex: idx, actionName: actionName) }
+        }
+        undoManager.setActionName(actionName)
+        refreshUndoState()
+    }
+
+    func removeLayer(_ id: String, pageIndex idx: Int, actionName: String = "Delete") {
+        guard let src = source, var p = src.page(at: idx),
+              let i = p.layers.firstIndex(where: { $0.id == id }) else { return }
+        let removed = p.layers.remove(at: i)
+        if pageIndex != idx { pageIndex = idx }
+        apply(p, at: idx, src: src)
+        revision += 1
+        isDirty = true
+        selection.remove(id)
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.reinsertLayer(removed, at: i, pageIndex: idx, actionName: actionName) }
+        }
+        undoManager.setActionName(actionName)
+        refreshUndoState()
+    }
+
+    private func reinsertLayer(_ layer: Layer, at i: Int, pageIndex idx: Int, actionName: String) {
+        guard let src = source, var p = src.page(at: idx) else { return }
+        p.layers.insert(layer, at: min(i, p.layers.count))
+        if pageIndex != idx { pageIndex = idx }
+        apply(p, at: idx, src: src)
+        revision += 1
+        isDirty = true
+        selection = [layer.id]
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.removeLayer(layer.id, pageIndex: idx, actionName: actionName) }
+        }
+        refreshUndoState()
+    }
+
+    /// Builds a layer from points drawn on the canvas (page space).
+    ///
+    /// Geometry is stored in the layer's OWN space with the frame carrying the offset,
+    /// so the path is normalised to its bounding box on the way in.
+    func commitDrawnPath(_ vp: VectorPath) {
+        guard vp.points.count >= 2 else { return }
+        let cg = vp.cgPath()
+        let box = cg.boundingBoxOfPath
+        guard box.width.isFinite, box.height.isFinite else { return }
+        let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+
+        var l = Layer(kind: .path(local, closed: vp.closed))
+        l.name = vp.closed ? "Path" : "Line"
+        l.frame = box
+        if vp.closed {
+            l.style.fills = [Fill(paint: .color(.black))]
+        } else {
+            var b = Border()
+            b.color = .black
+            b.thickness = 1
+            l.style.borders = [b]
+        }
+        addLayer(l)
+    }
+
+    /// Writes an edited path back to its layer, keeping the frame in step with the
+    /// new bounds so the layer box doesn't drift away from its artwork.
+    func commitEditedPath(_ vp: VectorPath, layerID: String, actionName: String) {
+        let cg = vp.cgPath()
+        let box = cg.boundingBoxOfPath
+        guard box.width.isFinite, box.height.isFinite else { return }
+        edit(layerID, actionName: actionName) { l in
+            let origin = CGPoint(x: l.frame.minX + box.minX, y: l.frame.minY + box.minY)
+            let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+            l.kind = .path(local, closed: vp.closed)
+            l.frame = CGRect(origin: origin, size: box.size)
+        }
+    }
 
     /// Arrow-key nudge. Shift moves by 10 the way every design tool does.
     func nudge(dx: CGFloat, dy: CGFloat) {

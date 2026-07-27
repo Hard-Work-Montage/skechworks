@@ -25,6 +25,13 @@ struct AccompliceApp: App {
                     .keyboardShortcut("z", modifiers: [.command, .shift])
                     .disabled(!store.canRedo)
             }
+            CommandMenu("Tools") {
+                ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
+                    Button(t.title) { store.tool = t }
+                        .keyboardShortcut(KeyEquivalent(Character(t == .select ? "v" : t == .pen ? "p" : "b")),
+                                          modifiers: [])
+                }
+            }
             CommandGroup(replacing: .saveItem) {
                 Button("Save") { store.save() }
                     .keyboardShortcut("s", modifiers: .command)

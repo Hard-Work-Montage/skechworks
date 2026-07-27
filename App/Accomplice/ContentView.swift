@@ -27,6 +27,16 @@ struct ContentView: View {
                     .help("Open an .acmplc.png or .sketch file")
             }
             ToolbarItem {
+                Picker("Tool", selection: $store.tool) {
+                    ForEach(DocumentStore.Tool.allCases, id: \.self) { t in
+                        Label(t.title, systemImage: t.symbol).tag(t)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.iconOnly)
+                .help("Select (V) · Pen (P) · Bend (B)")
+            }
+            ToolbarItem {
                 Button { zoomToken += 1 } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
                     .help("Fit page to window")
                     .disabled(store.page == nil)
@@ -155,7 +165,7 @@ struct ContentView: View {
         ZStack {
             CanvasRepresentable(page: store.page, images: store.images,
                                 selection: $store.selection, zoomToken: zoomToken,
-                                revision: store.revision)
+                                revision: store.revision, tool: store.tool)
             if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
