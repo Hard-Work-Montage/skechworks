@@ -308,6 +308,76 @@ case "roundtrip":
     }
     warnFonts()
 
+case "ask":
+    // The end-to-end harness: real document, real model, real decoder, real executor.
+    //
+    // Every model-facing bug so far — the strict `hex` key, the unscoped delete —
+    // survived unit tests and died the moment a real reply came back. Assumptions
+    // about what a model emits are worth nothing; this makes checking cheap.
+    let (doc0, _) = load()
+    var doc = doc0
+    let pageIndex = value("--page").flatMap(Int.init) ?? 0
+    guard pageIndex < doc.pages.count else { fail("no page \(pageIndex)") }
+    // args = [acmplc, ask, <file>, <request>, ...] — skip the file, not just the verb.
+    guard let request = args.dropFirst(3).first(where: { !$0.hasPrefix("-") }) else {
+        fail("usage: acmplc ask <file> \"request\"")
+    }
+    let host = value("--host") ?? "http://127.0.0.1:11434"
+    let model = value("--model") ?? "qwen3-coder:30b"
+
+    let described = doc.pages[pageIndex].describe()
+    let body: [String: Any] = [
+        "model": model, "stream": false, "format": "json",
+        "options": ["temperature": 0.1],
+        "messages": [
+            ["role": "system", "content": ModelPrompt.system],
+            ["role": "user", "content": ModelPrompt.user(document: described, request: request)],
+        ],
+    ]
+    var req = URLRequest(url: URL(string: host + "/api/chat")!)
+    req.httpMethod = "POST"
+    req.timeoutInterval = 300
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try! JSONSerialization.data(withJSONObject: body)
+
+    let sem = DispatchSemaphore(value: 0)
+    var reply = ""
+    var transportError: String?
+    URLSession.shared.dataTask(with: req) { data, _, err in
+        defer { sem.signal() }
+        if let err { transportError = err.localizedDescription; return }
+        guard let data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let msg = json["message"] as? [String: Any],
+              let content = msg["content"] as? String else {
+            transportError = "unreadable reply from \(host)"
+            return
+        }
+        reply = content
+    }.resume()
+    sem.wait()
+    if let transportError { fail(transportError) }
+
+    print("--- model said ---")
+    print(reply.trimmingCharacters(in: .whitespacesAndNewlines))
+    let turn = ModelTurn.decode(Data(reply.utf8))
+    print("\n--- decoded ---")
+    print("say      : \(turn.say)")
+    print("commands : \(turn.commands.count)")
+    for p in turn.problems { print("PROBLEM  : \(p)") }
+
+    let before = doc.pages[pageIndex].contentSignature
+    var page = doc.pages[pageIndex]
+    let outcome = page.run(turn.commands, selection: [])
+    doc.pages[pageIndex] = page
+    let changed = page.contentSignature != before
+    print("\n--- applied ---")
+    print(outcome.report)
+    print(changed ? "DOCUMENT CHANGED" : "DOCUMENT UNCHANGED")
+    // A model claiming work it didn't do is the failure this command exists to catch.
+    if !turn.say.isEmpty && !turn.commands.isEmpty && !changed { exit(3) }
+    if !turn.problems.isEmpty { exit(4) }
+
 case "claim", "unclaim":
     let removing = command == "unclaim"
     // Re-stamp the per-file Open With binding, e.g. across a library converted

@@ -429,6 +429,30 @@ extension Page {
 // MARK: - A model's reply
 
 /// What comes back from a turn: something to say, and optionally something to do.
+/// The instructions a model gets, in one place.
+///
+/// This lived in the app's connector, which meant the CLI harness that catches
+/// prompt-level bugs was testing a copy rather than the real thing — and a copy
+/// drifts. Both callers share it now.
+public enum ModelPrompt {
+    public static var system: String {
+        """
+        You edit a vector design document, working alongside the user. Be brief.
+
+        \(DocumentCommand.schema)
+
+        Act rather than asking permission — the user can undo anything in one step. \
+        Ask only when a request is genuinely ambiguous and guessing would waste their \
+        time. If something can't be done with these operations, say so plainly in \
+        "say" and return no commands.
+        """
+    }
+
+    public static func user(document: String, request: String) -> String {
+        "CURRENT DOCUMENT\n\(document)\n\nREQUEST\n\(request)"
+    }
+}
+
 public struct ModelTurn: Sendable {
     public var say: String
     public var commands: [DocumentCommand]

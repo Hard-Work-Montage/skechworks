@@ -53,20 +53,11 @@ struct ModelConnector {
     func converse(request: String,
                   document: String,
                   history: [(role: String, content: String)]) async throws -> (turn: ModelTurn, raw: String) {
-        let system = """
-        You edit a vector design document, working alongside the user. Be brief.
-
-        \(DocumentCommand.schema)
-
-        Act rather than asking permission — the user can undo anything in one step. \
-        Ask only when a request is genuinely ambiguous and guessing would waste their \
-        time. If something can't be done with these operations, say so plainly in \
-        "say" and return no commands.
-        """
+        let system = ModelPrompt.system
         var messages: [[String: String]] = [["role": "system", "content": system]]
         for h in history { messages.append(["role": h.role, "content": h.content]) }
         messages.append(["role": "user",
-                         "content": "CURRENT DOCUMENT\n\(document)\n\nREQUEST\n\(request)"])
+                         "content": ModelPrompt.user(document: document, request: request)])
 
         let raw = try await complete(messages: messages)
         let cleaned = ModelConnector.stripFences(raw)
