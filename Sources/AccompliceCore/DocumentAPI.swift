@@ -512,6 +512,10 @@ extension Layer {
         s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation))"
         s += "|\(firstFillHex ?? "-")|\(style.borders.first.map { "\($0.color.hex):\(Int($0.thickness)) " } ?? "-")"
         s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)\(backgroundColor?.hex ?? "-")"
+        // Marking a mask changes no geometry. Left out, mutatePage sees an unchanged
+        // page and throws the edit away — which it did whenever the shape was already
+        // at the back, so Use as Mask worked from the layer list and not from the canvas.
+        s += "|\(hasClippingMask ? 1 : 0)\(breaksMaskChain ? 1 : 0)"
         if let t = apiText { s += "|\(t)" }
         if case .path(let p, let closed) = kind {
             // Points move without the frame changing, so include the geometry's own

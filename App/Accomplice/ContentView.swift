@@ -229,9 +229,17 @@ struct ContentView: View {
             railHeader("Layers", count: store.page?.layers.count)
             if let page = store.page {
                 ScrollViewReader { proxy in
-                    List(rows(page.layers.map(LayerNode.init)), selection: $store.selection) { row in
+                    // Plain rows rather than List selection: attaching .onDrag to a
+                    // selectable row stops the tap registering, so clicking a layer
+                    // highlighted nothing. Selection is handled here instead, which
+                    // also lets the highlight stay strong when focus is on the canvas —
+                    // the layer list is how you keep track of what you're editing.
+                    List(rows(page.layers.map(LayerNode.init))) { row in
                         layerRow(row)
-                            .tag(row.node.id)
+                            .listRowBackground(
+                                store.selection.contains(row.node.id)
+                                    ? AnyView(RoundedRectangle(cornerRadius: 5).fill(.tint))
+                                    : AnyView(Color.clear))
                             .id(row.node.id)
                     }
                     .listStyle(.sidebar)
@@ -282,14 +290,23 @@ struct ContentView: View {
                 Color.clear.frame(width: 10)
             }
             Image(systemName: row.node.systemImage)
-                .foregroundStyle(.secondary).frame(width: 14)
+                .foregroundStyle(rowForeground(row)).frame(width: 14)
             Text(row.node.name).lineLimit(1)
-                .foregroundStyle(row.node.isVisible ? .primary : .tertiary)
+                .foregroundStyle(rowForeground(row))
         }
         .padding(.leading, CGFloat(row.depth) * 12)
         .frame(height: layerRowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())          // the whole row is a drop target, not just the text
+        .contentShape(Rectangle())          // the whole row is a target, not just the text
+        .onTapGesture {
+            if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
+                // Shift or command adds to the selection, as everywhere else.
+                if store.selection.contains(row.node.id) { store.selection.remove(row.node.id) }
+                else { store.selection.insert(row.node.id) }
+            } else {
+                store.selection = [row.node.id]
+            }
+        }
         .overlay(alignment: .top) {
             if drag.spot == .above(row.node.id) { dropLine(row.depth) }
         }
@@ -318,6 +335,11 @@ struct ContentView: View {
             expanded: expanded,
             expand: { expanded.insert($0) }))
         .contextMenu { layerMenu(row) }
+    }
+
+    private func rowForeground(_ row: LayerRow) -> SwiftUI.Color {
+        if store.selection.contains(row.node.id) { return .white }
+        return row.node.isVisible ? .primary : SwiftUI.Color.secondary.opacity(0.6)
     }
 
     private func dropLine(_ depth: Int) -> some View {

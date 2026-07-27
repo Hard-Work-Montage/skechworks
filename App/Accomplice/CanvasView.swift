@@ -238,6 +238,19 @@ final class PageCanvas: NSView {
     private var composed: [Drawable] = []
     private var composedFor: String?
 
+    /// The move or resize being previewed, as a page-space transform.
+    private var liveGesture: CGAffineTransform? {
+        if dragging, dragOffset != .zero {
+            return CGAffineTransform(translationX: dragOffset.width, y: dragOffset.height)
+        }
+        if activeHandle != nil, resizeScale != CGSize(width: 1, height: 1) {
+            return CGAffineTransform(translationX: resizeAnchor.x, y: resizeAnchor.y)
+                .scaledBy(x: resizeScale.width, y: resizeScale.height)
+                .translatedBy(x: -resizeAnchor.x, y: -resizeAnchor.y)
+        }
+        return nil
+    }
+
     /// Artboard name labels, in page space. Sketch and Figma both put the name above
     /// the top-left corner and make it the handle for selecting the board itself —
     /// otherwise the only way to select an artboard is the layer list, since clicking
@@ -268,11 +281,21 @@ final class PageCanvas: NSView {
 
     private func recompose() {
         guard let page else { composed = []; composedFor = nil; return }
-        guard composedFor != page.name || composed.isEmpty else { return }
+        // A gesture in progress recomposes every frame. It has to: the alternative —
+        // shifting already-composed drawables — moves their clips too, so a mask the
+        // gesture isn't touching travels with the art and springs back on release.
+        let gesture = liveGesture
+        let key = page.name + (gesture == nil ? "" : "|live")
+        if gesture != nil {
+            composed = Compose.flatten(page.layers, adjusting: selected, live: gesture!)
+            composedFor = key
+            return
+        }
+        guard composedFor != key || composed.isEmpty else { return }
         // composedFor is cleared by `revision` when contents change, which is what
         // makes an edit rebuild this rather than redrawing stale geometry.
         composed = Compose.flatten(page.layers)
-        composedFor = page.name
+        composedFor = key
         artboards = []
         collectArtboards(page.layers, .identity, &artboards)
     }
@@ -356,28 +379,7 @@ final class PageCanvas: NSView {
         ctx.interpolationQuality = .high
         ctx.translateBy(x: -bounds1.minX, y: -bounds1.minY)
 
-        let r = Renderer(images: images)
-        if activeHandle != nil {
-            let moved = composed.filter { dragSet.contains($0.layer.id) }
-            let rest = composed.filter { !dragSet.contains($0.layer.id) }
-            r.draw(drawables: rest, in: ctx)
-            ctx.saveGState()
-            ctx.translateBy(x: resizeAnchor.x, y: resizeAnchor.y)
-            ctx.scaleBy(x: resizeScale.width, y: resizeScale.height)
-            ctx.translateBy(x: -resizeAnchor.x, y: -resizeAnchor.y)
-            r.draw(drawables: moved, in: ctx)
-            ctx.restoreGState()
-        } else if dragging && dragOffset != .zero {
-            let moved = composed.filter { dragSet.contains($0.layer.id) }
-            let rest = composed.filter { !dragSet.contains($0.layer.id) }
-            r.draw(drawables: rest, in: ctx)
-            ctx.saveGState()
-            ctx.translateBy(x: dragOffset.width, y: dragOffset.height)
-            r.draw(drawables: moved, in: ctx)
-            ctx.restoreGState()
-        } else {
-            r.draw(drawables: composed, in: ctx)
-        }
+        Renderer(images: images).draw(drawables: composed, in: ctx)
 
         let sc = max(0.01, currentScale)
         for id in selected {

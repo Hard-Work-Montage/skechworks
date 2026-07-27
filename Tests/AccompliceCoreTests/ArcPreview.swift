@@ -124,3 +124,48 @@ import CoreGraphics
     let img = try #require(Renderer(images: [:]).render(page: page, maxDimension: 700))
     try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
 }
+
+/// Adam's scene: artboard > group > (ellipse mask, image). Rendered before and after
+/// moving the group, to see what actually happens to the mask.
+@Test func renderMaskDragPreview() throws {
+    guard let out = ProcessInfo.processInfo.environment["DRAG_OUT"] else { return }
+
+    func scene(groupOffsetX: CGFloat) -> Page {
+        var ellipse = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                               transform: nil), closed: true))
+        ellipse.name = "Ellipse"
+        ellipse.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        ellipse.hasClippingMask = true
+
+        let stripes = CGMutablePath()
+        for i in 0..<24 { stripes.addRect(CGRect(x: CGFloat(i) * 20, y: 0, width: 10, height: 300)) }
+        var photo = Layer(kind: .path(stripes, closed: true))
+        photo.name = "etsy_01"
+        photo.frame = CGRect(x: -20, y: -20, width: 300, height: 300)
+        photo.style.fills = [Fill(paint: .color(Color(r: 0.85, g: 0.15, b: 0.1, a: 1)))]
+
+        var group = Layer(kind: .group([ellipse, photo]))
+        group.name = "Group"
+        group.frame = CGRect(x: 60 + groupOffsetX, y: 60, width: 200, height: 200)
+
+        var art = Layer(kind: .group([group]))
+        art.name = "Frame"
+        art.isArtboard = true
+        art.backgroundColor = Color(r: 0.93, g: 0.93, b: 0.93, a: 1)
+        art.frame = CGRect(x: 0, y: 0, width: 340, height: 340)
+
+        var page = Page(name: "p")
+        page.layers = [art]
+        return page
+    }
+
+    // Side by side: at rest, and with the group moved left by 60.
+    var both = Page(name: "both")
+    both.layers = scene(groupOffsetX: 0).layers
+    var shifted = scene(groupOffsetX: -60).layers
+    shifted[0].frame.origin.x += 400
+    both.layers.append(contentsOf: shifted)
+
+    let img = try #require(Renderer(images: [:]).render(page: both, maxDimension: 800))
+    try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
+}

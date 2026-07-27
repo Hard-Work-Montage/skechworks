@@ -1624,3 +1624,67 @@ private func nestedPage() -> (Page, art: String, kid: String, loose: String) {
     #expect(page.children(of: art).map(\.name) == ["Inside", "Loose"])
     #expect(page.absoluteOrigin(of: loose) == wasAt)
 }
+
+@Test func previewingADragMovesTheArtAndNotTheMaskAroundIt() {
+    // Dragging the image inside a masked group: the image moves, the circle it's
+    // clipped to does not. Shifting composed drawables took the clip along, so the
+    // mask appeared to move and then snapped back when you let go.
+    var ellipse = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                           transform: nil), closed: true))
+    ellipse.name = "Ellipse"
+    ellipse.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+    ellipse.hasClippingMask = true
+
+    var photo = Layer(kind: .bitmap(imageRef: "p.png"))
+    photo.name = "Photo"
+    photo.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+
+    var group = Layer(kind: .group([ellipse, photo]))
+    group.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+
+    let atRest = Compose.flatten([group])
+    let restClip = try! #require(atRest.first?.clip).boundingBoxOfPath
+
+    // Drag just the photo 60 to the left.
+    let shift = CGAffineTransform(translationX: -60, y: 0)
+    let moving = Compose.flatten([group], adjusting: [photo.id], live: shift)
+    let movedClip = try! #require(moving.first?.clip).boundingBoxOfPath
+    #expect(abs(movedClip.minX - restClip.minX) < 0.01)      // the mask stayed put
+
+    // Dragging the whole group takes the mask with it, which is the other half.
+    let together = Compose.flatten([group], adjusting: [group.id], live: shift)
+    let groupClip = try! #require(together.first?.clip).boundingBoxOfPath
+    #expect(abs(groupClip.minX - (restClip.minX - 60)) < 0.01)
+}
+
+@Test func previewingADragInsideAnArtboardKeepsTheArtboardEdgeStill() {
+    var photo = Layer(kind: .bitmap(imageRef: "p.png"))
+    photo.name = "Photo"
+    photo.frame = CGRect(x: 20, y: 20, width: 100, height: 100)
+
+    var art = Layer(kind: .group([photo]))
+    art.name = "Frame"
+    art.isArtboard = true
+    art.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+
+    let rest = try! #require(Compose.flatten([art]).first?.clip).boundingBoxOfPath
+    let moved = try! #require(Compose.flatten([art], adjusting: [photo.id],
+                                              live: CGAffineTransform(translationX: -60, y: 0))
+                                .first?.clip).boundingBoxOfPath
+    // The artboard isn't being dragged, so its crop must not slide with the photo.
+    #expect(abs(moved.minX - rest.minX) < 0.01)
+    #expect(abs(moved.width - rest.width) < 0.01)
+}
+
+@Test func markingAMaskCountsAsAChangeEvenWhenNothingMoves() {
+    var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    let plain = l.contentSignature
+    l.hasClippingMask = true
+    #expect(l.contentSignature != plain)
+
+    l.hasClippingMask = false
+    l.breaksMaskChain = true
+    #expect(l.contentSignature != plain)
+}

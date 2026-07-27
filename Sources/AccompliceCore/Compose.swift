@@ -71,12 +71,24 @@ public enum Compose {
 
     /// Depth-first walk yielding every drawable together with its full canvas transform.
     /// Clipping masks are resolved here so callers don't each reimplement mask chains.
-    public static func flatten(_ layers: [Layer], base: CGAffineTransform = .identity) -> [Drawable] {
+    ///
+    /// `adjusting` names layers being moved or resized right now, with `live` the
+    /// transform to apply to them. Previewing a drag by translating the drawing context
+    /// instead moves each drawable's CLIP along with it — so dragging an image inside a
+    /// mask appeared to take the mask along, then snapped back on release. Feeding the
+    /// gesture through here keeps paint, masks and artboard edges consistent, because
+    /// they are all derived from the same geometry.
+    public static func flatten(_ layers: [Layer], base: CGAffineTransform = .identity,
+                               adjusting: Set<String> = [], live: CGAffineTransform = .identity)
+        -> [Drawable] {
         var out: [Drawable] = []
         var mask: CGPath?
 
         for l in layers where l.isVisible {
-            let t = transform(l).concatenating(base)
+            // Applied at the layer being dragged; its descendants inherit it through
+            // `base`, so it lands exactly once.
+            var t = transform(l).concatenating(base)
+            if adjusting.contains(l.id) { t = t.concatenating(live) }
 
             if l.breaksMaskChain { mask = nil }
 
@@ -87,7 +99,7 @@ public enum Compose {
 
             switch l.kind {
             case .group(let kids):
-                var inner = flatten(kids, base: t)
+                var inner = flatten(kids, base: t, adjusting: adjusting, live: live)
                 if l.isArtboard {
                     // The artboard's own rect: paint its background first, then clip
                     // everything inside it to the edge, the way Sketch does.
