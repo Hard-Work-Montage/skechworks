@@ -38,6 +38,7 @@ struct PageListView: NSViewRepresentable {
         table.headerView = nil
         table.rowSizeStyle = .small
         table.style = .sourceList
+        table.backgroundColor = .clear
         table.rowHeight = 22
         table.focusRingType = .none
         table.allowsMultipleSelection = false
@@ -57,6 +58,8 @@ struct PageListView: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
+        // The panel behind provides the colour; a list drawing its own leaves a
+        // stripe of a different shade down the middle of the sidebar.
         scroll.drawsBackground = false
         context.coordinator.table = table
         return scroll

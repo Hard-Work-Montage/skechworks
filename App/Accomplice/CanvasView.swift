@@ -442,7 +442,7 @@ final class PageCanvas: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         // Nothing behind the canvas any more, so it paints the surround itself.
-        NSColor.underPageBackgroundColor.setFill()
+        Palette.canvas.setFill()
         dirtyRect.fill()
 
         // No page background. A Sketch-style canvas is infinite and unpainted — only
@@ -456,6 +456,13 @@ final class PageCanvas: NSView {
         ctx.translateBy(x: -origin.x, y: -origin.y)
 
         Renderer(images: images).draw(drawables: composed, in: ctx)
+
+        // A hairline round each artboard. On a light canvas a white board has no edge
+        // of its own, and knowing where the page stops is most of what an artboard is
+        // for. Editor chrome only — it never reaches an export.
+        ctx.setStrokeColor(Palette.divider.cgColor)
+        ctx.setLineWidth(1 / max(0.01, currentScale))
+        for ab in artboards { ctx.stroke(ab.frame) }
 
         let sc = max(0.01, currentScale)
         for id in selected {

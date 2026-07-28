@@ -38,9 +38,11 @@ struct ContentView: View {
         HSplitView {
             if showLeftRail {
                 leftRail.frame(minWidth: 200, idealWidth: 250, maxWidth: 380)
+                    .background(SwiftUI.Color.rail)
             }
             canvas.frame(minWidth: 320)
             rightRail.frame(minWidth: 260, idealWidth: 330, maxWidth: 520)
+                .background(SwiftUI.Color.rail)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // "Untitled" rather than the app name: with several new documents open, every
@@ -265,16 +267,20 @@ struct ContentView: View {
     private func railHeader<Accessory: View>(_ title: String, count: Int?,
                                              @ViewBuilder accessory: () -> Accessory = { EmptyView() })
         -> some View {
-        HStack {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).tracking(0.6)
+        // Sentence case in the text colour, not tiny grey capitals. These are section
+        // names you read at a glance while working, and Sketch has it right: they
+        // belong to the content, not to the chrome.
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
             Spacer()
             if let count {
-                Text("\(count)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
             }
             accessory()
         }
-        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
+        .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
     }
 
     private var emptyState: some View {

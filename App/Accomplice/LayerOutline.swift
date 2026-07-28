@@ -89,6 +89,7 @@ struct LayerOutline: NSViewRepresentable {
         outline.indentationPerLevel = 14
         outline.allowsMultipleSelection = true
         outline.style = .sourceList
+        outline.backgroundColor = .clear
         outline.usesAutomaticRowHeights = false
         outline.rowHeight = 22
         outline.focusRingType = .none
@@ -112,6 +113,8 @@ struct LayerOutline: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = outline
         scroll.hasVerticalScroller = true
+        // The panel behind provides the colour; a list drawing its own leaves a
+        // stripe of a different shade down the middle of the sidebar.
         scroll.drawsBackground = false
         context.coordinator.outline = outline
         return scroll
