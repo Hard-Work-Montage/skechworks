@@ -236,6 +236,44 @@ final class PageCanvas: NSView {
         return nil
     }
 
+    /// Which way the arrow points for a handle, clockwise from east in canvas space.
+    ///
+    /// Edges point along their own normal, corners along their diagonal. A rotated
+    /// layer takes its rotation with it, so the cursor lines up with the edge you are
+    /// actually about to drag rather than with the screen.
+    private func handleAngle(_ h: Handle) -> CGFloat {
+        let base: CGFloat
+        switch h {
+        case .e, .w:   base = 0
+        case .n, .s:   base = 90
+        case .ne, .sw: base = -45
+        case .nw, .se: base = 45
+        }
+        // Only for a single layer: a mixed selection has no one angle to follow.
+        if selected.count == 1, let id = selected.first, let l = page?.layer(id) {
+            return base - l.rotation
+        }
+        return base
+    }
+
+    /// Picks the cursor for wherever the pointer is.
+    private func updateCursor(at p: CGPoint) {
+        if editPath != nil {
+            // Point editing has its own affordance.
+            NSCursor.crosshair.set()
+            return
+        }
+        if let corner = rotateCornerUnder(p) {
+            HandleCursors.rotate(handleAngle(corner)).set()
+            return
+        }
+        if let h = handleUnder(p) {
+            HandleCursors.resize(handleAngle(h)).set()
+            return
+        }
+        NSCursor.arrow.set()
+    }
+
     private func handleUnder(_ p: CGPoint) -> Handle? {
         guard let r = selectionBounds else { return nil }
         let grab = 7 / max(0.01, currentScale)
@@ -816,11 +854,7 @@ final class PageCanvas: NSView {
 
         // Nothing is drawn out there, so the cursor is the only clue the rotate zone
         // exists. Without it you'd only find it by accident.
-        if editPath == nil, rotateCornerUnder(p) != nil {
-            NSCursor.crosshair.set()
-        } else if editPath == nil, handleUnder(p) == nil, insertPreview == nil {
-            NSCursor.arrow.set()
-        }
+        if editPath == nil { updateCursor(at: p) }
 
         if tool == .pen, !penPoints.isEmpty {
             penCursor = p
@@ -874,7 +908,7 @@ final class PageCanvas: NSView {
         }
         // Sketch shows a pen with a plus here. The cursor is what tells you a click
         // will add rather than select, before you find out by doing it.
-        if spot != nil { NSCursor.crosshair.set() } else { NSCursor.arrow.set() }
+        if spot != nil { NSCursor.crosshair.set() }
     }
 
     /// Applies a point-type change from the inspector.
