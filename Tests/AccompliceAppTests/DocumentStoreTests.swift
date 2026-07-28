@@ -302,3 +302,19 @@ final class PageTests: XCTestCase {
         XCTAssertNotEqual(original, copy, "shared ids would make edits hit both pages")
     }
 }
+
+extension PageTests {
+    func testMovingAPageAndUndoingIt() {
+        var doc = Document()
+        doc.pages = ["One", "Two", "Three"].map { Page(name: $0) }
+        let s = DocumentStore()
+        s.adopt(doc, images: [:])
+
+        XCTAssertTrue(s.movePage(from: 2, to: 0))
+        XCTAssertEqual(s.source?.pages.map(\.name), ["Three", "One", "Two"])
+        XCTAssertEqual(s.pageIndex, 0, "you should still be on the page you moved")
+
+        s.undo()
+        XCTAssertEqual(s.source?.pages.map(\.name), ["One", "Two", "Three"])
+    }
+}

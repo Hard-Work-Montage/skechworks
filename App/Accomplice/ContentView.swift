@@ -193,51 +193,25 @@ struct ContentView: View {
                     .accessibilityIdentifier("add-page")
                     .disabled(store.source == nil)
             }
-            List(selection: Binding(
-                get: { store.pageIndex },
-                set: { store.pageIndex = $0 ?? 0; store.selection = [] }
-            )) {
-                // Names and layer counts come from document.json, so the whole sidebar
-                // is populated before any page geometry has been parsed.
-                ForEach(Array((store.source?.pages ?? []).enumerated()), id: \.offset) { i, p in
-                    HStack {
-                        Text(p.name).lineLimit(1)
-                        Spacer()
-                        Text("\(p.layerCount)")
-                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            // Names and layer counts come from document.json, so the sidebar is
+            // populated before any page geometry has been parsed.
+            PageListView(pages: store.source?.pages ?? [],
+                         selected: store.pageIndex,
+                         store: store,
+                         onRename: { i in
+                             renamingPage = i
+                             renameText = store.source?.pages[i].name ?? ""
+                         })
+                .alert("Rename Page", isPresented: Binding(
+                    get: { renamingPage != nil },
+                    set: { if !$0 { renamingPage = nil } })) {
+                    TextField("Name", text: $renameText)
+                    Button("Rename") {
+                        if let i = renamingPage { store.renamePage(at: i, to: renameText) }
+                        renamingPage = nil
                     }
-                    .contentShape(Rectangle())
-                    // One element per row, or a query for the row matches the name and
-                    // the layer count separately.
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("page-\(p.name)")
-                    .tag(i)
-                    // Double-click to rename, the way Finder and Sketch both do it.
-                    .onTapGesture(count: 2) {
-                        store.pageIndex = i
-                        renamingPage = i
-                        renameText = p.name
-                    }
-                    .contextMenu {
-                        Button("Rename…") { renamingPage = i; renameText = p.name }
-                        Button("Duplicate") { store.pageIndex = i; store.duplicatePage() }
-                        Divider()
-                        Button("Delete", role: .destructive) { store.deletePage(at: i) }
-                            .disabled((store.source?.pageCount ?? 1) <= 1)
-                    }
+                    Button("Cancel", role: .cancel) { renamingPage = nil }
                 }
-            }
-            .listStyle(.sidebar)
-            .alert("Rename Page", isPresented: Binding(
-                get: { renamingPage != nil },
-                set: { if !$0 { renamingPage = nil } })) {
-                TextField("Name", text: $renameText)
-                Button("Rename") {
-                    if let i = renamingPage { store.renamePage(at: i, to: renameText) }
-                    renamingPage = nil
-                }
-                Button("Cancel", role: .cancel) { renamingPage = nil }
-            }
         }
     }
 

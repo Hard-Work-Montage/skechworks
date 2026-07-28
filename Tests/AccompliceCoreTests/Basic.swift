@@ -2157,3 +2157,30 @@ private func threePageSource() -> DocumentSource {
     #expect(LayerOrder.modelIndex(displayIndex: 99, childCount: 3) == 0)
     #expect(LayerOrder.modelIndex(displayIndex: -5, childCount: 3) == 3)
 }
+
+@Test func reorderingPagesCarriesTheirContentsAlong() {
+    // Pages resolve by position in the file, so a reorder has to move the mapping as
+    // well as the list — otherwise a page keeps its name and shows another's artwork.
+    let src = threePageSource()
+    #expect(src.move(from: 2, to: 0))
+    #expect(src.pages.map(\.name) == ["Three", "One", "Two"])
+    for (i, name) in ["Three", "One", "Two"].enumerated() {
+        #expect(src.page(at: i)?.name == name)
+        #expect(src.page(at: i)?.layers.first?.name == "in-\(name)")
+    }
+}
+
+@Test func reorderingPagesBackAndForthIsAWashout() {
+    let src = threePageSource()
+    src.move(from: 0, to: 2)
+    src.move(from: 2, to: 0)
+    #expect(src.pages.map(\.name) == ["One", "Two", "Three"])
+    #expect(src.page(at: 1)?.layers.first?.name == "in-Two")
+}
+
+@Test func movingAPageNowhereChangesNothing() {
+    let src = threePageSource()
+    #expect(!src.move(from: 1, to: 1))
+    #expect(!src.move(from: 9, to: 0))
+    #expect(src.pages.map(\.name) == ["One", "Two", "Three"])
+}

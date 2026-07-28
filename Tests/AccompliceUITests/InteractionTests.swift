@@ -198,6 +198,22 @@ final class InteractionTests: XCTestCase {
                       "undo should put the old name back")
     }
 
+    func testDraggingAPageReordersIt() {
+        // Pages had no dragging at all until the list moved off SwiftUI.
+        app.windows.firstMatch.descendants(matching: .any)["add-page"].click()
+        let first = app.windows.firstMatch.descendants(matching: .any)["page-Page 1"]
+        let second = app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+        XCTAssertTrue(second.waitForExistence(timeout: 3))
+        XCTAssertLessThan(first.frame.origin.y, second.frame.origin.y)
+
+        second.press(forDuration: 0.4, thenDragTo: first,
+                     withVelocity: .slow, thenHoldForDuration: 0.4)
+
+        XCTAssertLessThan(app.windows.firstMatch.descendants(matching: .any)["page-Page 2"].frame.origin.y,
+                          app.windows.firstMatch.descendants(matching: .any)["page-Page 1"].frame.origin.y,
+                          "the dragged page should have moved above the other")
+    }
+
     func testDoubleClickingALayerRenamesIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5))

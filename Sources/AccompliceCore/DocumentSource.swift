@@ -98,6 +98,25 @@ public final class DocumentSource: @unchecked Sendable {
         return held ?? from.flatMap { resolve($0) }
     }
 
+    /// Reorders a page. `to` is the position it should end up at.
+    @discardableResult
+    public func move(from: Int, to: Int) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard pages.indices.contains(from) else { return false }
+        let target = max(0, min(to, pages.count - 1))
+        guard target != from else { return false }
+
+        let ref = pages.remove(at: from)
+        let source = origin.remove(at: from)
+        let held = cache[from]
+        cache = Self.shifted(cache, removingAt: from)
+        pages.insert(ref, at: target)
+        origin.insert(source, at: target)
+        cache = Self.shifted(cache, insertingAt: target)
+        cache[target] = held
+        return true
+    }
+
     public func rename(at index: Int, to name: String) {
         lock.lock(); defer { lock.unlock() }
         guard pages.indices.contains(index) else { return }

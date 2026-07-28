@@ -662,6 +662,19 @@ final class DocumentStore: ObservableObject {
         pageDidChange(select: min(index, src.pageCount - 1), actionName: "Delete Page")
     }
 
+    /// Reorders pages, and puts them back on undo.
+    @discardableResult
+    func movePage(from: Int, to: Int) -> Bool {
+        guard let src = source, src.move(from: from, to: to) else { return false }
+        let landed = max(0, min(to, src.pageCount - 1))
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.movePage(from: landed, to: from) }
+        }
+        undoManager.setActionName("Move Page")
+        pageDidChange(select: landed, actionName: "Move Page")
+        return true
+    }
+
     func renamePage(at index: Int, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let src = source else { return }

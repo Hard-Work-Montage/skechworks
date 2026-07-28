@@ -1,15 +1,37 @@
 #!/usr/bin/env bash
-# Both suites. Core is fast and pure; the app-layer bundle needs a host app, so it
-# goes through xcodebuild and takes about a minute.
+# Core + app-layer by default: a couple of seconds, no windows, nothing stolen.
+#
+# The UI tests drive the real app through the accessibility tree, which means they
+# take over the pointer and the keyboard for about a minute and a half. Worth running
+# before a commit that touches the interface; not worth running every time.
+#
+#   bin/test          Core and app layer
+#   bin/test --ui     those plus the UI tests
 set -e
 cd "$(dirname "$0")/.."
+
+WITH_UI=""
+[ "$1" = "--ui" ] || [ "$1" = "-u" ] || [ "$1" = "all" ] && WITH_UI=1
 
 echo "── Core (swift-testing) ──"
 swift test 2>&1 | tail -3
 
-echo
-echo "── App layer (XCTest, hosted) ──"
+# A stale instance steals the launch and the hosted tests then find no window at all.
+pkill -x Accomplice 2>/dev/null || true
+
+if [ -n "$WITH_UI" ]; then
+  echo
+  echo "── App layer + UI (XCTest, hosted) — takes over the machine ──"
+  SKIP=""
+else
+  echo
+  echo "── App layer (XCTest, hosted) ──"
+  SKIP="-skip-testing:AccompliceUITests"
+fi
+
 xcodebuild test -project Accomplice.xcodeproj -scheme Accomplice \
-  -destination 'platform=macOS' 2>&1 \
+  -destination 'platform=macOS' $SKIP 2>&1 \
   | grep -E "^/Users.*error:|Test Case.*(passed|failed)|TEST SUCCEEDED|TEST FAILED" \
-  | sed 's/Test Case .-\[AccompliceTests\.//; s/\].//'
+  | sed 's/Test Case .-\[Accomplice\(App\)\?\(UI\)\?Tests\.//; s/\].//'
+
+[ -n "$WITH_UI" ] || echo "(UI tests skipped — bin/test --ui to include them)"
