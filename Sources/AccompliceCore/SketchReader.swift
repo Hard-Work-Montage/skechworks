@@ -64,7 +64,7 @@ public struct SketchReader {
         var kind: LayerKind
         switch cls {
         case "group", "artboard", "symbolMaster", "page":
-            kind = .group(children())
+            kind = .group(withTextOnPathResolved(j))
         case "shapeGroup":
             kind = .shapeGroup(children(), WindingRule(rawValue: j["windingRule"] as? Int ?? 0) ?? .nonZero)
         case "shapePath", "rectangle", "oval", "star", "polygon", "triangle":
@@ -273,6 +273,48 @@ public struct SketchReader {
         let p = s.trimmingCharacters(in: CharacterSet(charactersIn: "{} "))
             .split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
         return p.count == 2 ? CGPoint(x: p[0], y: p[1]) : .zero
+    }
+
+    /// Builds a group's children and hooks up any text that follows a path.
+    ///
+    /// Sketch marks the text layer with automaticallyDrawOnUnderlyingPath and expects
+    /// it to run along the shape directly BELOW it in the same group. That's sibling
+    /// context, which the per-layer builder doesn't have — so it's resolved here, where
+    /// the whole child list is in hand.
+    ///
+    /// Without this the flag is invisible and the text imports as a straight run in a
+    /// wide box: the ring labels on a coin end up overlapping across the middle of it.
+    ///
+    /// KNOWN GAP: the text follows the right path, but where it sits ALONG a closed
+    /// path is still wrong. Sketch's own labels are centre-aligned on closed shapes,
+    /// and centring along the length puts each one at a different angle than Sketch
+    /// draws it. Anchoring at the path's start point instead was worse — the labels
+    /// left the artboard. Getting this exactly right needs Sketch's rule, which isn't
+    /// documented and I could not derive from the file. Text on an OPEN path lands
+    /// correctly, and the curve itself is right in both cases.
+    private func withTextOnPathResolved(_ j: [String: Any]) -> [Layer] {
+        let raw = j["layers"] as? [[String: Any]] ?? []
+        // Keep each child next to the JSON it came from; some produce no layer at all.
+        var pairs: [(json: [String: Any], layer: Layer)] = []
+        for child in raw {
+            if let l = layer(from: child) { pairs.append((child, l)) }
+        }
+
+        for i in pairs.indices {
+            guard pairs[i].json["automaticallyDrawOnUnderlyingPath"] as? Bool == true,
+                  case .text(var run) = pairs[i].layer.kind,
+                  i > 0 else { continue }
+            // Sketch stores layers bottom-first, so the shape below is the one before.
+            let below = pairs[i - 1].layer
+            guard let shape = Compose.resolvedPath(below) else { continue }
+            // The path arrives in the shape's own space; the text needs it in its.
+            let shift = CGAffineTransform(
+                translationX: below.frame.minX - pairs[i].layer.frame.minX,
+                y: below.frame.minY - pairs[i].layer.frame.minY)
+            run.onPath = shape.transformed(by: shift)
+            pairs[i].layer.kind = .text(run)
+        }
+        return pairs.map(\.layer)
     }
 
     // MARK: - Text

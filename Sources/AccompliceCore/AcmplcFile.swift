@@ -224,6 +224,7 @@ public struct AcmplcFile {
             run.kerning = dbl(t["kerning"]) ?? 0
             run.lineHeight = dbl(t["lineHeight"]) ?? 0
             if let hex = t["color"] as? String, let c = colorFrom(hex, 1) { run.color = c }
+            if let d = t["onPath"] as? String { run.onPath = PathParser.path(from: d) }
             if let a = t["arc"] as? [String: Any], let r = dbl(a["radius"]) {
                 run.arc = TextArc(radius: r,
                                   angle: dbl(a["angle"]) ?? 0,
@@ -398,6 +399,7 @@ public struct AcmplcFile {
             if let a = t.arc {
                 text["arc"] = ["radius": a.radius, "angle": a.angle, "flipped": a.flipped]
             }
+            if let onPath = t.onPath { text["onPath"] = w.pathData(onPath) }
             d["text"] = text
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"

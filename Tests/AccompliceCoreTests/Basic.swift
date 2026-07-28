@@ -2523,3 +2523,70 @@ private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) ->
 @Test func anEmptyStrokeListCostsNothing() {
     #expect(EraseMask.image(strokes: [], size: CGSize(width: 100, height: 100)) == nil)
 }
+
+// MARK: - Text on a path
+
+@Test func textFollowsAnArbitraryPath() {
+    // A quarter circle: text laid along it must curve, not run straight.
+    let arc = CGMutablePath()
+    arc.addArc(center: CGPoint(x: 0, y: 200), radius: 200,
+               startAngle: -.pi / 2, endAngle: 0, clockwise: false)
+
+    var run = TextRun()
+    run.string = "CURVING ALONG"
+    run.fontName = "Helvetica-Bold"
+    run.fontSize = 24
+    run.onPath = arc
+
+    let box = try! #require(TextOutline.path(run, in: CGRect(x: 0, y: 0, width: 400, height: 400)))
+        .boundingBoxOfPath
+    // Straight text this long is ~180 wide and 24 tall; bent round a quarter circle
+    // it must be tall as well as wide.
+    #expect(box.height > 80)
+    #expect(box.width > 80)
+}
+
+@Test func textOnAPathBeatsAnArcWhenBothAreSet() {
+    // onPath is the more specific instruction: an imported layer can carry a path,
+    // and a stale arc must not win.
+    let line = CGMutablePath()
+    line.move(to: .zero)
+    line.addLine(to: CGPoint(x: 400, y: 0))
+
+    var run = TextRun()
+    run.string = "STRAIGHT"
+    run.fontName = "Helvetica"
+    run.fontSize = 20
+    run.arc = TextArc(radius: 100)
+    run.onPath = line
+
+    let box = try! #require(TextOutline.path(run, in: CGRect(x: 0, y: 0, width: 400, height: 400)))
+        .boundingBoxOfPath
+    #expect(box.height < 30, "should follow the straight path, not the arc")
+}
+
+@Test func textOnPathSurvivesSavingAndReopening() throws {
+    let arc = CGMutablePath()
+    arc.addArc(center: CGPoint(x: 200, y: 200), radius: 150,
+               startAngle: .pi, endAngle: 2 * .pi, clockwise: false)
+
+    var run = TextRun()
+    run.string = "ROUND THE TOP"
+    run.fontName = "Helvetica"
+    run.fontSize = 22
+    run.onPath = arc
+
+    var l = Layer(kind: .text(run))
+    l.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+    var page = Page(name: "Page 1")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+
+    let (back, _) = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    guard case .text(let restored) = back.pages[0].layers[0].kind else {
+        Issue.record("not text"); return
+    }
+    let path = try #require(restored.onPath)
+    #expect(abs(path.boundingBoxOfPath.width - 300) < 2)
+}

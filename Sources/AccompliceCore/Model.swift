@@ -414,5 +414,12 @@ public struct TextRun: @unchecked Sendable {
     public var alignment: CTTextAlignment = .left
     /// Straight text when nil, which is nearly all of it.
     public var arc: TextArc?
+    /// Text following an arbitrary path, in the layer's own coordinates.
+    ///
+    /// Sketch's "text on path" is a text layer flagged
+    /// automaticallyDrawOnUnderlyingPath sitting above a shape in the same group; the
+    /// text runs along that shape. An arc can't express it in general — the path is
+    /// whatever was drawn — so this carries the path itself.
+    public var onPath: CGPath?
     public init() {}
 }
