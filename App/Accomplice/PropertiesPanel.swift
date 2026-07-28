@@ -35,6 +35,7 @@ struct PropertiesPanel: View {
                         .font(.system(size: 26)).foregroundStyle(.tertiary)
                     Text(selectionCount > 1 ? "\(selectionCount) layers selected" : "No selection")
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("selection-summary")
                     Text(pageName.map { "on \($0)" } ?? "")
                         .font(.caption).foregroundStyle(.tertiary)
                 }
@@ -49,8 +50,10 @@ struct PropertiesPanel: View {
         HStack(spacing: 8) {
             Image(systemName: icon(l)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
+                // What the UI tests read to find out what's selected.
                 Text(l.name.isEmpty ? kind(l) : l.name)
                     .font(.headline).lineLimit(1)
+                    .accessibilityIdentifier("selected-layer")
                 Text(kind(l)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

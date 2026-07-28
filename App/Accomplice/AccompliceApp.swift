@@ -19,7 +19,13 @@ struct DocumentWindow: View {
             .background(WindowTabbing(store: store))
             .onAppear {
                 AppDelegate.shared?.register(store)
-                if store.source == nil && store.url == nil { store.newDocument() }
+                if store.source == nil && store.url == nil {
+                    if TestFixture.requested {
+                        store.adopt(TestFixture.document(), images: [:])
+                    } else {
+                        store.newDocument()
+                    }
+                }
             }
             .onDisappear { AppDelegate.shared?.unregister(store) }
     }
@@ -245,10 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// whatever is already open alone.
     func openInNewWindow(_ url: URL) {
         pendingURLs.append(url)
-        if let item = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?
-            .submenu?.items.first(where: { $0.title == "New" }) {
-            NSApp.sendAction(item.action!, to: item.target, from: item)
-        }
+        newDocumentWindow()
     }
 
     override init() {
@@ -264,6 +267,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.object(forKey: "mcp.enabled") as? Bool ?? true {
             MCPServer.shared.start()
         }
+        // Quit with every tab closed and macOS restores exactly that: an app running
+        // with no window and no obvious way to get one back. Open a document if the
+        // restore left us with nothing.
+        DispatchQueue.main.async { [weak self] in self?.openWindowIfNoneRestored() }
+    }
+
+    private func openWindowIfNoneRestored() {
+        let hasDocument = NSApp.windows.contains {
+            $0.tabbingIdentifier == WindowTabbing.identifier && $0.isVisible
+        }
+        guard !hasDocument else { return }
+        newDocumentWindow()
+    }
+
+    /// Clicking the Dock icon with no windows open should give you one back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { newDocumentWindow() }
+        return true
+    }
+
+    /// Drives the File ▸ New menu item, which is the only thing that can ask SwiftUI
+    /// for another WindowGroup window from here.
+    func newDocumentWindow() {
+        guard let item = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?
+            .submenu?.items.first(where: { $0.title == "New" }), let action = item.action else { return }
+        NSApp.sendAction(action, to: item.target, from: item)
     }
 
     func applicationWillFinishLaunching(_ n: Notification) {

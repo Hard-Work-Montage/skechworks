@@ -31,7 +31,9 @@ struct ContentView: View {
         var out: [LayerRow] = []
         for n in nodes {
             out.append(LayerRow(node: n, depth: depth))
-            if let kids = n.children, expanded.contains(n.id) {
+            // Under test everything is open, so a test never depends on having
+            // clicked its way down the tree first.
+            if let kids = n.children, expanded.contains(n.id) || TestFixture.requested {
                 out.append(contentsOf: rows(kids, depth: depth + 1))
             }
         }
@@ -297,6 +299,11 @@ struct ContentView: View {
         .padding(.leading, CGFloat(row.depth) * 12)
         .frame(height: layerRowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One element per row, named for the UI tests. Without combining, the
+        // identifier lands on the chevron, the icon and the label separately and a
+        // query for the row matches three things.
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("layer-\(row.node.name)")
         .contentShape(Rectangle())          // the whole row is a target, not just the text
         .onTapGesture {
             if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
@@ -433,6 +440,7 @@ struct ContentView: View {
                                 pointMode: store.pointModeRequest,
                                 revision: store.revision, tool: store.tool,
                                 pageToken: store.pageToken)
+            Color.clear.accessibilityIdentifier("canvas").allowsHitTesting(false)
             if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))

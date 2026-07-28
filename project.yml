@@ -112,14 +112,34 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
 
+  # Drives the real app through the accessibility tree. This is the only kind of test
+  # that catches "clicking a layer row does nothing" — which is exactly what happened
+  # when .onDrag was attached to a List row and silently ate the tap.
+  AccompliceUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/AccompliceUITests
+    dependencies:
+      - target: Accomplice
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        TEST_TARGET_NAME: Accomplice
+
 schemes:
   Accomplice:
     build:
       targets:
         Accomplice: all
         AccompliceTests: [test]
+        AccompliceUITests: [test]
     test:
       targets:
         - AccompliceTests
+        - AccompliceUITests
     run:
       config: Debug
