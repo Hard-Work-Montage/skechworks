@@ -490,6 +490,7 @@ final class PageCanvas: NSView {
         drawPenPreview(ctx)
         drawArtboardLabels()
         ctx.restoreGState()
+        drawMinimap(ctx)
     }
 
     /// Anchors and handles for the path being edited.
@@ -647,6 +648,76 @@ final class PageCanvas: NSView {
                size: CGSize(width: r.width * scale, height: r.height * scale))
     }
 
+    // MARK: - Minimap
+
+    /// The card's place in the view: bottom-left, clear of the status line.
+    private var minimapRect: CGRect {
+        CGRect(x: 16, y: bounds.height - 120 - 40, width: 160, height: 120)
+    }
+
+    /// What's on screen, in page coordinates.
+    var visiblePageRect: CGRect {
+        CGRect(origin: origin, size: CGSize(width: bounds.width / scale,
+                                            height: bounds.height / scale))
+    }
+
+    private var minimapNeeded: Bool {
+        guard let page, editPath == nil else { return false }
+        return Minimap.isNeeded(content: page.contentBounds(), visible: visiblePageRect)
+    }
+
+    private func drawMinimap(_ ctx: CGContext) {
+        guard minimapNeeded, let page else { return }
+        let card = minimapRect
+        let content = page.contentBounds()
+        let t = Minimap.transform(content: content, visible: visiblePageRect, into: card.size)
+
+        ctx.saveGState()
+        // The card itself: a panel floating over the canvas, same language as the rails.
+        let rounded = CGPath(roundedRect: card, cornerWidth: 10, cornerHeight: 10, transform: nil)
+        ctx.addPath(rounded)
+        ctx.setFillColor(Palette.rail.withAlphaComponent(0.92).cgColor)
+        ctx.fillPath()
+        ctx.addPath(rounded)
+        ctx.setStrokeColor(Palette.divider.cgColor)
+        ctx.setLineWidth(1)
+        ctx.strokePath()
+
+        ctx.addPath(rounded)
+        ctx.clip()
+        ctx.translateBy(x: card.minX, y: card.minY)
+
+        // Each artboard, or the artwork's extent when there are none.
+        let boards = artboards.isEmpty ? [content] : artboards.map(\.frame)
+        ctx.setFillColor(NSColor.secondaryLabelColor.withAlphaComponent(0.35).cgColor)
+        for b in boards {
+            let r = b.applying(t)
+            ctx.fill(r.insetBy(dx: -0.5, dy: -0.5))
+        }
+
+        // Where you're looking.
+        let view = visiblePageRect.applying(t)
+        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.stroke(view)
+        ctx.restoreGState()
+    }
+
+    /// Clicking the card jumps to that part of the page — the way back, not just a
+    /// picture of where you aren't.
+    private func minimapJump(_ p: CGPoint) -> Bool {
+        guard minimapNeeded, let page, minimapRect.contains(p) else { return false }
+        let card = minimapRect
+        let t = Minimap.transform(content: page.contentBounds(),
+                                  visible: visiblePageRect, into: card.size)
+        let inCard = CGPoint(x: p.x - card.minX, y: p.y - card.minY)
+        let target = inCard.applying(t.inverted())
+        origin = CGPoint(x: target.x - bounds.width / (2 * scale),
+                         y: target.y - bounds.height / (2 * scale))
+        needsDisplay = true
+        return true
+    }
+
     /// The page point at the middle of the window, which is what zooming in and out
     /// from the keyboard should keep still.
     var pageCentre: CGPoint { pagePoint(CGPoint(x: bounds.midX, y: bounds.midY)) }
@@ -800,6 +871,10 @@ final class PageCanvas: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // The minimap is drawn in view coordinates and floats above everything, so it
+        // takes the click before the artwork does.
+        if minimapJump(convert(event.locationInWindow, from: nil)) { return }
+
         let p = pagePoint(convert(event.locationInWindow, from: nil))
         dragAnchor = p
         dragOffset = .zero

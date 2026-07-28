@@ -2205,3 +2205,42 @@ private func threePageSource() -> DocumentSource {
     #expect(CanvasExtent.margin(for: CGSize(width: 10, height: 10)) == 4000)
     #expect(CanvasExtent.margin(for: .zero) == 4000)
 }
+
+// MARK: - Minimap
+
+@Test func theMinimapAppearsOnlyWhenTheArtworkIsOffScreen() {
+    let art = CGRect(x: 0, y: 0, width: 500, height: 500)
+    // Looking at it, or overlapping it: nothing needed.
+    #expect(!Minimap.isNeeded(content: art, visible: CGRect(x: 0, y: 0, width: 800, height: 600)))
+    #expect(!Minimap.isNeeded(content: art, visible: CGRect(x: 400, y: 400, width: 800, height: 600)))
+    // Panned away entirely: needed.
+    #expect(Minimap.isNeeded(content: art, visible: CGRect(x: 3000, y: 0, width: 800, height: 600)))
+    // An empty page has nothing to point at.
+    #expect(!Minimap.isNeeded(content: .zero, visible: CGRect(x: 3000, y: 0, width: 800, height: 600)))
+}
+
+@Test func theMinimapShowsBothTheArtworkAndWhereYouAre() {
+    let art = CGRect(x: 0, y: 0, width: 500, height: 500)
+    let away = CGRect(x: 4000, y: 200, width: 800, height: 600)
+    let card = CGSize(width: 160, height: 120)
+    let t = Minimap.transform(content: art, visible: away, into: card)
+
+    // Both land inside the card, or it can't tell you which way to go back.
+    for r in [art, away] {
+        let mapped = r.applying(t)
+        #expect(mapped.minX >= -0.01)
+        #expect(mapped.minY >= -0.01)
+        #expect(mapped.maxX <= card.width + 0.01)
+        #expect(mapped.maxY <= card.height + 0.01)
+    }
+    // And they keep their relationship: the viewport is to the right of the artwork.
+    #expect(art.applying(t).midX < away.applying(t).midX)
+}
+
+@Test func theMinimapKeepsTheArtworkSquareRatherThanStretchingIt() {
+    let art = CGRect(x: 0, y: 0, width: 400, height: 400)
+    let away = CGRect(x: 2000, y: 0, width: 400, height: 400)
+    let t = Minimap.transform(content: art, visible: away, into: CGSize(width: 160, height: 120))
+    let mapped = art.applying(t)
+    #expect(abs(mapped.width - mapped.height) < 0.01)
+}

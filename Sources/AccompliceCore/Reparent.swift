@@ -207,3 +207,36 @@ public enum CanvasExtent {
         max(4000, max(content.width, content.height) * 2)
     }
 }
+
+/// The small overview that appears when you've scrolled the artwork off screen.
+///
+/// An infinite canvas has one failure mode: pan far enough and there is nothing to
+/// look at and no edge to tell you which way back. Sketch answers it with a miniature
+/// of the page in the corner, showing where the artwork is and where you are. It only
+/// appears when it's needed, which is the part that makes it useful rather than
+/// clutter.
+public enum Minimap {
+    /// Shown only when no part of the artwork is on screen.
+    public static func isNeeded(content: CGRect, visible: CGRect) -> Bool {
+        guard content.width > 0, content.height > 0 else { return false }
+        return !content.intersects(visible)
+    }
+
+    /// Maps page coordinates into a card of `size`, fitting the artwork and the
+    /// viewport together so both are always visible — a minimap that can't show you
+    /// where you are is decoration.
+    public static func transform(content: CGRect, visible: CGRect,
+                                 into size: CGSize, padding: CGFloat = 10) -> CGAffineTransform {
+        let world = content.union(visible)
+        guard world.width > 0, world.height > 0 else { return .identity }
+        let usable = CGSize(width: max(1, size.width - padding * 2),
+                            height: max(1, size.height - padding * 2))
+        let scale = min(usable.width / world.width, usable.height / world.height)
+        // Centre whatever's left over, so the card doesn't look weighted to a corner.
+        let dx = padding + (usable.width - world.width * scale) / 2
+        let dy = padding + (usable.height - world.height * scale) / 2
+        return CGAffineTransform(translationX: dx, y: dy)
+            .scaledBy(x: scale, y: scale)
+            .translatedBy(x: -world.minX, y: -world.minY)
+    }
+}

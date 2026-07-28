@@ -129,7 +129,6 @@ private struct ChatPanelBody: View {
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || session.busy)
         }
         .padding(12)
-        .onAppear { focused = true }
     }
 
     private func send() {
