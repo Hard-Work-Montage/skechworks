@@ -627,6 +627,78 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    // MARK: - Pages
+
+    /// Adds an empty page after the current one and switches to it.
+    func addPage() {
+        guard let src = source else { return }
+        let made = Page(name: uniquePageName("Page"))
+        let at = src.insert(made, at: pageIndex + 1)
+        pageDidChange(select: at, actionName: "Add Page")
+    }
+
+    func duplicatePage() {
+        guard let src = source, var copy = src.page(at: pageIndex) else { return }
+        // Fresh ids throughout: two pages sharing layer ids would have selection and
+        // editing act on both at once.
+        copy.layers = copy.layers.map { $0.withNewIDs() }
+        copy.name = uniquePageName(copy.name)
+        let at = src.insert(copy, at: pageIndex + 1)
+        pageDidChange(select: at, actionName: "Duplicate Page")
+    }
+
+    /// Removes a page, and puts it back on undo — the one page operation that loses
+    /// work if it's wrong.
+    func deletePage(at index: Int) {
+        guard let src = source, src.pageCount > 1,
+              let removed = src.remove(at: index) else { return }
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                store.source?.insert(removed, at: index)
+                store.pageDidChange(select: index, actionName: "Delete Page")
+            }
+        }
+        undoManager.setActionName("Delete Page")
+        pageDidChange(select: min(index, src.pageCount - 1), actionName: "Delete Page")
+    }
+
+    func renamePage(at index: Int, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let src = source else { return }
+        let was = src.pages[index].name
+        src.rename(at: index, to: trimmed)
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated { store.renamePage(at: index, to: was) }
+        }
+        undoManager.setActionName("Rename Page")
+        pageDidChange(select: pageIndex, actionName: "Rename Page")
+    }
+
+    /// "Page 2", "Page 2 copy", "Page 2 copy 2" — never a duplicate, because two pages
+    /// with one name is confusing in a list that shows nothing else about them.
+    private func uniquePageName(_ wanted: String) -> String {
+        let taken = Set(source?.pages.map(\.name) ?? [])
+        if !taken.contains(wanted), wanted != "Page" { return wanted }
+        var n = (source?.pageCount ?? 0) + 1
+        var candidate = "\(wanted == "Page" ? "Page" : wanted + " copy") \(n)"
+        if wanted != "Page", !taken.contains(wanted + " copy") { return wanted + " copy" }
+        while taken.contains(candidate) {
+            n += 1
+            candidate = "\(wanted == "Page" ? "Page" : wanted + " copy") \(n)"
+        }
+        return candidate
+    }
+
+    private func pageDidChange(select index: Int, actionName: String) {
+        objectWillChange.send()
+        pageIndex = max(0, min(index, (source?.pageCount ?? 1) - 1))
+        isDirty = true
+        revision += 1
+        selection = []
+        loadCurrentPage()
+        refreshUndoState()
+    }
+
     /// Renames a layer, for the layer list and its context menu.
     func rename(_ id: String, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

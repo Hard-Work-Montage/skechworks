@@ -19,6 +19,7 @@ struct ContentView: View {
     /// "select a shape on the canvas and its layer is revealed and highlighted"
     /// possible, which is the entire point.
     @State private var renamingID: String?
+    @State private var renamingPage: Int?
     @State private var renameText = ""
     @State private var expanded: Set<String> = []
     @StateObject private var drag = LayerDragState()
@@ -211,7 +212,13 @@ struct ContentView: View {
 
     private var pageList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            railHeader("Pages", count: store.source?.pageCount)
+            railHeader("Pages", count: store.source?.pageCount) {
+                Button { store.addPage() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Add a page")
+                    .accessibilityIdentifier("add-page")
+                    .disabled(store.source == nil)
+            }
             List(selection: Binding(
                 get: { store.pageIndex },
                 set: { store.pageIndex = $0 ?? 0; store.selection = [] }
@@ -225,10 +232,38 @@ struct ContentView: View {
                         Text("\(p.layerCount)")
                             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
+                    .contentShape(Rectangle())
+                    // One element per row, or a query for the row matches the name and
+                    // the layer count separately.
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("page-\(p.name)")
                     .tag(i)
+                    // Double-click to rename, the way Finder and Sketch both do it.
+                    .onTapGesture(count: 2) {
+                        store.pageIndex = i
+                        renamingPage = i
+                        renameText = p.name
+                    }
+                    .contextMenu {
+                        Button("Rename…") { renamingPage = i; renameText = p.name }
+                        Button("Duplicate") { store.pageIndex = i; store.duplicatePage() }
+                        Divider()
+                        Button("Delete", role: .destructive) { store.deletePage(at: i) }
+                            .disabled((store.source?.pageCount ?? 1) <= 1)
+                    }
                 }
             }
             .listStyle(.sidebar)
+            .alert("Rename Page", isPresented: Binding(
+                get: { renamingPage != nil },
+                set: { if !$0 { renamingPage = nil } })) {
+                TextField("Name", text: $renameText)
+                Button("Rename") {
+                    if let i = renamingPage { store.renamePage(at: i, to: renameText) }
+                    renamingPage = nil
+                }
+                Button("Cancel", role: .cancel) { renamingPage = nil }
+            }
         }
     }
 
@@ -311,15 +346,18 @@ struct ContentView: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("layer-\(row.node.name)")
         .contentShape(Rectangle())          // the whole row is a target, not just the text
-        .onTapGesture {
-            if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
-                // Shift or command adds to the selection, as everywhere else.
-                if store.selection.contains(row.node.id) { store.selection.remove(row.node.id) }
-                else { store.selection.insert(row.node.id) }
-            } else {
-                store.selection = [row.node.id]
-            }
-        }
+        // Modifiers belong to the gesture, not to NSEvent.modifierFlags read inside
+        // the handler. Adding the double-tap made SwiftUI wait to tell the two apart,
+        // and by the time the single tap fired the shift key had already been let go —
+        // so shift-clicking silently stopped extending the selection.
+        .gesture(TapGesture(count: 2).onEnded {
+            store.selection = [row.node.id]
+            renamingID = row.node.id
+            renameText = row.node.name
+        })
+        .gesture(TapGesture().modifiers(.shift).onEnded { toggleSelected(row.node.id) })
+        .gesture(TapGesture().modifiers(.command).onEnded { toggleSelected(row.node.id) })
+        .onTapGesture { store.selection = [row.node.id] }
         .overlay(alignment: .top) {
             if drag.spot == .above(row.node.id) { dropLine(row.depth) }
         }
@@ -348,6 +386,11 @@ struct ContentView: View {
             expanded: expanded,
             expand: { expanded.insert($0) }))
         .contextMenu { layerMenu(row) }
+    }
+
+    private func toggleSelected(_ id: String) {
+        if store.selection.contains(id) { store.selection.remove(id) }
+        else { store.selection.insert(id) }
     }
 
     private func rowForeground(_ row: LayerRow) -> SwiftUI.Color {
@@ -415,7 +458,9 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func railHeader(_ title: String, count: Int?) -> some View {
+    private func railHeader<Accessory: View>(_ title: String, count: Int?,
+                                             @ViewBuilder accessory: () -> Accessory = { EmptyView() })
+        -> some View {
         HStack {
             Text(title.uppercased())
                 .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).tracking(0.6)
@@ -423,6 +468,7 @@ struct ContentView: View {
             if let count {
                 Text("\(count)").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
             }
+            accessory()
         }
         .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
     }

@@ -25,6 +25,22 @@ final class InteractionTests: XCTestCase {
 
     override func tearDown() { app?.terminate() }
 
+    /// Types a new name into the rename sheet.
+    ///
+    /// Deletes character by character rather than pressing ⌘A: the select-all doesn't
+    /// reach the field, and the new text ends up appended — "Page 2Backs" — which
+    /// looks exactly like a rename that didn't take.
+    private func rename(to name: String) {
+        let sheet = app.windows.firstMatch.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3), "renaming should ask for a name")
+        let field = sheet.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 2))
+        field.click()
+        for _ in 0..<40 { field.typeKey(.delete, modifierFlags: []) }
+        field.typeText(name)
+        sheet.buttons["Rename"].click()
+    }
+
     private func row(_ name: String) -> XCUIElement {
         app.windows.firstMatch.descendants(matching: .any)["layer-\(name)"]
     }
@@ -140,6 +156,56 @@ final class InteractionTests: XCTestCase {
 
         // Never actually write a file from a test.
         sheet.buttons["Cancel"].click()
+    }
+
+    // MARK: - Pages and renaming
+
+    func testAddingAPage() {
+        let add = app.windows.firstMatch.descendants(matching: .any)["add-page"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "there should be a way to add a page")
+        add.click()
+        XCTAssertTrue(app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+                        .waitForExistence(timeout: 3), "a second page should appear")
+    }
+
+    func testDoubleClickingAPageRenamesIt() {
+        let page = app.windows.firstMatch.descendants(matching: .any)["page-Page 1"]
+        XCTAssertTrue(page.waitForExistence(timeout: 5))
+        page.doubleClick()
+
+        rename(to: "Coins")
+
+        XCTAssertTrue(app.windows.firstMatch.descendants(matching: .any)["page-Coins"]
+                        .waitForExistence(timeout: 3))
+    }
+
+    func testUndoAfterRenamingAPagePutsTheOldNameBack() {
+        // Undo is the point here. An app-layer test can't check it: everything it does
+        // lands in one run-loop turn and NSUndoManager groups by event, so two
+        // operations undo as one. Through the UI the events are real.
+        app.windows.firstMatch.descendants(matching: .any)["add-page"].click()
+        let page2 = app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+        XCTAssertTrue(page2.waitForExistence(timeout: 3))
+
+        page2.doubleClick()
+        rename(to: "Backs")
+        XCTAssertTrue(app.windows.firstMatch.descendants(matching: .any)["page-Backs"]
+                        .waitForExistence(timeout: 3))
+
+        app.typeKey("z", modifierFlags: .command)
+        XCTAssertTrue(app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+                        .waitForExistence(timeout: 3),
+                      "undo should put the old name back")
+    }
+
+    func testDoubleClickingALayerRenamesIt() {
+        let photo = row("Photo")
+        XCTAssertTrue(photo.waitForExistence(timeout: 5))
+        photo.doubleClick()
+
+        rename(to: "Coin front")
+
+        XCTAssertTrue(row("Coin front").waitForExistence(timeout: 3))
     }
 
     func testChatIsVisibleWithoutHuntingForIt() {

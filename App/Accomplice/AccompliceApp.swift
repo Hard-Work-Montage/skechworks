@@ -110,6 +110,12 @@ struct AccompliceApp: App {
                 Button("Keyboard Shortcuts") { ShortcutsWindow.show() }
                     .keyboardShortcut("/", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .newItem) {
+                Divider()
+                Button("New Page") { AppDelegate.shared?.active?.addPage() }
+                    .shortcut("newPage")
+                Button("Duplicate Page") { AppDelegate.shared?.active?.duplicatePage() }
+            }
             CommandMenu("Path") {
                 // Three named strengths rather than a tolerance box: the useful
                 // question is "how much do I mind it moving", not a number in points.

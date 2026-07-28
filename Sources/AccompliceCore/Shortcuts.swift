@@ -75,6 +75,7 @@ public enum Shortcuts {
         .init(id: "open", title: "Open…", key: "O", modifiers: .command, group: "File"),
         .init(id: "close", title: "Close", key: "W", modifiers: .command, group: "File"),
         .init(id: "closeAll", title: "Close All", key: "W", modifiers: [.command, .option], group: "File"),
+        .init(id: "newPage", title: "New Page", key: "N", modifiers: [.command, .control], group: "File"),
         .init(id: "save", title: "Save", key: "S", modifiers: .command, group: "File"),
         .init(id: "saveAs", title: "Save As…", key: "S", modifiers: [.command, .shift], group: "File"),
         .init(id: "exportPage", title: "Export Page as SVG…", key: "E", modifiers: .command, group: "File"),

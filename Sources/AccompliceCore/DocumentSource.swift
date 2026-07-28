@@ -32,7 +32,13 @@ public final class DocumentSource: @unchecked Sendable {
 
     public let sourceApp: String?
     public let images: [String: Data]
-    public let pages: [PageRef]
+    public private(set) var pages: [PageRef]
+    /// Where each current page came from in the file, or nil if it was made here.
+    ///
+    /// The parser resolves by position in the ORIGINAL document. Insert a page at the
+    /// front and every later position shifts, so resolving by current index would hand
+    /// back somebody else's artwork. This keeps the two apart.
+    private var origin: [Int?] = []
     public let coverPage: Int
 
     private let resolve: @Sendable (Int) -> Page?
@@ -46,13 +52,69 @@ public final class DocumentSource: @unchecked Sendable {
         guard pages.indices.contains(i) else { return nil }
         lock.lock()
         if let hit = cache[i] { lock.unlock(); return hit }
+        let from = origin.indices.contains(i) ? origin[i] : i
         lock.unlock()
+        // A page added in the editor has no position in the file; it lives in the
+        // cache or nowhere.
+        guard let from else { return nil }
 
-        let parsed = resolve(i)
+        let parsed = resolve(from)
         lock.lock()
         cache[i] = parsed
         lock.unlock()
         return parsed
+    }
+
+    // MARK: - Changing the page list
+    //
+    // Everything here rebuilds the cache and the origin map together. They're indexed
+    // by position, so an insert or a remove has to move both or a page ends up showing
+    // another page's artwork — the failure would look like corruption rather than a
+    // reordering bug.
+
+    /// Adds a page and returns where it landed.
+    @discardableResult
+    public func insert(_ page: Page, at index: Int) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let at = max(0, min(index, pages.count))
+        pages.insert(PageRef(name: page.name, layerCount: page.layers.count), at: at)
+        origin.insert(nil, at: at)              // made here, not in the file
+        cache = Self.shifted(cache, insertingAt: at)
+        cache[at] = page
+        return at
+    }
+
+    /// Removes a page, handing back what was there so it can be put back.
+    @discardableResult
+    public func remove(at index: Int) -> Page? {
+        lock.lock()
+        guard pages.indices.contains(index), pages.count > 1 else { lock.unlock(); return nil }
+        let from = origin[index]
+        let held = cache[index]
+        pages.remove(at: index)
+        origin.remove(at: index)
+        cache = Self.shifted(cache, removingAt: index)
+        lock.unlock()
+        return held ?? from.flatMap { resolve($0) }
+    }
+
+    public func rename(at index: Int, to name: String) {
+        lock.lock(); defer { lock.unlock() }
+        guard pages.indices.contains(index) else { return }
+        pages[index] = PageRef(name: name, layerCount: pages[index].layerCount)
+        if var p = cache[index] { p.name = name; cache[index] = p }
+    }
+
+    private static func shifted(_ cache: [Int: Page], insertingAt at: Int) -> [Int: Page] {
+        var out: [Int: Page] = [:]
+        for (k, v) in cache { out[k >= at ? k + 1 : k] = v }
+        return out
+    }
+
+    private static func shifted(_ cache: [Int: Page], removingAt at: Int) -> [Int: Page] {
+        var out: [Int: Page] = [:]
+        for (k, v) in cache where k != at { out[k > at ? k - 1 : k] = v }
+        return out
     }
 
     public func isLoaded(_ i: Int) -> Bool {
@@ -142,6 +204,7 @@ public final class DocumentSource: @unchecked Sendable {
 
     private init(sourceApp: String?, images: [String: Data], pages: [PageRef],
                  coverPage: Int, resolve: @escaping @Sendable (Int) -> Page?) {
+        self.origin = pages.indices.map { $0 }
         self.sourceApp = sourceApp
         self.images = images
         self.pages = pages

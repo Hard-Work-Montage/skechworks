@@ -230,3 +230,75 @@ final class RecentDocumentsTests: XCTestCase {
         XCTAssertTrue(recents.urls.isEmpty, "a dead path is worse than a shorter menu")
     }
 }
+
+/// Page operations, which had no way to be reached at all until now.
+@MainActor
+final class PageTests: XCTestCase {
+
+    private func store() -> DocumentStore {
+        var doc = Document()
+        doc.pages = [Page(name: "Page 1")]
+        let s = DocumentStore()
+        s.adopt(doc, images: [:])
+        return s
+    }
+
+    func testAddingAPage() {
+        let s = store()
+        s.addPage()
+        XCTAssertEqual(s.source?.pageCount, 2)
+        XCTAssertEqual(s.pageIndex, 1, "the new page should be the one you're on")
+    }
+
+    func testRenamingAPage() {
+        let s = store()
+        s.renamePage(at: 0, to: "Coins")
+        XCTAssertEqual(s.source?.pages.first?.name, "Coins")
+        XCTAssertEqual(s.page?.name, "Coins")
+    }
+
+    /// NSUndoManager groups by event: everything registered in one run-loop turn
+    /// undoes together. A person can't rename and delete in the same turn, but a test
+    /// does exactly that, so the two are checked apart here and the combined sequence
+    /// is covered by a UI test where the events are real.
+    func testDeletingAPageCanBeUndone() {
+        let s = store()
+        s.addPage()
+        XCTAssertEqual(s.source?.pageCount, 2)
+
+        s.deletePage(at: 1)
+        XCTAssertEqual(s.source?.pageCount, 1)
+
+        s.undo()
+        XCTAssertEqual(s.source?.pageCount, 2)
+    }
+
+    func testRenamingAPageCanBeUndone() {
+        let s = store()
+        s.renamePage(at: 0, to: "Coins")
+        XCTAssertEqual(s.source?.pages.first?.name, "Coins")
+        s.undo()
+        XCTAssertEqual(s.source?.pages.first?.name, "Page 1")
+    }
+
+    func testTheLastPageCannotBeDeleted() {
+        let s = store()
+        s.deletePage(at: 0)
+        XCTAssertEqual(s.source?.pageCount, 1, "a document has to have a page")
+    }
+
+    func testDuplicatingAPageGivesTheCopyItsOwnLayers() {
+        let s = store()
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                         transform: nil), closed: true))
+        l.name = "box"
+        s.mutatePage("seed") { $0.layers = [l] }
+
+        s.duplicatePage()
+        XCTAssertEqual(s.source?.pageCount, 2)
+        let original = s.source?.page(at: 0)?.layers.first?.id
+        let copy = s.source?.page(at: 1)?.layers.first?.id
+        XCTAssertNotNil(copy)
+        XCTAssertNotEqual(original, copy, "shared ids would make edits hit both pages")
+    }
+}

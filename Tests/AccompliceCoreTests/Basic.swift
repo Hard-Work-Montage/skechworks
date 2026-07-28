@@ -2059,3 +2059,104 @@ private func shadowedGroup() -> Layer {
     let head = try Data(contentsOf: renamed).prefix(8)
     #expect(head.elementsEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
 }
+
+// MARK: - Pages
+
+private func threePageSource() -> DocumentSource {
+    var doc = Document()
+    doc.pages = ["One", "Two", "Three"].map { name in
+        var p = Page(name: name)
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                         transform: nil), closed: true))
+        l.name = "in-\(name)"
+        p.layers = [l]
+        return p
+    }
+    return DocumentSource.eager(doc, images: [:])
+}
+
+@Test func addingAPageDoesNotShuffleTheOthersContents() {
+    // Pages resolve by position in the file. Inserting at the front shifts every later
+    // position, so without keeping the two apart a page would show another's artwork.
+    let src = threePageSource()
+    var made = Page(name: "New")
+    made.layers = []
+    src.insert(made, at: 0)
+
+    #expect(src.pageCount == 4)
+    #expect(src.pages.map(\.name) == ["New", "One", "Two", "Three"])
+    // Each page still holds what it held.
+    for (i, name) in ["New", "One", "Two", "Three"].enumerated() {
+        let page = src.page(at: i)
+        #expect(page?.name == name)
+        if name != "New" {
+            #expect(page?.layers.first?.name == "in-\(name)")
+        }
+    }
+}
+
+@Test func removingAPageKeepsTheRestPointingAtTheirOwnContents() {
+    let src = threePageSource()
+    let taken = src.remove(at: 1)
+    #expect(taken?.name == "Two")
+    #expect(src.pages.map(\.name) == ["One", "Three"])
+    #expect(src.page(at: 0)?.layers.first?.name == "in-One")
+    #expect(src.page(at: 1)?.layers.first?.name == "in-Three")
+}
+
+@Test func aRemovedPageCanBePutBackWhereItWas() {
+    let src = threePageSource()
+    guard let taken = src.remove(at: 1) else { Issue.record("nothing removed"); return }
+    src.insert(taken, at: 1)
+    #expect(src.pages.map(\.name) == ["One", "Two", "Three"])
+    #expect(src.page(at: 1)?.layers.first?.name == "in-Two")
+}
+
+@Test func theLastPageCannotBeRemoved() {
+    var doc = Document()
+    doc.pages = [Page(name: "Only")]
+    let src = DocumentSource.eager(doc, images: [:])
+    #expect(src.remove(at: 0) == nil)
+    #expect(src.pageCount == 1)
+}
+
+@Test func renamingAPageChangesBothTheListAndThePage() {
+    let src = threePageSource()
+    src.rename(at: 1, to: "Renamed")
+    #expect(src.pages[1].name == "Renamed")
+    #expect(src.page(at: 1)?.name == "Renamed")
+    #expect(src.page(at: 1)?.layers.first?.name == "in-Two")   // same page, new name
+}
+
+@Test func addedPagesSurviveSaving() throws {
+    let src = threePageSource()
+    var made = Page(name: "Fresh")
+    var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 20, height: 20),
+                                     transform: nil), closed: true))
+    l.name = "disc"
+    made.layers = [l]
+    src.insert(made, at: 1)
+
+    var doc = Document()
+    doc.pages = (0..<src.pageCount).compactMap { src.page(at: $0) }
+    let (back, _) = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    #expect(back.pages.map(\.name) == ["One", "Fresh", "Two", "Three"])
+    #expect(back.pages[1].layers.first?.name == "disc")
+}
+
+@Test func aRenamedPageComesBackOutOfRemoveWithItsNewName() {
+    // Delete-then-undo restored the old name: remove() handed back the cached page,
+    // and rename() had only updated the list entry when the page wasn't cached.
+    let src = threePageSource()
+    var made = Page(name: "Fresh")
+    src.insert(made, at: 1)
+    src.rename(at: 1, to: "Renamed")
+    let taken = src.remove(at: 1)
+    #expect(taken?.name == "Renamed")
+
+    // And the same for a page that came from the file and was never touched.
+    made = Page(name: "x")
+    _ = made
+    src.rename(at: 0, to: "First")
+    #expect(src.remove(at: 0)?.name == "First")
+}
