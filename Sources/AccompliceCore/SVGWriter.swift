@@ -35,8 +35,29 @@ public struct SVGWriter {
 
         var body = "", defs = ""
         var clipID = 0
+        var filterID = 0
+        var openGroups = 0
 
         for d in drawables {
+            // A group's shadow becomes an SVG filter around the range, rather than
+            // being dropped on the floor. feDropShadow is the direct equivalent and
+            // works from the combined silhouette, exactly as it does on canvas.
+            if let shadows = d.groupShadows {
+                filterID += 1
+                let parts = shadows.map { s in
+                    "<feDropShadow dx=\"\(fmt(s.offset.width))\" dy=\"\(fmt(s.offset.height))\" "
+                        + "stdDeviation=\"\(fmt(s.blur / 2))\" flood-color=\"\(s.color.hex)\" "
+                        + "flood-opacity=\"\(fmt(s.color.a))\"/>"
+                }.joined()
+                defs += "  <filter id=\"s\(filterID)\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\">\(parts)</filter>\n"
+                body += "  <g filter=\"url(#s\(filterID))\">\n"
+                openGroups += 1
+                continue
+            }
+            if d.endsGroup {
+                if openGroups > 0 { body += "  </g>\n"; openGroups -= 1 }
+                continue
+            }
             // An artboard background that Sketch marks as export-excluded must not be
             // baked into the engraving file.
             if d.isArtboardBackground && !d.includeInExport { continue }
@@ -118,6 +139,9 @@ public struct SVGWriter {
                 body += "  <path\(clipAttr) \(strokeAttrs) d=\"\(dstr)\"/>\n"
             }
         }
+
+        // A truncated tree would produce invalid SVG; close anything still open.
+        while openGroups > 0 { body += "  </g>\n"; openGroups -= 1 }
 
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         s += "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n"

@@ -121,7 +121,17 @@ public enum Compose {
                 if l.style.opacity != 1 {
                     inner = inner.map { var d = $0; d.opacity *= l.style.opacity; return d }
                 }
-                out.append(contentsOf: inner)
+                if !l.style.shadows.isEmpty, !inner.isEmpty {
+                    var open = Drawable(path: nil, style: l.style, layer: l, transform: t)
+                    open.groupShadows = l.style.shadows
+                    var close = Drawable(path: nil, style: Style(), layer: l, transform: t)
+                    close.endsGroup = true
+                    out.append(open)
+                    out.append(contentsOf: inner)
+                    out.append(close)
+                } else {
+                    out.append(contentsOf: inner)
+                }
 
             case .shapeGroup, .path:
                 guard let p = resolvedPath(l) else { continue }
@@ -176,4 +186,16 @@ public struct Drawable {
     /// "include background in export" without re-deriving it.
     public var isArtboardBackground = false
     public var includeInExport = true
+
+    /// Brackets a group that carries a shadow.
+    ///
+    /// A group's shadow belongs to the silhouette of everything inside it, not to each
+    /// child — put it on the children and you get a shadow cast onto the group's own
+    /// members. The drawable list is flat, so the boundary is marked rather than
+    /// nested: begin carries the shadows, end closes the range, and neither paints.
+    public var groupShadows: [Shadow]?
+    public var endsGroup = false
+
+    /// Markers exist to bracket a range; they draw nothing themselves.
+    public var isMarker: Bool { groupShadows != nil || endsGroup }
 }

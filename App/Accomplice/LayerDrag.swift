@@ -82,6 +82,11 @@ struct LayerRootDropDelegate: DropDelegate {
         return DropProposal(operation: .move)
     }
 
+    /// Dragging out of the list — onto the canvas, or off the window entirely — ends
+    /// with no delegate performing a drop, so the marker has to be cleared here or it
+    /// stays on screen for good.
+    func dropExited(info: DropInfo) { state.clear() }
+
     func performDrop(info: DropInfo) -> Bool {
         defer { state.clear() }
         guard let page = store.page else { return false }

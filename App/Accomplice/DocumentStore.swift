@@ -552,6 +552,33 @@ final class DocumentStore: ObservableObject {
         return ok
     }
 
+    /// A new shadow, with the settings you'd have typed anyway: soft, black, slightly
+    /// below. A shadow added at 0/0/0 looks like nothing happened.
+    func addShadow(_ id: String) {
+        edit(id, actionName: "Add Shadow") { l in
+            var s = Shadow()
+            s.color = Color(r: 0, g: 0, b: 0, a: 0.25)
+            s.offset = CGSize(width: 0, height: 4)
+            s.blur = 8
+            l.style.shadows.append(s)
+        }
+    }
+
+    func removeShadow(_ id: String, at index: Int) {
+        edit(id, actionName: "Remove Shadow") { l in
+            guard l.style.shadows.indices.contains(index) else { return }
+            l.style.shadows.remove(at: index)
+        }
+    }
+
+    func editShadow(_ id: String, at index: Int, actionName: String,
+                    _ body: @escaping (inout Shadow) -> Void) {
+        edit(id, actionName: actionName) { l in
+            guard l.style.shadows.indices.contains(index) else { return }
+            body(&l.style.shadows[index])
+        }
+    }
+
     /// Renames a layer, for the layer list and its context menu.
     func rename(_ id: String, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

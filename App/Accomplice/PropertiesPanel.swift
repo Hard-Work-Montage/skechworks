@@ -20,7 +20,7 @@ struct PropertiesPanel: View {
                         geometry(layer)
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
-                        if !layer.style.shadows.isEmpty { Divider(); shadows(layer) }
+                        Divider(); shadows(layer)   // always: you add one from here
                         if case .text(let t) = layer.kind { Divider(); text(t, layer) }
                         if let pt = store.editingPoint { Divider(); pointType(pt) }
                         if case .shapeGroup(let kids, let rule) = layer.kind {
@@ -185,18 +185,84 @@ struct PropertiesPanel: View {
         }
     }
 
+    /// Shadows, editable, and reachable on anything — including a group, where the
+    /// shadow comes from the silhouette of everything inside it.
+    ///
+    /// Both X/Y and angle/distance are shown, each driving the other. X/Y is what the
+    /// format stores and what every other tool speaks, so it stays; but nobody thinks
+    /// "negative four on Y" when they want the light coming from above, and for a coin
+    /// sitting on a surface the angle is the thing you actually reason about.
     private func shadows(_ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Shadow")
-            ForEach(Array(l.style.shadows.enumerated()), id: \.offset) { _, s in
-                HStack(spacing: 8) {
-                    swatch(s.color)
-                    Text("\(trim(s.offset.width)), \(trim(s.offset.height))")
-                        .font(.system(.caption, design: .monospaced))
-                    Spacer()
-                    Text("blur \(trim(s.blur))").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                sectionTitle("Shadow")
+                Spacer()
+                Button { store.addShadow(l.id) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Add a shadow")
+            }
+            ForEach(Array(l.style.shadows.enumerated()), id: \.offset) { i, s in
+                shadowEditor(l, i, s)
+                if i < l.style.shadows.count - 1 { Divider() }
+            }
+            if l.style.shadows.isEmpty {
+                Text("No shadow").font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func shadowEditor(_ l: Layer, _ i: Int, _ s: Shadow) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                swatch(s.color)
+                Text(s.color.hex.uppercased()).font(.system(.caption, design: .monospaced))
+                Spacer()
+                Text("\(Int(s.color.a * 100))%").font(.caption).foregroundStyle(.secondary)
+                Button { store.removeShadow(l.id, at: i) } label: { Image(systemName: "minus") }
+                    .buttonStyle(.plain).foregroundStyle(.tertiary)
+                    .help("Remove")
+            }
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    shadowField("X", s.offset.width, l, i) { $0.offset.width = $1 }
+                    shadowField("Y", s.offset.height, l, i) { $0.offset.height = $1 }
+                }
+                GridRow {
+                    shadowField("Blur", s.blur, l, i) { $0.blur = max(0, $1) }
+                    shadowField("Spread", s.spread, l, i) { $0.spread = $1 }
+                }
+                GridRow {
+                    // Angle is clockwise from straight up, so 180 is a shadow cast
+                    // downward — a thing lit from above, which is the usual case.
+                    shadowField("Angle", shadowAngle(s), l, i, suffix: "°") { sh, v in
+                        let d = hypot(sh.offset.width, sh.offset.height)
+                        let r = v * .pi / 180
+                        sh.offset = CGSize(width: sin(r) * d, height: -cos(r) * d)
+                    }
+                    shadowField("Distance", hypot(s.offset.width, s.offset.height), l, i) { sh, v in
+                        let a = shadowAngleOf(sh) * .pi / 180
+                        sh.offset = CGSize(width: sin(a) * v, height: -cos(a) * v)
+                    }
                 }
             }
+        }
+    }
+
+    private func shadowAngle(_ s: Shadow) -> CGFloat { shadowAngleOf(s) }
+
+    /// Clockwise degrees from straight up. Zero distance has no angle, so keep the
+    /// common one rather than snapping the field to something arbitrary.
+    private func shadowAngleOf(_ s: Shadow) -> CGFloat {
+        if abs(s.offset.width) < 0.001 && abs(s.offset.height) < 0.001 { return 180 }
+        let a = atan2(s.offset.width, -s.offset.height) * 180 / .pi
+        return a < 0 ? a + 360 : a
+    }
+
+    private func shadowField(_ label: String, _ value: CGFloat, _ l: Layer, _ i: Int,
+                             suffix: String = "",
+                             apply: @escaping (inout Shadow, CGFloat) -> Void) -> some View {
+        NumberField(label: label, value: value, suffix: suffix) { v in
+            store.editShadow(l.id, at: i, actionName: "Change \(label)") { apply(&$0, v) }
         }
     }
 

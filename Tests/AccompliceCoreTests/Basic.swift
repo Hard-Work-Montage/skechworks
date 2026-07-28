@@ -1768,3 +1768,80 @@ private func nestedImagePage() -> (Page, image: String) {
     }
     #expect(page.layer(photo)!.frame.size == CGSize(width: 500, height: 500))
 }
+
+// MARK: - Group shadows
+
+private func shadowedGroup() -> Layer {
+    func dot(_ x: CGFloat) -> Layer {
+        var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 60, height: 60),
+                                         transform: nil), closed: true))
+        l.frame = CGRect(x: x, y: 20, width: 60, height: 60)
+        l.style.fills = [Fill(paint: .color(.black))]
+        return l
+    }
+    var g = Layer(kind: .group([dot(10), dot(100)]))
+    g.name = "Coin"
+    g.frame = CGRect(x: 50, y: 50, width: 200, height: 120)
+    var s = Shadow()
+    s.offset = CGSize(width: 0, height: 4)
+    s.blur = 8
+    s.color = Color(r: 0, g: 0, b: 0, a: 0.25)
+    g.style.shadows = [s]
+    return g
+}
+
+@Test func aGroupShadowBracketsItsChildrenRatherThanLandingOnEachOne() {
+    let drawables = Compose.flatten([shadowedGroup()])
+    // Two children plus the two markers that bracket them.
+    #expect(drawables.count == 4)
+    #expect(drawables.first?.groupShadows?.count == 1)
+    #expect(drawables.last?.endsGroup == true)
+    // The children carry no shadow of their own — that would cast one child's shadow
+    // onto the next instead of shadowing the group's silhouette.
+    for d in drawables where !d.isMarker {
+        #expect(d.style.shadows.isEmpty)
+    }
+}
+
+@Test func aGroupWithoutAShadowIsNotBracketed() {
+    var g = shadowedGroup()
+    g.style.shadows = []
+    let drawables = Compose.flatten([g])
+    #expect(drawables.count == 2)
+    #expect(drawables.allSatisfy { !$0.isMarker })
+}
+
+@Test func groupShadowsSurviveExportAsAFilter() {
+    var page = Page(name: "p")
+    page.layers = [shadowedGroup()]
+    let svg = SVGWriter(images: [:]).svg(page: page)
+
+    #expect(svg.contains("feDropShadow"))
+    #expect(svg.contains("flood-opacity=\"0.25"))     // fmt writes 0.250
+    #expect(svg.contains("dy=\"4\""))
+    // The filter wraps the group, so it works from the combined silhouette.
+    #expect(svg.contains("<g filter="))
+    // Balanced, or the file simply won't open.
+    #expect(svg.components(separatedBy: "<g filter=").count - 1
+            == svg.components(separatedBy: "</g>").count - 1)
+}
+
+@Test func addingOrChangingAShadowCountsAsAChange() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    let plain = l.contentSignature
+
+    var s = Shadow()
+    s.offset = CGSize(width: 0, height: 4)
+    l.style.shadows = [s]
+    let withShadow = l.contentSignature
+    #expect(withShadow != plain)
+
+    l.style.shadows[0].blur = 20
+    #expect(l.contentSignature != withShadow)
+
+    // Moving the light round changes the offset, which has to register too.
+    l.style.shadows[0].offset = CGSize(width: 4, height: 0)
+    #expect(l.contentSignature != withShadow)
+}

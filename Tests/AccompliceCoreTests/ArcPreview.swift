@@ -169,3 +169,46 @@ import CoreGraphics
     let img = try #require(Renderer(images: [:]).render(page: both, maxDimension: 800))
     try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
 }
+
+/// A group shadow next to per-child shadows, to show the difference.
+@Test func renderGroupShadowPreview() throws {
+    guard let out = ProcessInfo.processInfo.environment["SHADOW_OUT"] else { return }
+
+    func dot(_ x: CGFloat, shadow: Bool) -> Layer {
+        var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 110, height: 110),
+                                         transform: nil), closed: true))
+        l.frame = CGRect(x: x, y: 20, width: 110, height: 110)
+        l.style.fills = [Fill(paint: .color(Color(r: 0.35, g: 0.45, b: 0.7, a: 1)))]
+        if shadow {
+            var s = Shadow()
+            s.offset = CGSize(width: 0, height: 6)
+            s.blur = 12
+            s.color = Color(r: 0, g: 0, b: 0, a: 0.45)
+            l.style.shadows = [s]
+        }
+        return l
+    }
+
+    // Left: the shadow on the group. Right: the same shadow on each child, which
+    // casts one child's shadow across the next.
+    var onGroup = Layer(kind: .group([dot(0, shadow: false), dot(70, shadow: false)]))
+    onGroup.frame = CGRect(x: 30, y: 30, width: 200, height: 150)
+    var s = Shadow()
+    s.offset = CGSize(width: 0, height: 6)
+    s.blur = 12
+    s.color = Color(r: 0, g: 0, b: 0, a: 0.45)
+    onGroup.style.shadows = [s]
+
+    var onChildren = Layer(kind: .group([dot(0, shadow: true), dot(70, shadow: true)]))
+    onChildren.frame = CGRect(x: 290, y: 30, width: 200, height: 150)
+
+    var plate = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 520, height: 210),
+                                         transform: nil), closed: true))
+    plate.frame = CGRect(x: 0, y: 0, width: 520, height: 210)
+    plate.style.fills = [Fill(paint: .color(Color(r: 1, g: 1, b: 1, a: 1)))]
+
+    var page = Page(name: "s")
+    page.layers = [plate, onGroup, onChildren]
+    let img = try #require(Renderer(images: [:]).render(page: page, maxDimension: 780))
+    try #require(Renderer.png(img)).write(to: URL(fileURLWithPath: out))
+}

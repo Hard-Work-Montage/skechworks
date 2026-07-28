@@ -516,6 +516,11 @@ extension Layer {
         // page and throws the edit away — which it did whenever the shape was already
         // at the back, so Use as Mask worked from the layer list and not from the canvas.
         s += "|\(hasClippingMask ? 1 : 0)\(breaksMaskChain ? 1 : 0)"
+        // Adding a shadow moves nothing. Fourth thing to need saying here, so: if it
+        // can be edited and isn't geometry, it belongs in the signature.
+        s += "|" + style.shadows.map {
+            "\($0.color.hex)\(Int($0.color.a * 100)):\(Int($0.offset.width)),\(Int($0.offset.height)):\(Int($0.blur)):\(Int($0.spread))"
+        }.joined(separator: ",")
         if let t = apiText { s += "|\(t)" }
         if case .path(let p, let closed) = kind {
             // Points move without the frame changing, so include the geometry's own

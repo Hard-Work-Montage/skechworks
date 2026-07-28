@@ -56,7 +56,45 @@ public struct Renderer {
     /// and zoom tick, so it must flatten once per page and reuse the result — not
     /// recompute it per frame.
     public func draw(drawables: [Drawable], in ctx: CGContext) {
-        for d in drawables { draw(d, in: ctx) }
+        var i = 0
+        while i < drawables.count {
+            let d = drawables[i]
+            if let shadows = d.groupShadows, let close = Self.matchingEnd(drawables, from: i) {
+                let inner = Array(drawables[(i + 1)..<close])
+                // One pass per shadow, each drawing the group inside a transparency
+                // layer so the shadow comes from the combined silhouette. The last pass
+                // leaves the artwork on top. Stacked passes redraw the content, which
+                // is invisible for opaque art and would deepen translucent art — the
+                // trade for supporting more than one shadow at all.
+                for s in shadows {
+                    ctx.saveGState()
+                    ctx.setShadow(offset: s.offset, blur: s.blur, color: s.color.cg)
+                    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                    for c in inner where !c.isMarker { draw(c, in: ctx) }
+                    ctx.endTransparencyLayer()
+                    ctx.restoreGState()
+                }
+                i = close + 1
+                continue
+            }
+            if !d.isMarker { draw(d, in: ctx) }
+            i += 1
+        }
+    }
+
+    /// Index of the marker closing the group opened at `start`, allowing for nesting.
+    private static func matchingEnd(_ ds: [Drawable], from start: Int) -> Int? {
+        var depth = 0
+        var i = start
+        while i < ds.count {
+            if ds[i].groupShadows != nil { depth += 1 }
+            if ds[i].endsGroup {
+                depth -= 1
+                if depth == 0 { return i }
+            }
+            i += 1
+        }
+        return nil
     }
 
     /// Hit-test: the topmost drawable whose geometry contains `point` (page space).
