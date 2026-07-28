@@ -173,3 +173,60 @@ final class DocumentStoreTests: XCTestCase {
         }
     }
 }
+
+/// The Open Recent menu.
+@MainActor
+final class RecentDocumentsTests: XCTestCase {
+
+    private func scratch() -> UserDefaults {
+        let suite = "accomplice.tests.\(UUID().uuidString)"
+        UserDefaults().removePersistentDomain(forName: suite)
+        return UserDefaults(suiteName: suite)!
+    }
+
+    func testAnOpenedFileIsRememberedImmediately() throws {
+        // The old list lived in NSDocumentController, which writes when it likes —
+        // anything but a clean quit lost the lot and the menu silently emptied.
+        let defaults = scratch()
+        let recents = RecentDocuments(defaults: defaults)
+
+        let file = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("recent-\(UUID().uuidString).acmplc.png")
+        try Data([0x89]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        recents.note(file)
+        XCTAssertEqual(recents.urls.map(\.path), [file.path])
+
+        // Already on disk, so a fresh instance sees it without anything being quit.
+        XCTAssertEqual(RecentDocuments(defaults: defaults).urls.map(\.path), [file.path])
+    }
+
+    func testTheMostRecentComesFirstAndNothingRepeats() {
+        var list = RecentDocuments.adding("/a", to: [])
+        list = RecentDocuments.adding("/b", to: list)
+        list = RecentDocuments.adding("/a", to: list)      // opened again
+        XCTAssertEqual(list, ["/a", "/b"])
+    }
+
+    func testTheListIsCapped() {
+        var list: [String] = []
+        for i in 0..<40 { list = RecentDocuments.adding("/f\(i)", to: list) }
+        XCTAssertEqual(list.count, RecentDocuments.limit)
+        XCTAssertEqual(list.first, "/f39")
+    }
+
+    func testFilesThatHaveGoneAwayAreNotOffered() throws {
+        let defaults = scratch()
+        let gone = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("gone-\(UUID().uuidString).acmplc.png")
+        try Data([0x89]).write(to: gone)
+        let recents = RecentDocuments(defaults: defaults)
+        recents.note(gone)
+        XCTAssertEqual(recents.urls.count, 1)
+
+        try FileManager.default.removeItem(at: gone)
+        recents.refresh()
+        XCTAssertTrue(recents.urls.isEmpty, "a dead path is worse than a shorter menu")
+    }
+}
