@@ -111,9 +111,12 @@ final class InteractionTests: XCTestCase {
 
     func testRotationCanBeTypedIn() {
         row("Photo").click()
-        let angle = app.windows.firstMatch.descendants(matching: .textField)
-            .matching(NSPredicate(format: "value CONTAINS[c] '0'")).firstMatch
-        XCTAssertTrue(angle.exists, "the inspector should expose an editable angle")
+        let angle = app.windows.firstMatch.descendants(matching: .any)["field-Angle"]
+        XCTAssertTrue(angle.waitForExistence(timeout: 3), "the inspector needs an editable angle")
+        angle.click()
+        angle.typeKey("a", modifierFlags: .command)
+        angle.typeText("1\r")
+        XCTAssertEqual(Double((angle.value as? String) ?? ""), 1)
     }
 
     func testChatIsVisibleWithoutHuntingForIt() {
@@ -129,8 +132,11 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(backdrop.waitForExistence(timeout: 5))
 
         let before = backdrop.frame.origin.y < group.frame.origin.y
-        // Drop below the other row, past its midpoint so it reads as "after".
-        backdrop.click(forDuration: 0.2, thenDragTo: group)
+        // Press, drag slowly, hold before releasing. A quick drag is delivered fast
+        // enough that SwiftUI sometimes never starts the session — the test passed
+        // alone and failed in a full run purely on timing.
+        backdrop.press(forDuration: 0.5, thenDragTo: group,
+                       withVelocity: .slow, thenHoldForDuration: 0.5)
 
         // The rows swap, so the one that was higher is now lower.
         let after = row("Backdrop").frame.origin.y < row("Group").frame.origin.y
@@ -142,7 +148,8 @@ final class InteractionTests: XCTestCase {
         let backdrop = row("Backdrop")
         XCTAssertTrue(backdrop.waitForExistence(timeout: 5))
         let canvas = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5))
-        backdrop.click(forDuration: 0.2, thenDragTo: app.windows.firstMatch)
+        backdrop.press(forDuration: 0.5, thenDragTo: app.windows.firstMatch,
+                       withVelocity: .slow, thenHoldForDuration: 0.5)
         _ = canvas
         // Nothing to assert on directly — a stuck marker shows up as the next click
         // landing on the wrong row, so check the list still behaves.

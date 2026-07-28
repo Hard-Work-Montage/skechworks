@@ -107,6 +107,33 @@ final class DocumentStoreTests: XCTestCase {
         XCTAssertTrue(b.chat.messages.isEmpty, "windows must not share a conversation")
     }
 
+    func testARotateDragIsOneUndoStepFromWhereItStarted() {
+        // The canvas reports the whole turn each frame, not an increment. Committing
+        // against the live value instead of the starting one would compound it.
+        let (store, _, photo) = loaded()
+        store.selection = [photo]
+        store.beginRotate()
+
+        let centre = CGPoint(x: store.page!.absoluteOrigin(of: photo)!.x + 100,
+                             y: store.page!.absoluteOrigin(of: photo)!.y + 100)
+        store.endRotate(degrees: 1, centre: centre)
+        XCTAssertEqual(store.page!.layer(photo)!.rotation, 1, accuracy: 0.001)
+
+        store.undo()
+        XCTAssertEqual(store.page!.layer(photo)!.rotation, 0, accuracy: 0.001)
+    }
+
+    func testRotatingASingleLayerLeavesItWhereItIs() {
+        let (store, _, photo) = loaded()
+        store.selection = [photo]
+        let was = store.page!.absoluteOrigin(of: photo)!
+        store.beginRotate()
+        store.endRotate(degrees: 30, centre: CGPoint(x: was.x + 100, y: was.y + 100))
+
+        XCTAssertEqual(store.page!.absoluteOrigin(of: photo)!.x, was.x, accuracy: 0.01)
+        XCTAssertEqual(store.page!.absoluteOrigin(of: photo)!.y, was.y, accuracy: 0.01)
+    }
+
     func testEveryMenuShortcutResolvesInTheRegistry() {
         // The menus bind by id. A typo would be a menu item with no shortcut at all,
         // which is invisible until someone reaches for the key.

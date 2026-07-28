@@ -171,6 +171,12 @@ final class PageCanvas: NSView {
     private var resizeScale = CGSize(width: 1, height: 1)
     private var resizeAnchor: CGPoint = .zero
 
+    /// A rotate drag in flight: where it turns about, and the pointer angle it began at.
+    private var rotating: (centre: CGPoint, startAngle: CGFloat)?
+    private var rotationDelta: CGFloat = 0
+    var onRotateBegin: (() -> Void)?
+    var onRotateEnd: ((CGFloat, CGPoint) -> Void)?
+
     /// Union of the selected layers' boxes, in page space.
     var selectionBounds: CGRect? {
         guard let page, !selected.isEmpty else { return nil }
@@ -216,6 +222,20 @@ final class PageCanvas: NSView {
         }
     }
 
+    /// Corners have a second, larger hit zone just outside them: inside turns into a
+    /// resize, outside into a rotate. It's how Figma does it, and it needs no extra
+    /// controls cluttering a selection that's often only a few pixels across.
+    private func rotateCornerUnder(_ p: CGPoint) -> Handle? {
+        guard let r = selectionBounds, editPath == nil, tool == .select else { return nil }
+        let grab = 7 / max(0.01, currentScale)
+        for h in [Handle.nw, .ne, .se, .sw] {
+            let c = handlePoint(h, in: r)
+            let d = hypot(p.x - c.x, p.y - c.y)
+            if d > grab, d <= grab * 3 { return h }
+        }
+        return nil
+    }
+
     private func handleUnder(_ p: CGPoint) -> Handle? {
         guard let r = selectionBounds else { return nil }
         let grab = 7 / max(0.01, currentScale)
@@ -249,6 +269,11 @@ final class PageCanvas: NSView {
 
     /// The move or resize being previewed, as a page-space transform.
     private var liveGesture: CGAffineTransform? {
+        if let rot = rotating, rotationDelta != 0 {
+            return CGAffineTransform(translationX: rot.centre.x, y: rot.centre.y)
+                .rotated(by: -rotationDelta * .pi / 180)
+                .translatedBy(x: -rot.centre.x, y: -rot.centre.y)
+        }
         if dragging, dragOffset != .zero {
             return CGAffineTransform(translationX: dragOffset.width, y: dragOffset.height)
         }
@@ -746,6 +771,14 @@ final class PageCanvas: NSView {
             }
         }
 
+        if rotateCornerUnder(p) != nil, let r = selectionBounds {
+            let centre = CGPoint(x: r.midX, y: r.midY)
+            rotating = (centre, atan2(p.y - centre.y, p.x - centre.x))
+            rotationDelta = 0
+            onRotateBegin?()
+            return
+        }
+
         // Handles win over everything: they sit on the selection's edge, which is
         // usually on top of the art you'd otherwise hit.
         if let handle = handleUnder(p), let r = selectionBounds {
@@ -780,6 +813,14 @@ final class PageCanvas: NSView {
     override func mouseMoved(with event: NSEvent) {
         let local = convert(event.locationInWindow, from: nil)
         let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+
+        // Nothing is drawn out there, so the cursor is the only clue the rotate zone
+        // exists. Without it you'd only find it by accident.
+        if editPath == nil, rotateCornerUnder(p) != nil {
+            NSCursor.crosshair.set()
+        } else if editPath == nil, handleUnder(p) == nil, insertPreview == nil {
+            NSCursor.arrow.set()
+        }
 
         if tool == .pen, !penPoints.isEmpty {
             penCursor = p
@@ -902,6 +943,15 @@ final class PageCanvas: NSView {
         if let h = draggingHandle {
             editPath?.points[h.index].setHandle(out: h.out, to: p); needsDisplay = true; return
         }
+        if let rot = rotating {
+            var degrees = -(atan2(p.y - rot.centre.y, p.x - rot.centre.x) - rot.startAngle)
+                * 180 / .pi
+            // Shift snaps to 15°, which is how you land on 45 or 90 by hand.
+            if event.modifierFlags.contains(.shift) { degrees = (degrees / 15).rounded() * 15 }
+            rotationDelta = degrees
+            needsDisplay = true
+            return
+        }
         if let pending = pendingSegment {
             // Far enough to mean it: start bending rather than adding.
             if hypot(p.x - pending.at.x, p.y - pending.at.y) > grabRadius / 2 {
@@ -945,6 +995,13 @@ final class PageCanvas: NSView {
         defer { needsDisplay = true }   // a click that commits nothing still changes what's drawn
         if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
         if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
+        if let rot = rotating {
+            rotating = nil
+            let d = rotationDelta
+            rotationDelta = 0
+            if d != 0 { onRotateEnd?(d, rot.centre) }
+            return
+        }
         if bendingSegment != nil { bendingSegment = nil; commitEdit("Bend Curve"); return }
         if let pending = pendingSegment {
             // Pressed and released without moving: that's a click, so add a point.
@@ -1170,6 +1227,8 @@ struct CanvasRepresentable: NSViewRepresentable {
         }
         canvas.onResizeBegin = { store.beginResize() }
         canvas.onResizeEnd = { scale, anchor in store.endResize(scale: scale, anchor: anchor) }
+        canvas.onRotateBegin = { store.beginRotate() }
+        canvas.onRotateEnd = { degrees, centre in store.endRotate(degrees: degrees, centre: centre) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
         canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
     }

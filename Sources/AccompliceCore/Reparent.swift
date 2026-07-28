@@ -134,6 +134,33 @@ extension Page {
         }
     }
 
+    /// Rotates layers by `degrees` about a point given in PAGE coordinates.
+    ///
+    /// A layer's own rotation turns it about its centre, so one layer rotating about
+    /// itself only needs the angle. Several layers turning together also have to swing
+    /// around the shared centre, or they'd each spin in place and the arrangement would
+    /// come apart.
+    ///
+    /// `startAngles` and `startFrames` are from when the drag began, so the gesture
+    /// stays exact instead of accumulating.
+    public mutating func rotate(_ ids: [String], about anchor: CGPoint, by degrees: CGFloat,
+                                startAngles: [String: CGFloat], startFrames: [String: CGRect]) {
+        let radians = -degrees * .pi / 180        // page space is y-down
+        for id in ids {
+            guard let startAngle = startAngles[id], let start = startFrames[id] else { continue }
+            let parent = parentOrigin(of: id)
+            let centre = CGPoint(x: parent.x + start.midX, y: parent.y + start.midY)
+            let dx = centre.x - anchor.x, dy = centre.y - anchor.y
+            let swung = CGPoint(x: anchor.x + dx * cos(radians) - dy * sin(radians),
+                                y: anchor.y + dx * sin(radians) + dy * cos(radians))
+            updateLayer(id) { l in
+                l.rotation = (startAngle + degrees).truncatingRemainder(dividingBy: 360)
+                l.frame.origin = CGPoint(x: swung.x - parent.x - start.width / 2,
+                                         y: swung.y - parent.y - start.height / 2)
+            }
+        }
+    }
+
     /// Direct children of a container, or the page's own layers.
     public func children(of parent: String?) -> [Layer] {
         guard let parent else { return layers }

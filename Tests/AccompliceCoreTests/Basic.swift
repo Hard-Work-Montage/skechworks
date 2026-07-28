@@ -1961,3 +1961,58 @@ private func shadowedGroup() -> Layer {
     #expect(abs(after.midY - before.midY) < 0.01)
     #expect(after.width > before.width)  // a tilted square needs a bigger box
 }
+
+@Test func rotatingOneLayerTurnsItInPlace() {
+    var page = Page(name: "p")
+    var l = Layer(kind: .bitmap(imageRef: "x.png"))
+    l.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+    page.layers = [l]
+    let centre = CGPoint(x: 200, y: 200)
+
+    page.rotate([l.id], about: centre, by: 1,
+                startAngles: [l.id: 0], startFrames: [l.id: l.frame])
+
+    #expect(abs(page.layers[0].rotation - 1) < 0.001)
+    // Rotating a single layer about its own centre must not move it.
+    #expect(abs(page.layers[0].frame.midX - 200) < 0.001)
+    #expect(abs(page.layers[0].frame.midY - 200) < 0.001)
+}
+
+@Test func rotatingSeveralLayersSwingsThemAroundTheSharedCentre() {
+    var page = Page(name: "p")
+    func box(_ x: CGFloat) -> Layer {
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40),
+                                         transform: nil), closed: true))
+        l.frame = CGRect(x: x, y: 100, width: 40, height: 40)
+        return l
+    }
+    let a = box(100), b = box(300)
+    page.layers = [a, b]
+    let centre = CGPoint(x: 220, y: 120)      // midpoint of the two boxes
+
+    page.rotate([a.id, b.id], about: centre, by: 180,
+                startAngles: [a.id: 0, b.id: 0],
+                startFrames: [a.id: a.frame, b.id: b.frame])
+
+    // Turned half a circle: they swap sides rather than spinning where they stand.
+    #expect(abs(page.layers[0].frame.midX - 320) < 0.01)
+    #expect(abs(page.layers[1].frame.midX - 120) < 0.01)
+    #expect(abs(page.layers[0].rotation - 180) < 0.01)
+}
+
+@Test func rotationUsesTheAnglesFromWhenTheDragStarted() {
+    var page = Page(name: "p")
+    var l = Layer(kind: .bitmap(imageRef: "x.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    l.rotation = 10
+    page.layers = [l]
+    let start = l.frame
+
+    // Three frames of one gesture. Applying to the live value each time would take it
+    // to 10+5+10+15; the whole gesture is one turn from where it began.
+    for d in [CGFloat(5), 10, 15] {
+        page.rotate([l.id], about: CGPoint(x: 50, y: 50), by: d,
+                    startAngles: [l.id: 10], startFrames: [l.id: start])
+    }
+    #expect(abs(page.layers[0].rotation - 25) < 0.001)
+}

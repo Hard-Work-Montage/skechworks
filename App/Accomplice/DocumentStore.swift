@@ -341,6 +341,30 @@ final class DocumentStore: ObservableObject {
 
     func cancelResize() { resizeStart = [:] }
 
+    // MARK: - Rotating
+
+    private var rotateStart: (angles: [String: CGFloat], frames: [String: CGRect]) = ([:], [:])
+
+    func beginRotate() {
+        guard let page else { return }
+        var angles: [String: CGFloat] = [:], frames: [String: CGRect] = [:]
+        for id in selection {
+            if let l = page.layer(id) { angles[id] = l.rotation; frames[id] = l.frame }
+        }
+        rotateStart = (angles, frames)
+    }
+
+    /// One undo step for the whole turn, however many frames the drag took.
+    func endRotate(degrees: CGFloat, centre: CGPoint) {
+        let start = rotateStart
+        rotateStart = ([:], [:])
+        guard !start.angles.isEmpty, degrees != 0 else { return }
+        mutatePage("Rotate") { page in
+            page.rotate(Array(start.angles.keys), about: centre, by: degrees,
+                        startAngles: start.angles, startFrames: start.frames)
+        }
+    }
+
     // MARK: - Adding and removing layers
 
     /// Appends a layer (the pen tool's output) as one undoable step.

@@ -521,6 +521,9 @@ private struct NumberField: View {
                 .frame(width: FieldMetrics.labelWidth, alignment: .leading)
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             TextField("", text: $text)
+                // Named so UI tests can read a value back — "did the angle change?"
+                // is otherwise unanswerable from outside the app.
+                .accessibilityIdentifier("field-\(label)")
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.callout, design: .monospaced))
                 .focused($focused)
