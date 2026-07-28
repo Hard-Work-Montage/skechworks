@@ -41,9 +41,9 @@ struct AccompliceApp: App {
             // one is frontmost rather than on a single app-wide store.
             CommandGroup(replacing: .newItem) {
                 Button("New") { openWindow(id: "document") }
-                    .keyboardShortcut("n", modifiers: .command)
+                    .shortcut("new")
                 Button("Open…") { AppDelegate.shared?.active?.openPanel() }
-                    .keyboardShortcut("o", modifiers: .command)
+                    .shortcut("open")
                 Menu("Open Recent") {
                     ForEach(recents.urls, id: \.self) { url in
                         Button(url.lastPathComponent) {
@@ -68,37 +68,41 @@ struct AccompliceApp: App {
             // the one driving document edits, so the built-ins would be inert.
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { AppDelegate.shared?.active?.undo() }
-                    .keyboardShortcut("z", modifiers: .command)
+                    .shortcut("undo")
                 Button("Redo") { AppDelegate.shared?.active?.redo() }
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .shortcut("redo")
             }
             CommandGroup(replacing: .pasteboard) {
                 Button("Cut") { AppDelegate.shared?.active?.cutSelection() }
-                    .keyboardShortcut("x", modifiers: .command)
+                    .shortcut("cut")
                 Button("Copy") { AppDelegate.shared?.active?.copySelection() }
-                    .keyboardShortcut("c", modifiers: .command)
+                    .shortcut("copy")
                 Button("Paste") { AppDelegate.shared?.active?.paste() }
-                    .keyboardShortcut("v", modifiers: .command)
+                    .shortcut("paste")
                 Button("Duplicate") { AppDelegate.shared?.active?.duplicateSelection() }
-                    .keyboardShortcut("d", modifiers: .command)
+                    .shortcut("duplicate")
                 Divider()
                 Button("Delete") { AppDelegate.shared?.active?.deleteSelection() }
                 Button("Select All") { AppDelegate.shared?.active?.selectAll() }
-                    .keyboardShortcut("a", modifiers: .command)
+                    .shortcut("selectAll")
             }
             // Sketch's zoom shortcuts, since that's the muscle memory coming in.
             CommandGroup(before: .sidebar) {
                 Button("Zoom In") { AppDelegate.shared?.active?.zoom(.zoomIn) }
-                    .keyboardShortcut("+", modifiers: .command)
+                    .shortcut("zoomIn")
                 Button("Zoom Out") { AppDelegate.shared?.active?.zoom(.zoomOut) }
-                    .keyboardShortcut("-", modifiers: .command)
+                    .shortcut("zoomOut")
                 Button("Actual Size") { AppDelegate.shared?.active?.zoom(.actualSize) }
-                    .keyboardShortcut("0", modifiers: .command)
+                    .shortcut("actualSize")
                 Button("Zoom to Fit") { AppDelegate.shared?.active?.zoom(.fit) }
-                    .keyboardShortcut("1", modifiers: .command)
+                    .shortcut("zoomFit")
                 Button("Zoom to Selection") { AppDelegate.shared?.active?.zoom(.toSelection) }
-                    .keyboardShortcut("2", modifiers: .command)
+                    .shortcut("zoomSelection")
                 Divider()
+            }
+            CommandGroup(replacing: .help) {
+                Button("Keyboard Shortcuts") { ShortcutsWindow.show() }
+                    .keyboardShortcut("/", modifiers: [.command, .shift])
             }
             CommandMenu("Path") {
                 // Three named strengths rather than a tolerance box: the useful
@@ -109,13 +113,13 @@ struct AccompliceApp: App {
             }
             CommandMenu("Arrange") {
                 Button("Bring Forward") { AppDelegate.shared?.active?.bringForward() }
-                    .keyboardShortcut("]", modifiers: .command)
+                    .shortcut("bringForward")
                 Button("Bring to Front") { AppDelegate.shared?.active?.bringToFront() }
-                    .keyboardShortcut("]", modifiers: [.command, .option])
+                    .shortcut("bringToFront")
                 Button("Send Backward") { AppDelegate.shared?.active?.sendBackward() }
-                    .keyboardShortcut("[", modifiers: .command)
+                    .shortcut("sendBackward")
                 Button("Send to Back") { AppDelegate.shared?.active?.sendToBack() }
-                    .keyboardShortcut("[", modifiers: [.command, .option])
+                    .shortcut("sendToBack")
                 Divider()
                 Menu("Align") {
                     Button("Left") { AppDelegate.shared?.active?.align(.left, "Left") }
@@ -132,33 +136,33 @@ struct AccompliceApp: App {
                 }
                 Divider()
                 Button("Group") { AppDelegate.shared?.active?.groupSelection() }
-                    .keyboardShortcut("g", modifiers: .command)
+                    .shortcut("group")
                 Button("Ungroup") { AppDelegate.shared?.active?.ungroupSelection() }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .shortcut("ungroup")
                 Divider()
                 Button("Use as Mask") { AppDelegate.shared?.active?.toggleMask() }
-                    .keyboardShortcut("m", modifiers: [.control, .command])
+                    .shortcut("mask")
                 Button("Ignore Mask") { AppDelegate.shared?.active?.toggleIgnoreMask() }
-                    .keyboardShortcut("i", modifiers: [.control, .command])
+                    .shortcut("ignoreMask")
                 Divider()
                 Button("Hide/Show Layer") { AppDelegate.shared?.active?.toggleLockOrHide(hide: true) }
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
+                    .shortcut("hide")
             }
             CommandMenu("Tools") {
                 Button("Ask…") { NotificationCenter.default.post(name: .showCommandBar, object: nil) }
-                    .keyboardShortcut("k", modifiers: .command)
+                    .shortcut("ask")
                 Divider()
                 Button("Select") { AppDelegate.shared?.active?.tool = .select }
-                    .keyboardShortcut("v", modifiers: [])
+                    .shortcut("select")
                 Button("Vector") { AppDelegate.shared?.active?.tool = .pen }
-                    .keyboardShortcut("p", modifiers: [])
+                    .shortcut("vector")
             }
             CommandGroup(replacing: .saveItem) {
                 // Close lives in this placement too, not in .newItem — replacing the
                 // group to add the export items quietly deleted it, so ⌘W had no menu
                 // item to fire and the window delegate's save prompt could never run.
                 Button("Close") { NSApp.keyWindow?.performClose(nil) }
-                    .keyboardShortcut("w", modifiers: .command)
+                    .shortcut("close")
                 Button("Close All") {
                     // Each still goes through performClose, so an edited tab gets its
                     // prompt rather than being discarded silently.
@@ -166,17 +170,17 @@ struct AccompliceApp: App {
                         w.performClose(nil)
                     }
                 }
-                .keyboardShortcut("w", modifiers: [.command, .option])
+                .shortcut("closeAll")
                 Divider()
                 Button("Save") { AppDelegate.shared?.active?.save() }
-                    .keyboardShortcut("s", modifiers: .command)
+                    .shortcut("save")
                 Button("Save As…") { AppDelegate.shared?.active?.saveAs() }
-                    .keyboardShortcut("s", modifiers: [.command, .shift])
+                    .shortcut("saveAs")
                 Divider()
                 Button("Export Page as SVG…") { AppDelegate.shared?.active?.exportCurrentPage() }
-                    .keyboardShortcut("e", modifiers: .command)
+                    .shortcut("exportPage")
                 Button("Export All Pages as SVG…") { AppDelegate.shared?.active?.exportAllPages() }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .shortcut("exportAll")
                 Divider()
                 Menu("Export Selected") {
                     ForEach(DocumentStore.ExportFormat.allCases) { f in

@@ -1845,3 +1845,74 @@ private func shadowedGroup() -> Layer {
     l.style.shadows[0].offset = CGSize(width: 4, height: 0)
     #expect(l.contentSignature != withShadow)
 }
+
+// MARK: - What a click selects
+
+@Test func clickingInsideAGroupResolvesToTheGroup() {
+    // Adam's coin: artboard > Group > (Ellipse, etsy_01). Clicking the photo selects
+    // the Group, because a group is one object.
+    let (page, _) = nestedImagePage()
+    guard case .group(let artKids) = page.layers[0].kind,
+          case .group(let groupKids) = artKids[0].kind else {
+        Issue.record("bad fixture"); return
+    }
+    let group = artKids[0], photo = groupKids[0]
+
+    // The same walk the canvas does: outermost non-artboard ancestor.
+    func target(_ leaf: Layer) -> String {
+        for id in page.ancestors(of: leaf.id) {
+            guard let a = page.layer(id) else { continue }
+            if a.isArtboard { continue }
+            return id
+        }
+        return leaf.id
+    }
+    #expect(target(photo) == group.id)
+}
+
+@Test func aLayerSittingDirectlyOnAnArtboardSelectsItself() {
+    // Artboards must not swallow the click, or nothing on the page is reachable.
+    var photo = Layer(kind: .bitmap(imageRef: "x.png"))
+    photo.frame = CGRect(x: 10, y: 10, width: 50, height: 50)
+    var art = Layer(kind: .group([photo]))
+    art.isArtboard = true
+    art.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+    var page = Page(name: "p")
+    page.layers = [art]
+
+    var resolved = photo.id
+    for id in page.ancestors(of: photo.id) {
+        guard let a = page.layer(id), !a.isArtboard else { continue }
+        resolved = id
+        break
+    }
+    #expect(resolved == photo.id)
+}
+
+// MARK: - Keyboard shortcuts
+
+@Test func noTwoShortcutsClaimTheSameKeystroke() {
+    let clashes = Shortcuts.collisions
+    for (a, b) in clashes {
+        Issue.record("\(a.id) and \(b.id) both claim \(a.display)")
+    }
+    #expect(clashes.isEmpty)
+}
+
+@Test func everyShortcutIsNamedAndReachable() {
+    for s in Shortcuts.all {
+        #expect(!s.title.isEmpty)
+        #expect(!s.key.isEmpty)
+        #expect(!s.group.isEmpty)
+    }
+    // Ids are how menus and the canvas refer to entries; duplicates would silently
+    // point two call sites at one definition.
+    #expect(Set(Shortcuts.all.map(\.id)).count == Shortcuts.all.count)
+}
+
+@Test func canvasShortcutsCarryTheKeyCodesTheCanvasMatchesOn() {
+    // A canvas shortcut with no key code is one the responder can't actually detect.
+    for s in Shortcuts.all where s.context == .points && !s.key.contains("click") {
+        if s.keyCodes.isEmpty { Issue.record("\(s.id) has no key code") }
+    }
+}

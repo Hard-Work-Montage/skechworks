@@ -70,17 +70,17 @@ struct ContentView: View {
             ToolbarItem(placement: .navigation) {
                 Menu {
                     Button("Artboard") { store.insertArtboard() }
-                        .keyboardShortcut("a", modifiers: [.command, .shift])
+                        .shortcut("insertArtboard")
                     Divider()
                     Button("Rectangle") { store.insertRectangle() }
-                        .keyboardShortcut("r", modifiers: [])
+                        .shortcut("insertRect")
                     Button("Oval") { store.insertOval() }
-                        .keyboardShortcut("o", modifiers: [])
+                        .shortcut("insertOval")
                     Button("Vector") { store.tool = .pen }
-                        .keyboardShortcut("p", modifiers: [])
+                        .shortcut("vector")
                     Divider()
                     Button("Text") { store.insertText() }
-                        .keyboardShortcut("t", modifiers: [])
+                        .shortcut("insertText")
                     Button("Image…") { store.insertImage() }
                 } label: {
                     Label("Insert", systemImage: "plus")

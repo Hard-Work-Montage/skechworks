@@ -36,7 +36,9 @@ final class PageCanvas: NSView {
     /// single click to mean "add a point" — it already meant "drag the shape". Sketch
     /// separates the two with a mode, and so does this.
     private var editingLayerID: String? { didSet { rebuildEditPath(); needsDisplay = true } }
-    var onClick: ((CGPoint, Bool) -> Void)?          // point, extend (shift held)
+    /// The canvas resolves what a click means (group vs the layer inside it) before
+    /// telling anyone, so selection policy lives in one place rather than in the store.
+    var onSelect: ((String?, Bool) -> Void)?        // layer id, extend (shift held)
     var onMarquee: ((CGRect, Bool) -> Void)?         // rect, extend
     var onDragBegin: ((String) -> Void)?
     var onResizeBegin: (() -> Void)?
@@ -572,6 +574,36 @@ final class PageCanvas: NSView {
 
     /// Hit-tests against the cached composition rather than recomposing per click.
     /// Named distinctly because NSView already has `hitTest(_:) -> NSView?`.
+    /// What clicking on `leaf` selects.
+    ///
+    /// A group is one object: clicking any part of it selects the whole thing, not the
+    /// photo inside. So the click walks up to the outermost container that isn't an
+    /// artboard — artboards hold everything on the page and selecting one from a click
+    /// inside would make the rest of the canvas unreachable.
+    ///
+    /// `drill` (⇧⌘) takes the layer actually under the pointer instead, however deep.
+    func selectionTarget(_ leaf: Layer, drill: Bool) -> Layer {
+        guard !drill, let page else { return leaf }
+        var target = leaf
+        for id in page.ancestors(of: leaf.id) {
+            guard let a = page.layer(id) else { continue }
+            if a.isArtboard { continue }        // never swallow the click
+            target = a
+            break                                // outermost wins
+        }
+        return target
+    }
+
+    /// One step further into whatever is under the pointer, from what's selected now.
+    /// Double-clicking a group enters it; double-clicking again goes deeper.
+    private func deeper(than current: Set<String>, towards leaf: Layer) -> Layer? {
+        guard let page else { return nil }
+        let chain = page.ancestors(of: leaf.id) + [leaf.id]
+        guard let here = chain.lastIndex(where: { current.contains($0) }) else { return nil }
+        guard here + 1 < chain.count else { return nil }
+        return page.layer(chain[here + 1])
+    }
+
     func layerHit(_ point: CGPoint) -> Layer? {
         // Labels win over content: they sit outside the board, and they're the only
         // way to grab the artboard rather than the art sitting on it.
@@ -629,12 +661,20 @@ final class PageCanvas: NSView {
         // Not a single click: in point-editing a single click already selects and
         // drags points and starts a marquee, so it has nowhere free to go.
         // --- Double-click a shape to edit its points ---
-        if event.clickCount >= 2, editPath == nil, tool == .select {
-            if let hit = layerHit(p), case .path = hit.kind {
-                onClick?(p, false)          // select it, if it wasn't already
-                editingLayerID = hit.id
+        if event.clickCount >= 2, editPath == nil, tool == .select, let leaf = layerHit(p) {
+            // Inside a group already? Go one level further in. Otherwise, if the thing
+            // under the pointer is what's selected and it's a path, edit its points.
+            if let next = deeper(than: selected, towards: leaf), next.id != leaf.id || !selected.contains(leaf.id) {
+                onSelect?(next.id, false)
+                if case .path = next.kind, next.id == leaf.id { editingLayerID = next.id }
                 return
             }
+            if case .path = leaf.kind, selected.contains(leaf.id) {
+                editingLayerID = leaf.id
+                return
+            }
+            onSelect?(selectionTarget(leaf, drill: false).id, false)
+            return
         }
 
         // --- Drag a segment to bend it ---
@@ -696,15 +736,16 @@ final class PageCanvas: NSView {
             return
         }
 
-        let hit = layerHit(p)
-
-        guard let h = hit else {
-            if !extend { onClick?(p, false) }   // clears the selection
+        guard let leaf = layerHit(p) else {
+            if !extend { onSelect?(nil, false) }   // clears the selection
             marqueeing = true
             return
         }
-        if !selected.contains(h.id) || extend { onClick?(p, extend) }
-        if !extend {
+        // ⇧⌘ drills past the group to the layer actually under the pointer.
+        let drill = event.modifierFlags.contains(.command) && event.modifierFlags.contains(.shift)
+        let h = selectionTarget(leaf, drill: drill)
+        if !selected.contains(h.id) || extend { onSelect?(h.id, extend && !drill) }
+        if !extend || drill {
             dragging = true
             onDragBegin?(h.id)
         }
@@ -1087,9 +1128,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     }
 
     private func wire(_ canvas: PageCanvas) {
-        canvas.onClick = { [weak canvas] pt, extend in
-            store.select(canvas?.layerHit(pt)?.id, extend: extend)
-        }
+        canvas.onSelect = { id, extend in store.select(id, extend: extend) }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)
