@@ -36,7 +36,7 @@ public final class DocumentSource: @unchecked Sendable {
     public let coverPage: Int
 
     private let resolve: @Sendable (Int) -> Page?
-    private var cache: [Int: Page] = [:]
+    fileprivate var cache: [Int: Page] = [:]
     private let lock = NSLock()
 
     public var pageCount: Int { pages.count }
@@ -128,10 +128,16 @@ public final class DocumentSource: @unchecked Sendable {
     /// Wraps an already-parsed document, so callers have one type to handle.
     public static func eager(_ doc: Document, images: [String: Data]) -> DocumentSource {
         let refs = doc.pages.map { PageRef(name: $0.name, layerCount: $0.layers.count) }
-        return DocumentSource(sourceApp: doc.sourceApp, images: images, pages: refs,
-                              coverPage: 0) { i in
+        let src = DocumentSource(sourceApp: doc.sourceApp, images: images, pages: refs,
+                                 coverPage: 0) { i in
             doc.pages.indices.contains(i) ? doc.pages[i] : nil
         }
+        // Prime the cache. Nothing here needs parsing — the pages are already in
+        // memory — but an empty cache reports "not loaded", which sent a brand new
+        // document off through a background task to fetch what the caller just handed
+        // over, leaving `page` briefly nil for no reason.
+        for i in doc.pages.indices { src.cache[i] = doc.pages[i] }
+        return src
     }
 
     private init(sourceApp: String?, images: [String: Data], pages: [PageRef],

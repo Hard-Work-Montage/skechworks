@@ -118,6 +118,22 @@ final class DocumentStore: ObservableObject {
         status = "New document"
     }
 
+    /// Takes a document straight in, without a file behind it.
+    ///
+    /// newDocument() only ever makes an empty one, so there was no way to put a store
+    /// into a known state — which is part of why this layer had no tests.
+    func adopt(_ doc: Document, images: [String: Data]) {
+        source = DocumentSource.eager(doc, images: images)
+        coverPage = 0
+        url = nil
+        undoManager.removeAllActions()
+        isDirty = false
+        canUndo = false; canRedo = false
+        selection = []
+        pageIndex = 0
+        loadCurrentPage()
+    }
+
     var displayName: String { url?.lastPathComponent ?? "Untitled" }
 
     func open(_ url: URL) {

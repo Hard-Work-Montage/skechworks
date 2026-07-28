@@ -15,7 +15,11 @@ public struct Renderer {
         self.background = background
     }
 
-    public func render(page: Page, maxDimension: CGFloat = 1024, bounds explicit: CGRect? = nil) -> CGImage? {
+    /// `adjusting` and `live` preview a move or resize, exactly as the canvas does
+    /// mid-gesture. Exposed so a test can render what you'd actually be looking at
+    /// while dragging, rather than the state either side of it.
+    public func render(page: Page, maxDimension: CGFloat = 1024, bounds explicit: CGRect? = nil,
+                       adjusting: Set<String> = [], live: CGAffineTransform = .identity) -> CGImage? {
         let b = explicit ?? page.contentBounds()
         guard b.width > 0, b.height > 0 else { return nil }
         let scale = min(maxDimension / b.width, maxDimension / b.height, 4)
@@ -38,7 +42,11 @@ public struct Renderer {
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
 
-        draw(page: page, in: ctx)
+        if adjusting.isEmpty {
+            draw(page: page, in: ctx)
+        } else {
+            draw(drawables: Compose.flatten(page.layers, adjusting: adjusting, live: live), in: ctx)
+        }
         return ctx.makeImage()
     }
 

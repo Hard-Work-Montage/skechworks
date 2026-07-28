@@ -94,3 +94,32 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
         DEAD_CODE_STRIPPING: YES
+
+  # The app layer had no tests at all — DocumentStore and the canvas between them are
+  # 2,300 lines, and that is where nearly every bug found in use has lived. A unit-test
+  # bundle hosted by the app can reach them with @testable import.
+  AccompliceTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/AccompliceAppTests
+    dependencies:
+      - target: Accomplice
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+
+schemes:
+  Accomplice:
+    build:
+      targets:
+        Accomplice: all
+        AccompliceTests: [test]
+    test:
+      targets:
+        - AccompliceTests
+    run:
+      config: Debug

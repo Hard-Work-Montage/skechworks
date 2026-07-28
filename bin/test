@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Both suites. Core is fast and pure; the app-layer bundle needs a host app, so it
+# goes through xcodebuild and takes about a minute.
+set -e
+cd "$(dirname "$0")/.."
+
+echo "── Core (swift-testing) ──"
+swift test 2>&1 | tail -3
+
+echo
+echo "── App layer (XCTest, hosted) ──"
+xcodebuild test -project Accomplice.xcodeproj -scheme Accomplice \
+  -destination 'platform=macOS' 2>&1 \
+  | grep -E "^/Users.*error:|Test Case.*(passed|failed)|TEST SUCCEEDED|TEST FAILED" \
+  | sed 's/Test Case .-\[AccompliceTests\.//; s/\].//'
