@@ -2244,3 +2244,187 @@ private func threePageSource() -> DocumentSource {
     let mapped = art.applying(t)
     #expect(abs(mapped.width - mapped.height) < 0.01)
 }
+
+// MARK: - Boolean operations
+
+private func twoOverlappingSquares() -> (Page, a: String, b: String) {
+    func square(_ x: CGFloat, _ name: String) -> Layer {
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 100),
+                                         transform: nil), closed: true))
+        l.name = name
+        l.frame = CGRect(x: x, y: 0, width: 100, height: 100)
+        l.style.fills = [Fill(paint: .color(.black))]
+        return l
+    }
+    let a = square(0, "A"), b = square(50, "B")     // overlap from 50 to 100
+    var page = Page(name: "p")
+    page.layers = [a, b]
+    return (page, a.id, b.id)
+}
+
+private func drawnBounds(_ page: Page) -> CGRect {
+    Compose.flatten(page.layers).compactMap(\.path).reduce(CGRect.null) {
+        $0.union($1.boundingBoxOfPath)
+    }
+}
+
+@Test func unionDrawsBothShapesAsOne() {
+    var (page, a, b) = twoOverlappingSquares()
+    let made = page.combine([a, b], op: .union)
+    #expect(made != nil)
+    #expect(page.layers.count == 1)
+    // 0 to 150 across, because the two overlap in the middle.
+    let box = drawnBounds(page)
+    #expect(abs(box.minX - 0) < 0.5)
+    #expect(abs(box.maxX - 150) < 0.5)
+}
+
+@Test func subtractTakesTheSecondShapeOutOfTheFirst() {
+    var (page, a, b) = twoOverlappingSquares()
+    page.combine([a, b], op: .subtract)
+    // A minus B leaves 0...50.
+    let box = drawnBounds(page)
+    #expect(abs(box.minX - 0) < 0.5)
+    #expect(abs(box.maxX - 50) < 0.5)
+}
+
+@Test func subtractUsesLayerOrderNotTheOrderYouClickedIn() {
+    // The bottom layer is the base, as in Sketch and Figma. Selecting them the other
+    // way round changes nothing — which is the point: the result is a property of the
+    // document, not of how you happened to click.
+    var (first, a, b) = twoOverlappingSquares()
+    first.combine([a, b], op: .subtract)
+    var (second, c, d) = twoOverlappingSquares()
+    second.combine([d, c], op: .subtract)
+    #expect(abs(drawnBounds(first).maxX - drawnBounds(second).maxX) < 0.5)
+    #expect(abs(drawnBounds(first).maxX - 50) < 0.5)      // A minus B: the left half
+
+    // Reordering the layers is what flips it.
+    var (third, e, f) = twoOverlappingSquares()
+    third.layers.swapAt(0, 1)                             // B underneath now
+    third.combine([e, f], op: .subtract)
+    #expect(abs(drawnBounds(third).maxX - 150) < 0.5)     // B minus A: the right half
+}
+
+@Test func intersectKeepsOnlyTheOverlap() {
+    var (page, a, b) = twoOverlappingSquares()
+    page.combine([a, b], op: .intersect)
+    let box = drawnBounds(page)
+    #expect(abs(box.minX - 50) < 0.5)
+    #expect(abs(box.maxX - 100) < 0.5)
+}
+
+@Test func differenceRemovesTheOverlap() {
+    var (page, a, b) = twoOverlappingSquares()
+    page.combine([a, b], op: .difference)
+    let box = drawnBounds(page)
+    // Outer extent unchanged; the middle is gone, which the area check catches.
+    #expect(abs(box.minX - 0) < 0.5)
+    #expect(abs(box.maxX - 150) < 0.5)
+    let path = Compose.flatten(page.layers).first?.path
+    #expect(path?.contains(CGPoint(x: 75, y: 50)) == false, "the overlap should be empty")
+    #expect(path?.contains(CGPoint(x: 25, y: 50)) == true)
+}
+
+@Test func combiningKeepsTheShapesWhereTheyWere() {
+    var (page, a, b) = twoOverlappingSquares()
+    let before = drawnBounds(page)
+    page.combine([a, b], op: .union)
+    let after = drawnBounds(page)
+    // Children are stored relative to the combined shape; getting that wrong moves
+    // the artwork by the new frame's origin.
+    #expect(abs(after.minX - before.minX) < 0.5)
+    #expect(abs(after.minY - before.minY) < 0.5)
+}
+
+@Test func combiningIsUndoneByUngrouping() {
+    // Non-destructive: the originals are still in there.
+    var (page, a, b) = twoOverlappingSquares()
+    guard let made = page.combine([a, b], op: .subtract) else { Issue.record("no shape"); return }
+    guard case .shapeGroup(let kids, _) = page.layer(made)!.kind else {
+        Issue.record("not a combined shape"); return
+    }
+    #expect(kids.count == 2)
+    #expect(kids[0].booleanOp == .none)        // the base
+    #expect(kids[1].booleanOp == .subtract)
+    #expect(kids.map(\.name) == ["A", "B"])
+}
+
+@Test func aSingleLayerCannotBeCombined() {
+    var (page, a, _) = twoOverlappingSquares()
+    let single = page.combine([a], op: .union)
+    #expect(single == nil)
+    #expect(page.layers.count == 2)
+}
+
+@Test func layersInDifferentContainersCannotBeCombined() {
+    // No sensible frame for a shape spanning two artboards.
+    var page = Page(name: "p")
+    var loose = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                         transform: nil), closed: true))
+    loose.name = "Loose"
+    var inside = loose
+    inside.name = "Inside"
+    var art = Layer(kind: .group([inside]))
+    art.isArtboard = true
+    art.frame = CGRect(x: 200, y: 0, width: 300, height: 300)
+    page.layers = [loose, art]
+    let across = page.combine([loose.id, inside.id], op: .union)
+    #expect(across == nil)
+}
+
+@Test func flatteningReplacesTheGroupWithOnePath() {
+    var (page, a, b) = twoOverlappingSquares()
+    guard let made = page.combine([a, b], op: .union) else { Issue.record("no shape"); return }
+    let before = drawnBounds(page)
+
+    let flattened = page.flattenShape(made)
+    #expect(flattened)
+    guard case .path = page.layer(made)!.kind else {
+        Issue.record("should be an ordinary path now"); return
+    }
+    // Same drawing, fewer parts.
+    let after = drawnBounds(page)
+    #expect(abs(after.width - before.width) < 0.5)
+    #expect(abs(after.height - before.height) < 0.5)
+}
+
+@Test func changingTheOperationChangesTheShape() {
+    var (page, a, b) = twoOverlappingSquares()
+    guard let made = page.combine([a, b], op: .union) else { Issue.record("no shape"); return }
+    #expect(abs(drawnBounds(page).maxX - 150) < 0.5)
+
+    guard case .shapeGroup(let kids, _) = page.layer(made)!.kind else { return }
+    page.setBooleanOp(kids[1].id, to: .intersect)
+    #expect(abs(drawnBounds(page).minX - 50) < 0.5)
+}
+
+@Test func chatCanCombineShapes() {
+    var (page, _, _) = twoOverlappingSquares()
+    let cmds = DocumentCommand.decodeList(Data(#"[{"op":"subtract","type":"path"}]"#.utf8))
+    #expect(cmds.count == 1)
+    let run = page.run(cmds)
+    #expect(page.layers.count == 1)
+    #expect(run.report.contains("2 shapes into one"))
+    #expect(abs(drawnBounds(page).maxX - 50) < 0.5)
+}
+
+@Test func combiningOneShapeSaysSoRatherThanFailingQuietly() {
+    var page = Page(name: "p")
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
+                                     transform: nil), closed: true))
+    l.name = "only"
+    page.layers = [l]
+    let run = page.run(DocumentCommand.decodeList(Data(#"[{"op":"union","name":"only"}]"#.utf8)))
+    #expect(run.report.contains("at least two"))
+    #expect(page.layers.count == 1)
+}
+
+@Test func chatCanFlattenACombinedShape() {
+    var (page, a, b) = twoOverlappingSquares()
+    page.combine([a, b], op: .union)
+    _ = page.run(DocumentCommand.decodeList(Data(#"[{"op":"flatten","type":"shapeGroup"}]"#.utf8)))
+    guard case .path = page.layers[0].kind else {
+        Issue.record("should be a plain path now"); return
+    }
+}

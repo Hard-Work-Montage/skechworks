@@ -129,7 +129,7 @@ public struct Page: @unchecked Sendable {
     }
 }
 
-public enum BooleanOp: Int, Sendable {
+public enum BooleanOp: Int, Sendable, Hashable, CaseIterable {
     case none = -1, union = 0, subtract = 1, intersect = 2, difference = 3
 }
 

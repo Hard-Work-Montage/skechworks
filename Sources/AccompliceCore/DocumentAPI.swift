@@ -166,6 +166,8 @@ public enum DocumentCommand: Sendable {
     case curve(LayerQuery, radius: Double?, angle: Double?, flipped: Bool?)
     /// Create a layer. Takes no selector — there's nothing to select yet.
     case add(AddSpec)
+    /// Combine into one shape: union | subtract | intersect | difference | flatten.
+    case combine(LayerQuery, op: String)
     case duplicate(LayerQuery, dx: Double, dy: Double, times: Int)
     /// Refit paths with fewer points. Tolerance is in page units.
     case simplify(LayerQuery, tolerance: Double?, detail: Double?)
@@ -181,6 +183,7 @@ public enum DocumentCommand: Sendable {
         case .duplicate(let q, _, _, _): return q
         case .simplify(let q, _, _): return q
         case .add: return LayerQuery()
+        case .combine(let q, _): return q
         }
     }
 
@@ -198,6 +201,7 @@ public enum DocumentCommand: Sendable {
         case .resize: return "Resize"
         case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
         case .add(let spec): return "Add \(spec.kind.capitalized)"
+        case .combine(_, let op): return op.capitalized
         case .simplify: return "Simplify"
         case .duplicate(_, _, _, let n): return n > 1 ? "Duplicate ×\(n)" : "Duplicate"
         case .align(_, let e): return "Align \(e)"
@@ -289,6 +293,13 @@ extension DocumentCommand {
         case "duplicate", "copy", "clone":
             return .duplicate(q, dx: n("dx", "offsetX") ?? 20, dy: n("dy", "offsetY") ?? 20,
                               times: Int(n("times", "count", "copies") ?? 1))
+        case "combine", "union", "subtract", "intersect", "difference", "flatten":
+            // The operation can be the op name itself or an argument.
+            let named = op.lowercased()
+            let which = named == "combine"
+                ? (s("op", "operation", "value", "with") ?? "union")
+                : named
+            return .combine(q, op: which)
         case "curve", "arc", "curvetext":
             // "straighten" and an explicit null both mean "take the curve off".
             let straighten = d["straighten"] as? Bool == true
@@ -399,6 +410,10 @@ extension DocumentCommand {
                        sensible defaults are used. This is how you CREATE layers;
                        every other operation only changes ones that already exist.
           duplicate    dx, dy, times
+          combine      op: union|subtract|intersect|difference|flatten — makes one
+                       shape from the matched layers. The BOTTOM layer is the base and
+                       the ones above it are applied to it, so subtract depends on
+                       layer order. Or use the operation as the op name directly.
           simplify     tolerance (page units — how far the path may move) or
                        detail (0-1, where 1 keeps almost everything and 0.2 is
                        aggressive). Refits paths with fewer points. Layers report

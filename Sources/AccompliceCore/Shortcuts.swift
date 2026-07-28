@@ -116,6 +116,13 @@ public enum Shortcuts {
         .init(id: "ignoreMask", title: "Ignore Mask", key: "I", modifiers: [.control, .command], group: "Arrange"),
         .init(id: "hide", title: "Hide/Show Layer", key: "H", modifiers: [.command, .shift], group: "Arrange"),
 
+        // Path
+        .init(id: "union", title: "Union", key: "U", modifiers: [.command, .option], group: "Path"),
+        .init(id: "subtract", title: "Subtract", key: "S", modifiers: [.command, .option], group: "Path"),
+        .init(id: "intersect", title: "Intersect", key: "I", modifiers: [.command, .option], group: "Path"),
+        .init(id: "difference", title: "Difference", key: "X", modifiers: [.command, .option], group: "Path"),
+        .init(id: "flatten", title: "Flatten", key: "E", modifiers: [.command, .option], group: "Path"),
+
         // Tools
         .init(id: "ask", title: "Ask…", key: "K", modifiers: .command, group: "Tools"),
 

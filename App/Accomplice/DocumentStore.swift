@@ -712,6 +712,30 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    // MARK: - Boolean operations
+
+    /// Combines the selection into one shape. Selects the result, so the next thing
+    /// you do acts on what you just made.
+    func combineSelection(_ op: BooleanOp) {
+        guard selection.count >= 2 else { return }
+        let ids = Array(selection)
+        var made: String?
+        mutatePage(Page.combinedName(op)) { made = $0.combine(ids, op: op) }
+        if let made { selection = [made] }
+    }
+
+    /// Replaces a combined shape with the single path it draws.
+    func flattenSelection() {
+        let ids = selection
+        mutatePage("Flatten") { page in
+            for id in ids { page.flattenShape(id) }
+        }
+    }
+
+    func setBooleanOp(_ id: String, to op: BooleanOp) {
+        edit(id, actionName: "Change Boolean") { $0.booleanOp = op }
+    }
+
     /// Renames a layer, for the layer list and its context menu.
     func rename(_ id: String, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

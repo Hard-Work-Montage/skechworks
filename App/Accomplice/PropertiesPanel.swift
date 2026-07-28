@@ -108,8 +108,20 @@ struct PropertiesPanel: View {
                     .compactMap { $0 }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if l.booleanOp != .none {
-                row("Boolean", boolName(l.booleanOp))
+            if l.booleanOp != .none || isInsideCombinedShape(l) {
+                // Editable, because the whole point of a combined shape being made of
+                // its parts is that you can change your mind about how they combine.
+                Picker("Boolean", selection: Binding(
+                    get: { l.booleanOp },
+                    set: { if $0 != l.booleanOp { store.setBooleanOp(l.id, to: $0) } }
+                )) {
+                    Text("None").tag(BooleanOp.none)
+                    Text("Union").tag(BooleanOp.union)
+                    Text("Subtract").tag(BooleanOp.subtract)
+                    Text("Intersect").tag(BooleanOp.intersect)
+                    Text("Difference").tag(BooleanOp.difference)
+                }
+                .font(.callout)
             }
             if l.hasClippingMask { row("Mask", "Clips layers above") }
             if l.isArtboard {
@@ -383,11 +395,27 @@ struct PropertiesPanel: View {
         }
     }
 
+    /// Whether this layer is a member of a combined shape, and so has an operation
+    /// worth showing even when it's currently None.
+    private func isInsideCombinedShape(_ l: Layer) -> Bool {
+        guard let page = store.page else { return false }
+        for id in page.ancestors(of: l.id) {
+            if case .shapeGroup = page.layer(id)?.kind { return true }
+        }
+        return false
+    }
+
     private func combined(_ count: Int, _ rule: WindingRule, _ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Combined Shape")
-            row("Children", "\(count)")
+            row("Shapes", "\(count)")
             row("Winding", rule == .evenOdd ? "Even-odd" : "Non-zero")
+            Button("Flatten to One Path") {
+                store.selection = [l.id]
+                store.flattenSelection()
+            }
+            .font(.callout)
+            .help("Replace the group with the single path it draws. The parts are lost.")
         }
     }
 

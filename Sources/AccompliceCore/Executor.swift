@@ -203,6 +203,25 @@ extension Page {
                 }
             }
 
+        case .combine(_, let op):
+            if op.lowercased() == "flatten" {
+                var done = 0
+                for id in ids where p.flattenShape(id) { done += 1 }
+                return done == 0 ? "nothing to flatten" : "\(done) shape\(done == 1 ? "" : "s")"
+            }
+            let mapped: BooleanOp
+            switch op.lowercased() {
+            case "subtract": mapped = .subtract
+            case "intersect": mapped = .intersect
+            case "difference": mapped = .difference
+            default: mapped = .union
+            }
+            guard ids.count >= 2 else { return "needs at least two shapes" }
+            guard p.combine(ids, op: mapped) != nil else {
+                return "couldn't combine those — they may be in different containers"
+            }
+            return "\(ids.count) shapes into one"
+
         case .curve(_, let radius, let angle, let flipped):
             for id in ids {
                 // A ring inside an artboard should be concentric with it. Curving in

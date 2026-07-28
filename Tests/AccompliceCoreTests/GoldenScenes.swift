@@ -124,3 +124,31 @@ private func maskCircle(_ size: CGFloat) -> Layer {
     page.layers = [plate(300, 300), l]
     expectGolden("simplified-blob", page: page)
 }
+
+@Test func goldenBooleanOperations() {
+    // All four, side by side. Bounding boxes can't tell Difference from Union — only
+    // looking at it can.
+    var page = Page(name: "bool")
+    page.layers = [plate(680, 200)]
+
+    func pair(_ x: CGFloat, _ op: BooleanOp) {
+        func disc(_ dx: CGFloat, _ name: String) -> Layer {
+            var l = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 90, height: 90),
+                                             transform: nil), closed: true))
+            l.name = name
+            l.frame = CGRect(x: x + dx, y: 55, width: 90, height: 90)
+            l.style.fills = [Fill(paint: .color(Color(r: 0.25, g: 0.35, b: 0.7, a: 1)))]
+            return l
+        }
+        let a = disc(0, "a\(x)"), b = disc(50, "b\(x)")
+        page.layers.append(a)
+        page.layers.append(b)
+        page.combine([a.id, b.id], op: op)
+    }
+    pair(20, .union)
+    pair(190, .subtract)
+    pair(360, .intersect)
+    pair(530, .difference)
+
+    expectGolden("boolean-operations", page: page, maxDimension: 680)
+}

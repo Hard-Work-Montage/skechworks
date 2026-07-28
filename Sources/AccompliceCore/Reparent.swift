@@ -240,3 +240,98 @@ public enum Minimap {
             .translatedBy(x: -world.minX, y: -world.minY)
     }
 }
+
+extension Page {
+
+    /// Combines layers into one shape.
+    ///
+    /// The BOTTOM layer is the base and everything above it is applied with `op`.
+    /// Layer order, not click order — which is what Sketch and Figma both do, and the
+    /// reason Subtract changes result when you reorder the layers but Union doesn't.
+    ///
+    /// Non-destructive: the originals become children of the combined shape and keep
+    /// their own geometry, so the operation can be changed or undone by ungrouping
+    /// rather than only by undo.
+    @discardableResult
+    public mutating func combine(_ ids: [String], op: BooleanOp, named name: String? = nil) -> String? {
+        // Document order throughout: it decides the stacking AND which shape is the
+        // base, so a Subtract can be corrected by moving a layer rather than by
+        // undoing and re-selecting in a different sequence.
+        let ordered = find(LayerQuery()).filter { ids.contains($0) }
+        guard ordered.count >= 2 else { return nil }
+
+        // One parent only. Combining across two artboards has no sensible frame.
+        let parents = Set(ordered.map { ancestors(of: $0).last })
+        guard parents.count == 1, let parent = parents.first else { return nil }
+
+        // Their extent in the parent's space becomes the new shape's frame.
+        var box = CGRect.null
+        for id in ordered {
+            guard let l = layer(id) else { continue }
+            box = box.union(l.frame)
+        }
+        guard !box.isNull, box.width > 0, box.height > 0 else { return nil }
+
+        var members: [Layer] = []
+        for (i, id) in ordered.enumerated() {
+            guard var l = layer(id) else { continue }
+            // Children are positioned relative to the combined shape.
+            l.frame.origin = CGPoint(x: l.frame.minX - box.minX, y: l.frame.minY - box.minY)
+            // The base carries no operation; it's what the others are applied to.
+            l.booleanOp = i == 0 ? .none : op
+            members.append(l)
+        }
+        for id in ordered { removeLayer(id) }
+
+        var made = Layer(kind: .shapeGroup(members, .nonZero))
+        made.name = name ?? Page.combinedName(op)
+        made.frame = box
+        // The result takes the base's appearance, the way it does in Sketch — the
+        // shapes are one object now and only one fill can win.
+        if let first = members.first {
+            made.style.fills = first.style.fills
+            made.style.borders = first.style.borders
+            made.style.shadows = first.style.shadows
+        }
+
+        // Back where the topmost of them was, so the stack doesn't change.
+        let siblings = children(of: parent).count
+        insertLayer(made, parent: parent, index: siblings)
+        return made.id
+    }
+
+    public static func combinedName(_ op: BooleanOp) -> String {
+        switch op {
+        case .union: return "Union"
+        case .subtract: return "Subtract"
+        case .intersect: return "Intersect"
+        case .difference: return "Difference"
+        case .none: return "Combined"
+        }
+    }
+
+    /// Replaces a combined shape with the single path it draws.
+    ///
+    /// The opposite trade to combining: the children go, and with them the ability to
+    /// change your mind, in exchange for one ordinary path that behaves like any other
+    /// and exports as one outline.
+    @discardableResult
+    public mutating func flattenShape(_ id: String) -> Bool {
+        guard let l = layer(id) else { return false }
+        switch l.kind {
+        case .shapeGroup, .group: break
+        default: return false
+        }
+        guard let path = Compose.resolvedPath(l) else { return false }
+        updateLayer(id) { layer in
+            layer.kind = .path(path, closed: true)
+            layer.curveModes = []
+        }
+        return true
+    }
+
+    /// Changes how a child of a combined shape is applied to the ones before it.
+    public mutating func setBooleanOp(_ id: String, to op: BooleanOp) {
+        updateLayer(id) { $0.booleanOp = op }
+    }
+}

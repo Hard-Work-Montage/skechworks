@@ -117,6 +117,18 @@ struct AccompliceApp: App {
                 Button("Duplicate Page") { AppDelegate.shared?.active?.duplicatePage() }
             }
             CommandMenu("Path") {
+                Button("Union") { AppDelegate.shared?.active?.combineSelection(.union) }
+                    .shortcut("union")
+                Button("Subtract") { AppDelegate.shared?.active?.combineSelection(.subtract) }
+                    .shortcut("subtract")
+                Button("Intersect") { AppDelegate.shared?.active?.combineSelection(.intersect) }
+                    .shortcut("intersect")
+                Button("Difference") { AppDelegate.shared?.active?.combineSelection(.difference) }
+                    .shortcut("difference")
+                Divider()
+                Button("Flatten") { AppDelegate.shared?.active?.flattenSelection() }
+                    .shortcut("flatten")
+                Divider()
                 // Three named strengths rather than a tolerance box: the useful
                 // question is "how much do I mind it moving", not a number in points.
                 Button("Simplify — Light") { AppDelegate.shared?.active?.simplifySelection(detail: 0.8) }
