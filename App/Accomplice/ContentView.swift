@@ -316,7 +316,14 @@ struct ContentView: View {
             }
         }
 
-        .safeAreaInset(edge: .bottom) {
+        // An overlay, not a safe-area inset with a bar behind it.
+        //
+        // A solid strip along the bottom was the last piece of the older idiom left in
+        // the window: with the toolbar background gone it became the only thing drawing
+        // a bar, and it cut the canvas short for the sake of two words. The status is
+        // just text on the canvas now, the way the document title is just text in the
+        // toolbar.
+        .overlay(alignment: .bottom) {
             HStack(spacing: 10) {
                 Text(store.status).font(.caption).foregroundStyle(.secondary)
                 if !store.fontWarnings.isEmpty {
@@ -331,8 +338,8 @@ struct ContentView: View {
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(.bar)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .allowsHitTesting(false)   // never in the way of the canvas underneath
         }
     }
 }
