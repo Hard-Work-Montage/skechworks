@@ -2184,3 +2184,24 @@ private func threePageSource() -> DocumentSource {
     #expect(!src.move(from: 9, to: 0))
     #expect(src.pages.map(\.name) == ["One", "Two", "Three"])
 }
+
+// MARK: - How far the canvas runs
+
+@Test func theCanvasExtendsWellPastTheArtwork() {
+    // A 500-point artboard sat on a document about 550 across — there was nowhere to
+    // scroll to, which is what pinned it to the middle of the window.
+    let margin = CanvasExtent.margin(for: CGSize(width: 500, height: 500))
+    #expect(margin >= 4000)
+    #expect(500 + margin * 2 > 8000)     // room in every direction
+}
+
+@Test func aBigPageGetsProportionallyMoreRoom() {
+    // The coin pages run to 15,000 points. A fixed margin would feel generous around
+    // an icon and cramped around those.
+    #expect(CanvasExtent.margin(for: CGSize(width: 15_000, height: 5_000)) == 30_000)
+}
+
+@Test func theCanvasMarginNeverCollapsesForATinyPage() {
+    #expect(CanvasExtent.margin(for: CGSize(width: 10, height: 10)) == 4000)
+    #expect(CanvasExtent.margin(for: .zero) == 4000)
+}

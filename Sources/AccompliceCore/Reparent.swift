@@ -192,3 +192,18 @@ public enum LayerOrder {
         max(0, min(childCount, childCount - displayIndex))
     }
 }
+
+public enum CanvasExtent {
+    /// How far the canvas runs past the artwork, in page units.
+    ///
+    /// Sketch and Figma give you a canvas that doesn't end — you push the page aside
+    /// and work in the space next to it. Not literally infinite here: a document a few
+    /// times the size of the artwork is indistinguishable from infinite in use and
+    /// keeps the coordinates ordinary.
+    ///
+    /// Proportional, with a floor. A fixed margin would feel generous around an icon
+    /// and cramped around a 15,000-point page of coins.
+    public static func margin(for content: CGSize) -> CGFloat {
+        max(4000, max(content.width, content.height) * 2)
+    }
+}

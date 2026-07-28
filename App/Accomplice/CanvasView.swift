@@ -398,6 +398,21 @@ final class PageCanvas: NSView {
     private var boundsToken: Int = -1
     var pageToken: Int = 0 { didSet { if pageToken != oldValue { adoptPage(); needsDisplay = true } } }
 
+    /// How far past the artwork you can scroll.
+    ///
+    /// Sketch and Figma both give you a canvas that doesn't end — you push the page
+    /// off to one side and work in the space beside it. With a margin sized to the
+    /// labels there was nowhere to go: the document view barely exceeded the content,
+    /// so scrolling stopped at the artwork and anything smaller than the window was
+    /// pinned to the middle.
+    ///
+    /// Not literally infinite. A document a few times the size of the artwork, with a
+    /// floor for small pages, is indistinguishable from infinite in use and keeps the
+    /// coordinates ordinary.
+    private var canvasMargin: CGFloat {
+        CanvasExtent.margin(for: page?.contentBounds().size ?? .zero)
+    }
+
     /// The view's frame is the page content plus a margin.
     ///
     /// Artboard labels are drawn ABOVE their board, which for the topmost row means
@@ -412,7 +427,7 @@ final class PageCanvas: NSView {
         guard let page else { bounds1 = .zero; boundsToken = -1; return }
         if boundsToken != pageToken {
             boundsToken = pageToken
-            let margin = labelMargin
+            let margin = canvasMargin
             bounds1 = page.contentBounds().insetBy(dx: -margin, dy: -margin)
             setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
             composedFor = nil
@@ -1173,6 +1188,13 @@ final class CenteringClipView: NSClipView {
         return super.hitTest(point)
     }
 
+    /// Centres only what genuinely can't be scrolled.
+    ///
+    /// This used to re-centre on every axis where the document was smaller than the
+    /// window, which is what pinned the artboards in the middle and made a sideways
+    /// swipe spring back. With a canvas that extends well past the artwork it rarely
+    /// applies at all; zoomed far out it still does, and there centring is right —
+    /// there is nothing else to look at.
     override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposed)
         guard let doc = documentView else { return rect }
@@ -1197,6 +1219,11 @@ struct CanvasRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = ZoomingScrollView()
         scroll.contentView = CenteringClipView()
+        // Overlay scrollers: on a canvas that runs well past the artwork a permanent
+        // scrollbar is both meaningless and in the way. They appear while you scroll
+        // and get out of the way afterwards, which is what Sketch and Figma do.
+        scroll.scrollerStyle = .overlay
+        scroll.autohidesScrollers = true
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.allowsMagnification = true
