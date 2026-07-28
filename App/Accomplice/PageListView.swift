@@ -9,6 +9,20 @@ import SwiftUI
 //
 // A table rather than an outline because pages are flat, and unlike layers they are
 // NOT reversed — a page list reads top to bottom in the order the document stores.
+/// A table that handles the delete key, so a selected page can be removed from the
+/// keyboard the way a selected layer can.
+final class DeletableTableView: NSTableView {
+    var onDelete: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 51 || event.keyCode == 117, selectedRow >= 0 {
+            onDelete?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 struct PageListView: NSViewRepresentable {
     let pages: [DocumentSource.PageRef]
     let selected: Int
@@ -16,7 +30,11 @@ struct PageListView: NSViewRepresentable {
     let onRename: (Int) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
-        let table = NSTableView()
+        let table = DeletableTableView()
+        table.onDelete = { [store] in
+            // Guarded in the store: a document has to keep at least one page.
+            store.deletePage(at: store.pageIndex)
+        }
         table.headerView = nil
         table.rowSizeStyle = .small
         table.style = .sourceList

@@ -16,6 +16,25 @@ import SwiftUI
 // and the drop-on highlight itself; and it distinguishes "between two rows" from "onto
 // that group" natively, which is the distinction the whole feature rests on.
 
+/// An outline view that handles the delete key.
+///
+/// The SwiftUI list had .onDeleteCommand; NSOutlineView passes the key along the
+/// responder chain instead, where nothing was listening — so delete worked with the
+/// canvas focused and did nothing with the list focused, which is exactly backwards
+/// from where you just clicked.
+final class DeletableOutlineView: NSOutlineView {
+    var onDelete: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // 51 is delete, 117 is forward delete.
+        if event.keyCode == 51 || event.keyCode == 117, !selectedRowIndexes.isEmpty {
+            onDelete?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 /// A node the outline view can hold on to.
 ///
 /// NSOutlineView identifies rows by object, so these have to be stable across
@@ -63,7 +82,8 @@ struct LayerOutline: NSViewRepresentable {
     let onRename: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
-        let outline = NSOutlineView()
+        let outline = DeletableOutlineView()
+        outline.onDelete = { [store] in store.deleteSelection() }
         outline.headerView = nil
         outline.rowSizeStyle = .small
         outline.indentationPerLevel = 14

@@ -214,6 +214,30 @@ final class InteractionTests: XCTestCase {
                           "the dragged page should have moved above the other")
     }
 
+    func testDeleteKeyRemovesTheLayerSelectedInTheList() {
+        // It worked with the canvas focused and did nothing with the list focused,
+        // which is backwards from where you just clicked.
+        let photo = row("Photo")
+        XCTAssertTrue(photo.waitForExistence(timeout: 5))
+        photo.click()
+        XCTAssertEqual(selectedName, "Photo")
+
+        photo.typeKey(.delete, modifierFlags: [])
+        XCTAssertFalse(row("Photo").waitForExistence(timeout: 2),
+                       "delete should remove the layer selected in the list")
+    }
+
+    func testDeleteKeyRemovesTheSelectedPage() {
+        app.windows.firstMatch.descendants(matching: .any)["add-page"].click()
+        let second = app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+        XCTAssertTrue(second.waitForExistence(timeout: 3))
+
+        second.click()
+        second.typeKey(.delete, modifierFlags: [])
+        XCTAssertFalse(app.windows.firstMatch.descendants(matching: .any)["page-Page 2"]
+                        .waitForExistence(timeout: 2))
+    }
+
     func testDoubleClickingALayerRenamesIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5))
