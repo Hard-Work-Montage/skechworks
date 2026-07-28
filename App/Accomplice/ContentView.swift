@@ -31,9 +31,16 @@ struct ContentView: View {
         var id: String { node.id }
     }
 
+    /// Rows top-first.
+    ///
+    /// The model stores layers bottom-first, which is the file format's order and what
+    /// the compositor wants. Showing that order directly put the topmost layer at the
+    /// BOTTOM of the list, so what looked like it was in front was drawn behind.
+    /// Everything the list does — reordering, drop targets — is in this reversed space
+    /// and converts on the way back.
     private func rows(_ nodes: [LayerNode], depth: Int = 0) -> [LayerRow] {
         var out: [LayerRow] = []
-        for n in nodes {
+        for n in nodes.reversed() {
             out.append(LayerRow(node: n, depth: depth))
             // Under test everything is open, so a test never depends on having
             // clicked its way down the tree first.
@@ -350,14 +357,23 @@ struct ContentView: View {
         // the handler. Adding the double-tap made SwiftUI wait to tell the two apart,
         // and by the time the single tap fired the shift key had already been let go —
         // so shift-clicking silently stopped extending the selection.
-        .gesture(TapGesture(count: 2).onEnded {
+        // Only onTapGesture here. A TapGesture attached with .gesture or even
+        // .simultaneousGesture consumes the press that .onDrag needs, and dragging
+        // rows to reorder stops working while every tap still looks fine.
+        .onTapGesture(count: 2) {
             store.selection = [row.node.id]
             renamingID = row.node.id
             renameText = row.node.name
-        })
-        .gesture(TapGesture().modifiers(.shift).onEnded { toggleSelected(row.node.id) })
-        .gesture(TapGesture().modifiers(.command).onEnded { toggleSelected(row.node.id) })
-        .onTapGesture { store.selection = [row.node.id] }
+        }
+        .onTapGesture {
+            // Modifiers as of the mouse-down, not as of now: SwiftUI delays this
+            // handler to tell one tap from two, and shift is long released by then.
+            if ClickModifiers.shared.extendsSelection {
+                toggleSelected(row.node.id)
+            } else {
+                store.selection = [row.node.id]
+            }
+        }
         .overlay(alignment: .top) {
             if drag.spot == .above(row.node.id) { dropLine(row.depth) }
         }

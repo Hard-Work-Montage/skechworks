@@ -188,9 +188,8 @@ public enum DropSpot: Equatable, Sendable {
 extension DropSpot {
     /// Resolves to a parent and an index in that parent's children.
     ///
-    /// Dropping below an expanded container means "first thing inside it", not "after
-    /// the whole subtree" — otherwise the obvious gesture puts the layer somewhere it
-    /// visually isn't.
+    /// The list is drawn top-first and the model is stored bottom-first, so the two run
+    /// opposite ways: dropping ABOVE a row means a HIGHER index in the model.
     public func resolve(in page: Page, expanded: Set<String>) -> (parent: String?, index: Int)? {
         switch self {
         case .inside(let id):
@@ -200,12 +199,16 @@ extension DropSpot {
             let below: Bool
             if case .below = self { below = true } else { below = false }
             if below, let l = page.layer(id), l.isContainer, expanded.contains(id) {
-                return (id, 0)
+                // The row beneath an expanded container is its TOPMOST child, so this
+                // means the top of its contents.
+                return (id, page.children(of: id).count)
             }
             let parent = page.ancestors(of: id).last
             let siblings = page.children(of: parent).map(\.id)
             guard let i = siblings.firstIndex(of: id) else { return nil }
-            return (parent, below ? i + 1 : i)
+            // The list runs top-first and the model bottom-first, so dropping ABOVE a
+            // row means a HIGHER index in the model.
+            return (parent, below ? i : i + 1)
         }
     }
 }
