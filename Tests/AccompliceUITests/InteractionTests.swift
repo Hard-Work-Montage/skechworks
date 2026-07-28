@@ -119,6 +119,29 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(Double((angle.value as? String) ?? ""), 1)
     }
 
+    func testSaveAsOffersOnlyTheBaseNameToTypeOver() {
+        // macOS treats ".png" as the extension and highlights "Untitled.acmplc", so
+        // typing a name throws away the part that decides which app opens the file.
+        // The panel should present the base name and own the extension itself.
+        app.typeKey("s", modifierFlags: [.command, .shift])
+
+        // runModal() shows an app-modal panel, which is its own window rather than a
+        // sheet on the document.
+        let sheet = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch
+                                                  : app.windows["Save"].firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), "Save As should open a panel")
+        let field = sheet.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+
+        let shown = (field.value as? String) ?? ""
+        XCTAssertFalse(shown.contains(".acmplc"),
+                       "the name field should not put .acmplc in the way, got “\(shown)”")
+        XCTAssertTrue(shown.hasPrefix("Untitled"), "expected the base name, got “\(shown)”")
+
+        // Never actually write a file from a test.
+        sheet.buttons["Cancel"].click()
+    }
+
     func testChatIsVisibleWithoutHuntingForIt() {
         // It used to be hidden behind a toolbar button, which is a good way to forget
         // a feature exists.

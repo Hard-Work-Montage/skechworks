@@ -1,6 +1,7 @@
 import AccompliceCore
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 /// Holds the open document. Deliberately not an NSDocument yet — this is a viewer, and
 /// there is nothing to save. The moment editing lands this should become one, because
@@ -944,8 +945,18 @@ final class DocumentStore: ObservableObject {
     func saveAs(completion: ((Bool) -> Void)? = nil) {
         guard source != nil else { completion?(false); return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = (url?.lastPathComponent ?? "Untitled.acmplc.png")
-        panel.message = "Save as an Accomplice document"
+        // Offer the base name only, and let the panel own the extension. macOS
+        // otherwise treats ".png" as the whole extension and highlights
+        // "Untitled.acmplc" — so typing a name naturally throws away the ".acmplc"
+        // that decides which app opens the file.
+        panel.nameFieldStringValue = AcmplcFile.baseName(url?.lastPathComponent ?? "Untitled")
+        // Deliberately NO allowedContentTypes. Declaring our type makes macOS resolve
+        // the compound extension as plain "png" and push ".acmplc" back into the name
+        // field — so it highlights "Untitled.acmplc" again, which is the thing being
+        // fixed. Left alone, the field holds just the name, and normalisedName puts the
+        // whole extension on afterwards.
+        panel.nameFieldLabel = "Save As:"
+        panel.message = "Saved as an Accomplice document (.acmplc.png)"
         panel.allowsOtherFileTypes = true
         guard panel.runModal() == .OK, var out = panel.url else { completion?(false); return }
         // Keep the compound extension whatever was typed. The rule lives in Core so

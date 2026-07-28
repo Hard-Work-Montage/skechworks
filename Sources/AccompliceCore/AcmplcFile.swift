@@ -129,6 +129,19 @@ public struct AcmplcFile {
     /// The extension every Accomplice document ends with.
     public static let suffix = "acmplc.png"
 
+    /// The name without the compound extension: "Coin.acmplc.png" -> "Coin".
+    public static func baseName(_ name: String) -> String {
+        var base = name
+        if base.lowercased().hasSuffix("." + suffix) {
+            base = String(base.dropLast(suffix.count + 1))
+        } else {
+            for tail in [".png", ".acmplc"] where base.lowercased().hasSuffix(tail) {
+                base = String(base.dropLast(tail.count))
+            }
+        }
+        return base.isEmpty ? "Untitled" : base
+    }
+
     /// Forces a filename back to `<name>.acmplc.png`.
     ///
     /// The save panel highlights "Untitled.acmplc" and leaves ".png" outside the

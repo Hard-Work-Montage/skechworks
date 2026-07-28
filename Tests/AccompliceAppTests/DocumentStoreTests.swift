@@ -134,6 +134,32 @@ final class DocumentStoreTests: XCTestCase {
         XCTAssertEqual(store.page!.absoluteOrigin(of: photo)!.y, was.y, accuracy: 0.01)
     }
 
+    func testSavingToAPlainNameStillProducesAnAccompliceDocument() throws {
+        // The save panel now offers just the base name, so the URL that comes back has
+        // no extension at all. What lands on disk still has to be a .acmplc.png that
+        // opens with every layer.
+        let (store, _, photo) = loaded()
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("acmplc-save-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let typed = dir.appendingPathComponent("Coin")           // exactly what's typed
+        let final = typed.deletingLastPathComponent()
+            .appendingPathComponent(AcmplcFile.normalisedName(typed.lastPathComponent))
+        XCTAssertEqual(final.lastPathComponent, "Coin.acmplc.png")
+
+        store.url = final
+        let done = expectation(description: "written")
+        store.save { ok in XCTAssertTrue(ok); done.fulfill() }
+        wait(for: [done], timeout: 10)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: final.path))
+        let (back, _) = try AcmplcFile.read(url: final)
+        XCTAssertEqual(back.pages.count, 1)
+        XCTAssertNotNil(back.pages[0].layer(photo), "the photo should have survived the save")
+    }
+
     func testEveryMenuShortcutResolvesInTheRegistry() {
         // The menus bind by id. A typo would be a menu item with no shortcut at all,
         // which is invisible until someone reaches for the key.
