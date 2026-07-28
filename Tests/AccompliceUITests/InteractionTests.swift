@@ -83,6 +83,39 @@ final class InteractionTests: XCTestCase {
                           "⇧⌘ should reach the layer under the pointer")
     }
 
+    func testDoubleClickingAGroupSelectsWhatIsInsideIt() {
+        // One double-click, not two: entering the group and picking the frontmost
+        // thing under the pointer is a single act.
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let centre = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        centre.click()
+        XCTAssertEqual(selectedName, "Group")
+
+        centre.doubleClick()
+        XCTAssertEqual(selectedName, "Photo",
+                       "double-click should enter the group and take the frontmost layer")
+    }
+
+    func testOnceInsideAGroupASingleClickStaysInside() {
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let centre = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        centre.doubleClick()
+        XCTAssertEqual(selectedName, "Photo")
+
+        // Still inside: clicking the group again picks a member, not the group.
+        centre.click()
+        XCTAssertEqual(selectedName, "Photo", "a click inside an entered group stays inside")
+    }
+
+    func testRotationCanBeTypedIn() {
+        row("Photo").click()
+        let angle = app.windows.firstMatch.descendants(matching: .textField)
+            .matching(NSPredicate(format: "value CONTAINS[c] '0'")).firstMatch
+        XCTAssertTrue(angle.exists, "the inspector should expose an editable angle")
+    }
+
     func testChatIsVisibleWithoutHuntingForIt() {
         // It used to be hidden behind a toolbar button, which is a good way to forget
         // a feature exists.

@@ -509,7 +509,7 @@ extension Layer {
     /// change, because none of those move anything.
     public var contentSignature: String {
         var s = "\(id)|\(name)|\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
-        s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation))"
+        s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation * 100))"
         s += "|\(firstFillHex ?? "-")|\(style.borders.first.map { "\($0.color.hex):\(Int($0.thickness)) " } ?? "-")"
         s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)\(backgroundColor?.hex ?? "-")"
         // Marking a mask changes no geometry. Left out, mutatePage sees an unchanged

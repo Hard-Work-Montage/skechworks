@@ -30,6 +30,13 @@ final class PageCanvas: NSView {
         }
     }
 
+    /// The group you have double-clicked into.
+    ///
+    /// Sketch calls this entering a group: while you're inside one, clicks select its
+    /// members rather than re-selecting the group as a whole. Clicking outside it, or
+    /// pressing escape, comes back out.
+    private var enteredGroup: String? { didSet { needsDisplay = true } }
+
     /// The layer being point-edited, entered by double-clicking a shape.
     ///
     /// Points used to appear as soon as a path was selected, which left no room for a
@@ -584,8 +591,17 @@ final class PageCanvas: NSView {
     /// `drill` (⇧⌘) takes the layer actually under the pointer instead, however deep.
     func selectionTarget(_ leaf: Layer, drill: Bool) -> Layer {
         guard !drill, let page else { return leaf }
+        let chain = page.ancestors(of: leaf.id)
+
+        // Inside a group: pick the member of THAT group, not the outermost container.
+        if let entered = enteredGroup, chain.contains(entered) {
+            if let i = chain.firstIndex(of: entered) {
+                let below = i + 1 < chain.count ? chain[i + 1] : leaf.id
+                return page.layer(below) ?? leaf
+            }
+        }
         var target = leaf
-        for id in page.ancestors(of: leaf.id) {
+        for id in chain {
             guard let a = page.layer(id) else { continue }
             if a.isArtboard { continue }        // never swallow the click
             target = a
@@ -662,18 +678,22 @@ final class PageCanvas: NSView {
         // drags points and starts a marquee, so it has nowhere free to go.
         // --- Double-click a shape to edit its points ---
         if event.clickCount >= 2, editPath == nil, tool == .select, let leaf = layerHit(p) {
-            // Inside a group already? Go one level further in. Otherwise, if the thing
-            // under the pointer is what's selected and it's a path, edit its points.
-            if let next = deeper(than: selected, towards: leaf), next.id != leaf.id || !selected.contains(leaf.id) {
-                onSelect?(next.id, false)
-                if case .path = next.kind, next.id == leaf.id { editingLayerID = next.id }
-                return
-            }
-            if case .path = leaf.kind, selected.contains(leaf.id) {
+            // Already on the layer itself and it's a path: the next step in is its
+            // points.
+            if selected == [leaf.id], case .path = leaf.kind {
                 editingLayerID = leaf.id
                 return
             }
-            onSelect?(selectionTarget(leaf, drill: false).id, false)
+            // Otherwise step into the group under the pointer and take whatever is
+            // frontmost inside it — one double-click on a masked group lands on the
+            // photo, rather than needing a second to get past the group itself.
+            let current = selectionTarget(leaf, drill: false)
+            if let group = page?.layer(current.id), group.isContainer {
+                enteredGroup = current.id
+                onSelect?(selectionTarget(leaf, drill: false).id, false)
+            } else {
+                onSelect?(leaf.id, false)
+            }
             return
         }
 
@@ -738,8 +758,14 @@ final class PageCanvas: NSView {
 
         guard let leaf = layerHit(p) else {
             if !extend { onSelect?(nil, false) }   // clears the selection
+            enteredGroup = nil
             marqueeing = true
             return
+        }
+        // A click on something outside the group you're in takes you back out.
+        if let entered = enteredGroup, let page,
+           !page.isInside(leaf.id, entered) {
+            enteredGroup = nil
         }
         // ⇧⌘ drills past the group to the layer actually under the pointer.
         let drill = event.modifierFlags.contains(.command) && event.modifierFlags.contains(.shift)
@@ -961,6 +987,7 @@ final class PageCanvas: NSView {
         case 53:   // escape — abandon
             if tool == .pen { penPoints = []; penCursor = nil; needsDisplay = true; return }
             if editingLayerID != nil { editingLayerID = nil; return }
+            if enteredGroup != nil { enteredGroup = nil; return }
         case 51, 117:  // delete
             // A targeted point goes first; otherwise the whole selection goes.
             if let vp = editPath, let i = lastTouchedPoint, vp.points.count > 2 {

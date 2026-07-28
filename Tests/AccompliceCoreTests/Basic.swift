@@ -1916,3 +1916,48 @@ private func shadowedGroup() -> Layer {
         if s.keyCodes.isEmpty { Issue.record("\(s.id) has no key code") }
     }
 }
+
+// MARK: - Rotation
+
+@Test func aFractionOfADegreeCountsAsAChange() {
+    // Rotation was rounded to whole degrees in the signature, so nudging a photo by
+    // half a degree looked like no change and the edit was discarded.
+    var l = Layer(kind: .bitmap(imageRef: "x.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let flat = l.contentSignature
+    l.rotation = 0.5
+    #expect(l.contentSignature != flat)
+    l.rotation = 1
+    let one = l.contentSignature
+    l.rotation = 1.25
+    #expect(l.contentSignature != one)
+}
+
+@Test func rotationTurnsTheArtwork() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 20),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 20)
+    l.style.fills = [Fill(paint: .color(.black))]
+
+    let flat = try! #require(Compose.flatten([l]).first?.path).boundingBoxOfPath
+    #expect(abs(flat.height - 20) < 0.01)
+
+    l.rotation = 90
+    let turned = try! #require(Compose.flatten([l]).first?.path).boundingBoxOfPath
+    // A 100×20 bar on its end is 20 wide and 100 tall.
+    #expect(abs(turned.width - 20) < 0.5)
+    #expect(abs(turned.height - 100) < 0.5)
+}
+
+@Test func aSmallRotationTiltsWithoutMovingTheCentre() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 200, height: 200),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+    let before = try! #require(Compose.flatten([l]).first?.path).boundingBoxOfPath
+
+    l.rotation = 1                       // the one-degree nudge on a photo
+    let after = try! #require(Compose.flatten([l]).first?.path).boundingBoxOfPath
+    #expect(abs(after.midX - before.midX) < 0.01)
+    #expect(abs(after.midY - before.midY) < 0.01)
+    #expect(after.width > before.width)  // a tilted square needs a bigger box
+}

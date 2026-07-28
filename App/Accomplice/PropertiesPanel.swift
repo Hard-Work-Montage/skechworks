@@ -86,10 +86,11 @@ struct PropertiesPanel: View {
                     editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in
                         layer.style.opacity = max(0, min(1, v / 100))
                     }
-                    if l.rotation != 0 {
-                        field("Angle", l.rotation, suffix: "°")
-                    } else {
-                        Color.clear.frame(height: 1)
+                    // Always here, not only once something has been rotated. It was
+                    // read-only, so a layer could arrive rotated from Sketch and there
+                    // was no way to change it — or to nudge a photo by a degree.
+                    editable("Angle", l.rotation, l, suffix: "°") { layer, v in
+                        layer.rotation = v.truncatingRemainder(dividingBy: 360)
                     }
                 }
             }
