@@ -1261,20 +1261,29 @@ struct CanvasRepresentable: NSViewRepresentable {
             context.coordinator.lastPageToken = pageToken
             // Fit on arrival: these pages range from 180pt to 15,000pt wide, so a
             // fixed default zoom would be useless most of the time.
-            let b = page.contentBounds()
-            let vis = scroll.contentView.bounds.size
-            if b.width > 0, b.height > 0, vis.width > 1, vis.height > 1 {
-                // magnify(toFit:) both scales and scrolls, so the page lands centred
-                // rather than jammed against the top-left.
-                canvas.layoutSubtreeIfNeeded()
-                // Fit, settle the scale-dependent label margin, fit again. The two
-                // depend on each other, so one pass leaves the page slightly cropped.
-                // A little past the content so the leftmost/topmost labels aren't
-                // flush against the edge. Safe now that the margin is fixed.
-                scroll.magnify(toFit: canvas.contentRectInView.insetBy(dx: -b.width * 0.03,
-                                                                       dy: -b.height * 0.03))
-            }
+            //
+            // Twice, the second time after the run loop has come round. The canvas is
+            // resized when the page is adopted, and fitting against a frame that hasn't
+            // been applied yet scrolls to where the content used to be. That was
+            // survivable when the canvas was barely larger than the artwork; with room
+            // to scroll either side of it, the same mistake leaves you looking at empty
+            // space with the artwork somewhere off-screen.
+            fitToContent(scroll, canvas)
+            DispatchQueue.main.async { fitToContent(scroll, canvas) }
         }
+    }
+
+    /// Scales and scrolls so the artwork fills the window.
+    private func fitToContent(_ scroll: NSScrollView, _ canvas: PageCanvas) {
+        guard let page = canvas.page else { return }
+        let b = page.contentBounds()
+        let vis = scroll.contentView.bounds.size
+        guard b.width > 0, b.height > 0, vis.width > 1, vis.height > 1 else { return }
+        canvas.layoutSubtreeIfNeeded()
+        // A little past the content so the leftmost and topmost artboard labels
+        // aren't flush against the edge.
+        scroll.magnify(toFit: canvas.contentRectInView.insetBy(dx: -b.width * 0.03,
+                                                               dy: -b.height * 0.03))
     }
 
     /// Carries out a zoom request against the live scroll view.
