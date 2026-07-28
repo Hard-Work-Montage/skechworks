@@ -172,48 +172,6 @@ extension Page {
     }
 }
 
-/// Where a dragged layer would land.
-///
-/// Three outcomes from one gesture, decided by where in the row you are: the top and
-/// bottom thirds reorder, the middle third drops *into* a container. That middle band
-/// is what makes "drag a photo into an artboard" a different act from "drag it above
-/// the artboard", which is the distinction the whole feature rests on.
-public enum DropSpot: Equatable, Sendable {
-    case above(String)
-    case below(String)
-    case inside(String)
-}
-
-
-extension DropSpot {
-    /// Resolves to a parent and an index in that parent's children.
-    ///
-    /// The list is drawn top-first and the model is stored bottom-first, so the two run
-    /// opposite ways: dropping ABOVE a row means a HIGHER index in the model.
-    public func resolve(in page: Page, expanded: Set<String>) -> (parent: String?, index: Int)? {
-        switch self {
-        case .inside(let id):
-            return (id, page.children(of: id).count)
-
-        case .above(let id), .below(let id):
-            let below: Bool
-            if case .below = self { below = true } else { below = false }
-            if below, let l = page.layer(id), l.isContainer, expanded.contains(id) {
-                // The row beneath an expanded container is its TOPMOST child, so this
-                // means the top of its contents.
-                return (id, page.children(of: id).count)
-            }
-            let parent = page.ancestors(of: id).last
-            let siblings = page.children(of: parent).map(\.id)
-            guard let i = siblings.firstIndex(of: id) else { return nil }
-            // The list runs top-first and the model bottom-first, so dropping ABOVE a
-            // row means a HIGHER index in the model.
-            return (parent, below ? i : i + 1)
-        }
-    }
-}
-
-
 extension Layer {
     /// Can this take children? Artboards and groups can; a path or a photo cannot.
     public var isContainer: Bool {
@@ -224,11 +182,13 @@ extension Layer {
     }
 }
 
-
-extension DropSpot {
-    public var target: String {
-        switch self {
-        case .above(let id), .below(let id), .inside(let id): return id
-        }
+public enum LayerOrder {
+    /// Converts a row position in the layer list into an index in the model.
+    ///
+    /// The list is drawn top-first — the front-most layer at the top — and layers are
+    /// stored bottom-first. AppKit hands back "insert before display row N"; the model
+    /// wants an index counted from the other end.
+    public static func modelIndex(displayIndex: Int, childCount: Int) -> Int {
+        max(0, min(childCount, childCount - displayIndex))
     }
 }

@@ -22,40 +22,7 @@ struct ContentView: View {
     @State private var renamingPage: Int?
     @State private var renameText = ""
     @State private var expanded: Set<String> = []
-    @StateObject private var drag = LayerDragState()
-    private let layerRowHeight: CGFloat = 24
 
-    private struct LayerRow: Identifiable {
-        let node: LayerNode
-        let depth: Int
-        var id: String { node.id }
-    }
-
-    /// Rows top-first.
-    ///
-    /// The model stores layers bottom-first, which is the file format's order and what
-    /// the compositor wants. Showing that order directly put the topmost layer at the
-    /// BOTTOM of the list, so what looked like it was in front was drawn behind.
-    /// Everything the list does — reordering, drop targets — is in this reversed space
-    /// and converts on the way back.
-    private func rows(_ nodes: [LayerNode], depth: Int = 0) -> [LayerRow] {
-        var out: [LayerRow] = []
-        for n in nodes.reversed() {
-            out.append(LayerRow(node: n, depth: depth))
-            // Under test everything is open, so a test never depends on having
-            // clicked its way down the tree first.
-            if let kids = n.children, expanded.contains(n.id) || TestFixture.requested {
-                out.append(contentsOf: rows(kids, depth: depth + 1))
-            }
-        }
-        return out
-    }
-
-    /// Opens every ancestor of the selection so the row actually exists to scroll to.
-    private func reveal(_ ids: Set<String>) {
-        guard let page = store.page else { return }
-        for id in ids { expanded.formUnion(page.ancestors(of: id)) }
-    }
 
     var body: some View {
         NavigationSplitView {
@@ -278,25 +245,14 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 0) {
             railHeader("Layers", count: store.page?.layers.count)
             if let page = store.page {
-                ScrollViewReader { proxy in
-                    // Plain rows rather than List selection: attaching .onDrag to a
-                    // selectable row stops the tap registering, so clicking a layer
-                    // highlighted nothing. Selection is handled here instead, which
-                    // also lets the highlight stay strong when focus is on the canvas —
-                    // the layer list is how you keep track of what you're editing.
-                    List(rows(page.layers.map(LayerNode.init))) { row in
-                        layerRow(row)
-                            .listRowBackground(
-                                store.selection.contains(row.node.id)
-                                    ? AnyView(RoundedRectangle(cornerRadius: 5).fill(.tint))
-                                    : AnyView(Color.clear))
-                            .id(row.node.id)
-                    }
-                    .listStyle(.sidebar)
-                    .onDrop(of: [.text], delegate: LayerRootDropDelegate(state: drag, store: store))
-                    // Only fires when the list itself has focus, so it can't fight a
-                    // text field in the inspector for the delete key.
-                    .onDeleteCommand { store.deleteSelection() }
+                LayerOutline(nodes: page.layers.map(LayerNode.init),
+                             revision: store.revision &+ store.pageToken,
+                             selection: $store.selection,
+                             store: store,
+                             onRename: { id in
+                                 renamingID = id
+                                 renameText = store.page?.layer(id)?.name ?? ""
+                             })
                     .alert("Rename Layer", isPresented: Binding(
                         get: { renamingID != nil },
                         set: { if !$0 { renamingID = nil } })) {
@@ -307,171 +263,12 @@ struct ContentView: View {
                         }
                         Button("Cancel", role: .cancel) { renamingID = nil }
                     }
-                    .onChange(of: store.selection) { _, new in
-                        guard let first = new.first else { return }
-                        reveal(new)
-                        // After the rows rebuild, bring it into view.
-                        DispatchQueue.main.async {
-                            withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(first, anchor: .center) }
-                        }
-                    }
-                }
             } else {
-                Color.clear
+                Spacer()
             }
         }
     }
 
-    private func layerRow(_ row: LayerRow) -> some View {
-        HStack(spacing: 5) {
-            if row.node.children != nil {
-                Button {
-                    if expanded.contains(row.node.id) { expanded.remove(row.node.id) }
-                    else { expanded.insert(row.node.id) }
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .rotationEffect(.degrees(expanded.contains(row.node.id) ? 90 : 0))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 10)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Color.clear.frame(width: 10)
-            }
-            Image(systemName: row.node.systemImage)
-                .foregroundStyle(rowForeground(row)).frame(width: 14)
-            Text(row.node.name).lineLimit(1)
-                .foregroundStyle(rowForeground(row))
-        }
-        .padding(.leading, CGFloat(row.depth) * 12)
-        .frame(height: layerRowHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // One element per row, named for the UI tests. Without combining, the
-        // identifier lands on the chevron, the icon and the label separately and a
-        // query for the row matches three things.
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("layer-\(row.node.name)")
-        .contentShape(Rectangle())          // the whole row is a target, not just the text
-        // Modifiers belong to the gesture, not to NSEvent.modifierFlags read inside
-        // the handler. Adding the double-tap made SwiftUI wait to tell the two apart,
-        // and by the time the single tap fired the shift key had already been let go —
-        // so shift-clicking silently stopped extending the selection.
-        // Only onTapGesture here. A TapGesture attached with .gesture or even
-        // .simultaneousGesture consumes the press that .onDrag needs, and dragging
-        // rows to reorder stops working while every tap still looks fine.
-        .onTapGesture(count: 2) {
-            store.selection = [row.node.id]
-            renamingID = row.node.id
-            renameText = row.node.name
-        }
-        .onTapGesture {
-            // Modifiers as of the mouse-down, not as of now: SwiftUI delays this
-            // handler to tell one tap from two, and shift is long released by then.
-            if ClickModifiers.shared.extendsSelection {
-                toggleSelected(row.node.id)
-            } else {
-                store.selection = [row.node.id]
-            }
-        }
-        .overlay(alignment: .top) {
-            if drag.spot == .above(row.node.id) { dropLine(row.depth) }
-        }
-        .overlay(alignment: .bottom) {
-            if drag.spot == .below(row.node.id) { dropLine(row.depth) }
-        }
-        .background {
-            // Highlight the container itself, so "into" reads differently from "between".
-            if drag.spot == .inside(row.node.id) {
-                RoundedRectangle(cornerRadius: 4).fill(.tint.opacity(0.25))
-            }
-        }
-        .opacity(drag.dragging.contains(row.node.id) ? 0.4 : 1)
-        .onDrag {
-            // Dragging an unselected row acts on that row, matching the context menu.
-            if !store.selection.contains(row.node.id) { store.selection = [row.node.id] }
-            drag.dragging = store.selection
-            return NSItemProvider(object: row.node.id as NSString)
-        }
-        .onDrop(of: [.text], delegate: LayerDropDelegate(
-            rowID: row.node.id,
-            isContainer: store.page?.layer(row.node.id)?.isContainer ?? false,
-            rowHeight: layerRowHeight,
-            state: drag,
-            store: store,
-            expanded: expanded,
-            expand: { expanded.insert($0) }))
-        .contextMenu { layerMenu(row) }
-    }
-
-    private func toggleSelected(_ id: String) {
-        if store.selection.contains(id) { store.selection.remove(id) }
-        else { store.selection.insert(id) }
-    }
-
-    private func rowForeground(_ row: LayerRow) -> SwiftUI.Color {
-        if store.selection.contains(row.node.id) { return .white }
-        return row.node.isVisible ? .primary : SwiftUI.Color.secondary.opacity(0.6)
-    }
-
-    private func dropLine(_ depth: Int) -> some View {
-        Rectangle().fill(.tint).frame(height: 2)
-            .padding(.leading, CGFloat(depth) * 12)
-    }
-
-    /// Sketch's layer menu, minus what this doesn't have.
-    ///
-    /// Right-clicking selects first: acting on a hidden selection because you
-    /// right-clicked something else is how you delete the wrong layer.
-    @ViewBuilder
-    private func layerMenu(_ row: LayerRow) -> some View {
-        let id = row.node.id
-        let layer = store.page?.layer(id)
-
-        Group {
-            Button("Rename…") {
-                select(id)
-                renamingID = id
-                renameText = layer?.name ?? ""
-            }
-            Divider()
-            Button("Cut") { select(id); store.cutSelection() }
-            Button("Copy") { select(id); store.copySelection() }
-            Button("Paste") { select(id); store.paste() }
-            Button("Duplicate") { select(id); store.duplicateSelection() }
-            Divider()
-            Button("Group") { select(id); store.groupSelection() }
-            Button("Ungroup") { select(id); store.ungroupSelection() }
-                .disabled(row.node.children == nil)
-        }
-        Group {
-            Divider()
-            Menu("Move") {
-                Button("Bring to Front") { select(id); store.bringToFront() }
-                Button("Bring Forward") { select(id); store.bringForward() }
-                Button("Send Backward") { select(id); store.sendBackward() }
-                Button("Send to Back") { select(id); store.sendToBack() }
-            }
-            Divider()
-            Button(layer?.hasClippingMask == true ? "Remove Mask" : "Use as Mask") {
-                select(id); store.toggleMask()
-            }
-            Button(layer?.breaksMaskChain == true ? "Honour Mask" : "Ignore Mask") {
-                select(id); store.toggleIgnoreMask()
-            }
-            Divider()
-            Button(layer?.isVisible == false ? "Show Layer" : "Hide Layer") {
-                select(id); store.toggleLockOrHide(hide: true)
-            }
-            Divider()
-            Button("Delete", role: .destructive) { select(id); store.deleteSelection() }
-        }
-    }
-
-    /// Right-clicking a layer that isn't selected acts on it, not on the old selection.
-    private func select(_ id: String) {
-        if !store.selection.contains(id) { store.selection = [id] }
-    }
 
     @ViewBuilder
     private func railHeader<Accessory: View>(_ title: String, count: Int?,

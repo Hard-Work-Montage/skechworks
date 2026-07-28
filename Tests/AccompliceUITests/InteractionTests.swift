@@ -215,11 +215,23 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5), "chat should be open on launch")
     }
 
-    // There is no UI test for dragging a layer row. XCUITest's synthetic drag starts
-    // SwiftUI's drop session only sometimes — the same test passed once and then failed
-    // five runs in a row unchanged — and a test that red-lights at random teaches you
-    // to ignore red. The logic it would cover is tested in Core instead: where a drop
-    // resolves to, and that reparenting keeps a layer where it was on the canvas.
+    func testDraggingALayerOntoAGroupPutsItInside() {
+        let backdrop = row("Backdrop")
+        let group = row("Group")
+        XCTAssertTrue(backdrop.waitForExistence(timeout: 5))
+        // The list shows the front-most layer first, so Group starts above Backdrop.
+        XCTAssertGreaterThan(backdrop.frame.origin.y, group.frame.origin.y)
+
+        backdrop.press(forDuration: 0.4, thenDragTo: group,
+                       withVelocity: .slow, thenHoldForDuration: 0.4)
+
+        // Dropped onto a container, so it should now sit inside it — between the group
+        // and the group's own contents.
+        let moved = row("Backdrop").frame.origin.y
+        XCTAssertGreaterThan(moved, row("Group").frame.origin.y)
+        XCTAssertLessThan(moved, row("Photo").frame.origin.y,
+                          "dropping onto a group should put the layer inside it")
+    }
 
     func testTheDropMarkerDoesNotSurviveTheDrag() {
         // A blue line used to stay on screen after a drag that ended outside the list.

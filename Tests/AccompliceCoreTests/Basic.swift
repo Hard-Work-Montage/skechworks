@@ -1572,47 +1572,9 @@ private func nestedPage() -> (Page, art: String, kid: String, loose: String) {
     return (page, art.id, kid.id, loose.id)
 }
 
-@Test func droppingOnTheMiddleOfAnArtboardPutsItInside() {
-    let (page, art, _, _) = nestedPage()
-    let landing = DropSpot.inside(art).resolve(in: page, expanded: [])
-    #expect(landing?.parent == art)
-    #expect(landing?.index == 1)      // after the child already there
-}
 
-@Test func droppingBetweenTopLevelRowsStaysAtTopLevel() {
-    // page.layers is bottom-first: [Frame, Loose]. The list shows the reverse, so
-    // Loose is the top row and Frame the bottom one.
-    let (page, art, _, loose) = nestedPage()
-    #expect(DropSpot.above(art).resolve(in: page, expanded: [])?.parent == nil)
-    // Above Frame in the list means on top of it: index 1, not 0.
-    #expect(DropSpot.above(art).resolve(in: page, expanded: [])?.index == 1)
-    // Below Loose is the very bottom of the stack.
-    #expect(DropSpot.below(loose).resolve(in: page, expanded: [])?.index == 1)
-    #expect(DropSpot.below(art).resolve(in: page, expanded: [])?.index == 0)
-}
 
-@Test func droppingJustBelowAnOpenArtboardMeansInsideIt() {
-    // The row under an expanded container is its TOPMOST child, so "below the
-    // artboard" means the top of its contents. Reading it as "after the whole
-    // subtree" would put the layer somewhere it visually isn't.
-    let (page, art, _, _) = nestedPage()
-    let open = DropSpot.below(art).resolve(in: page, expanded: [art])
-    #expect(open?.parent == art)
-    #expect(open?.index == page.children(of: art).count)
 
-    // Collapsed, the same gesture means below the artboard at the top level.
-    let shut = DropSpot.below(art).resolve(in: page, expanded: [])
-    #expect(shut?.parent == nil)
-    #expect(shut?.index == 0)
-}
-
-@Test func droppingAroundAChildStaysInsideItsParent() {
-    let (page, art, kid, _) = nestedPage()
-    let landing = DropSpot.below(kid).resolve(in: page, expanded: [art])
-    #expect(landing?.parent == art)
-    #expect(landing?.index == 0)          // below the only child = bottom of the stack
-    #expect(DropSpot.above(kid).resolve(in: page, expanded: [art])?.index == 1)
-}
 
 @Test func onlyContainersReportThemselvesAsDropTargets() {
     let (page, art, kid, _) = nestedPage()
@@ -1620,16 +1582,6 @@ private func nestedPage() -> (Page, art: String, kid: String, loose: String) {
     #expect(!page.layer(kid)!.isContainer)
 }
 
-@Test func theWholeDropPathWorksEndToEnd() {
-    // What the delegate does, without the UI: resolve a spot, then move.
-    var (page, art, _, loose) = nestedPage()
-    let wasAt = page.absoluteOrigin(of: loose)!
-    let landing = try! #require(DropSpot.inside(art).resolve(in: page, expanded: []))
-    let moved = page.reparent([loose], into: landing.parent, at: landing.index)
-    #expect(moved)
-    #expect(page.children(of: art).map(\.name) == ["Inside", "Loose"])
-    #expect(page.absoluteOrigin(of: loose) == wasAt)
-}
 
 @Test func previewingADragMovesTheArtAndNotTheMaskAroundIt() {
     // Dragging the image inside a masked group: the image moves, the circle it's
@@ -2192,22 +2144,16 @@ private func threePageSource() -> DocumentSource {
     #expect(listed.first == painted.last, "the top row must be the front-most layer")
 }
 
-@Test func draggingARowToTheTopOfTheListPutsItInFront() {
-    var page = Page(name: "p")
-    func box(_ name: String) -> Layer {
-        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10),
-                                         transform: nil), closed: true))
-        l.name = name
-        return l
-    }
-    let a = box("A"), b = box("B"), c = box("C")
-    page.layers = [a, b, c]                 // list shows C, B, A
 
-    // Drop A above C — the top row — which should make it the front-most layer.
-    guard let landing = DropSpot.above(c.id).resolve(in: page, expanded: []) else {
-        Issue.record("no landing"); return
-    }
-    page.reparent([a.id], into: landing.parent, at: landing.index)
-    #expect(page.layers.map(\.name) == ["B", "C", "A"])
-    #expect(Compose.flatten(page.layers).last?.layer.name == "A")
+@Test func aRowNearTheTopOfTheListIsAHighIndexInTheModel() {
+    // The list is drawn top-first and layers are stored bottom-first, so the two run
+    // opposite ways. AppKit says "insert before display row N"; the model counts from
+    // the other end, and getting this backwards puts a layer behind what it should be
+    // in front of.
+    #expect(LayerOrder.modelIndex(displayIndex: 0, childCount: 3) == 3)   // top of the list
+    #expect(LayerOrder.modelIndex(displayIndex: 3, childCount: 3) == 0)   // bottom
+    #expect(LayerOrder.modelIndex(displayIndex: 1, childCount: 3) == 2)
+    // Out of range can't produce an index the model would reject.
+    #expect(LayerOrder.modelIndex(displayIndex: 99, childCount: 3) == 0)
+    #expect(LayerOrder.modelIndex(displayIndex: -5, childCount: 3) == 3)
 }
