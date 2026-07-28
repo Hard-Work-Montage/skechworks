@@ -18,6 +18,9 @@ struct ContentView: View {
     /// a group programmatically — so the tree is flattened by hand. That's what makes
     /// "select a shape on the canvas and its layer is revealed and highlighted"
     /// possible, which is the entire point.
+    /// The split view used to provide the collapse button; with plain columns it's
+    /// ours to keep.
+    @AppStorage("showLeftRail") private var showLeftRail = true
     @State private var renamingID: String?
     @State private var renamingPage: Int?
     @State private var renameText = ""
@@ -25,18 +28,32 @@ struct ContentView: View {
 
 
     var body: some View {
-        NavigationSplitView {
-            leftRail
-        } content: {
-            canvas
-        } detail: {
-            rightRail
+        // Three plain columns rather than a NavigationSplitView.
+        //
+        // The split view gives its first column macOS's sidebar treatment — inset,
+        // translucent, rounded — while the detail column stays flush and opaque. Side
+        // by side in one window the two read as different materials, and the window
+        // controls end up sitting on top of the sidebar rather than beside it. These
+        // are three panels of one tool, so they're built the same way.
+        HSplitView {
+            if showLeftRail {
+                leftRail.frame(minWidth: 200, idealWidth: 250, maxWidth: 380)
+            }
+            canvas.frame(minWidth: 320)
+            rightRail.frame(minWidth: 260, idealWidth: 330, maxWidth: 520)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // "Untitled" rather than the app name: with several new documents open, every
         // tab reading "Accomplice" tells you nothing.
         .navigationTitle(store.displayName)
         .navigationSubtitle(store.isDirty ? "Edited" : "")
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { showLeftRail.toggle() } label: {
+                    Label("Sidebar", systemImage: "sidebar.leading")
+                }
+                .help(showLeftRail ? "Hide pages and layers" : "Show pages and layers")
+            }
             ToolbarItem(placement: .navigation) {
                 // The logo sits left of the insert menu, the way Sketch does it.
                 if let icon = AppIconTheme.current.thumbnail(points: 22) {
@@ -146,7 +163,7 @@ struct ContentView: View {
                 properties
             }
         }
-        .navigationSplitViewColumnWidth(min: 260, ideal: 330, max: 520)
+
     }
 
     private var properties: some View {
@@ -181,7 +198,7 @@ struct ContentView: View {
                 emptyState
             }
         }
-        .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 380)
+
     }
 
     private var pageList: some View {
@@ -285,7 +302,7 @@ struct ContentView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
-        .navigationSplitViewColumnWidth(min: 320, ideal: 720)
+
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 10) {
                 Text(store.status).font(.caption).foregroundStyle(.secondary)

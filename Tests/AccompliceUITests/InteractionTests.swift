@@ -248,6 +248,30 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(row("Coin front").waitForExistence(timeout: 3))
     }
 
+    func testTheCanvasScrollsWithoutEndingOrSpringingBack() {
+        // The old canvas was a document sized to the artwork: scrolling stopped at the
+        // edge, and anything smaller than the window was pinned to the middle. Here it
+        // should just keep going.
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let viewport = app.windows.firstMatch.descendants(matching: .any)["canvas-viewport"]
+        XCTAssertTrue(viewport.waitForExistence(timeout: 3))
+
+        func originX() -> Double {
+            Double(((viewport.value as? String) ?? "").split(separator: ",").first ?? "0") ?? 0
+        }
+        let start = originX()
+
+        canvas.scroll(byDeltaX: -400, deltaY: 0)
+        let once = originX()
+        XCTAssertNotEqual(once, start, accuracy: 0.5, "scrolling should move the page")
+
+        // And again, well past where the old document would have ended.
+        for _ in 0..<6 { canvas.scroll(byDeltaX: -400, deltaY: 0) }
+        XCTAssertGreaterThan(abs(originX() - start), abs(once - start) * 2,
+                             "the canvas should keep going, not stop at the artwork")
+    }
+
     func testChatIsVisibleWithoutHuntingForIt() {
         // It used to be hidden behind a toolbar button, which is a good way to forget
         // a feature exists.

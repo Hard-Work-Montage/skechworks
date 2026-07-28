@@ -14,8 +14,7 @@ final class PageCanvas: NSView {
             guard revision != oldValue else { return }
             composedFor = nil
             recompose()
-            growBounds()
-            rebuildEditPath()
+                rebuildEditPath()
             needsDisplay = true
         }
     }
@@ -187,13 +186,9 @@ final class PageCanvas: NSView {
         return r.isNull ? nil : r
     }
 
-    /// The selection in view coordinates, for zoom-to-selection. Empty when nothing
-    /// is selected, which the caller treats as "fit the page instead".
-    var selectionRectInView: CGRect {
-        guard let r = selectionBounds else { return .zero }
-        return CGRect(x: r.minX - bounds1.minX, y: r.minY - bounds1.minY,
-                      width: r.width, height: r.height)
-    }
+    /// The selection, for zoom-to-selection. Empty when nothing is selected, which
+    /// the caller treats as "fit the page instead".
+    var selectionRectInView: CGRect { selectionBounds ?? .zero }
 
     private func handlePoint(_ h: Handle, in r: CGRect) -> CGPoint {
         switch h {
@@ -320,7 +315,26 @@ final class PageCanvas: NSView {
     /// Sketch's canvas is y-down; matching it means no coordinate flipping anywhere.
     override var isFlipped: Bool { true }
 
-    private var bounds1: CGRect = .zero
+    /// The page point sitting at the view's top-left, and how much it's magnified.
+    ///
+    /// This is the whole of the canvas geometry. There is no document view sized to
+    /// the artwork and no scroll bounds, which is what "infinite" means: panning just
+    /// moves the origin and nothing clamps it. It also removes a class of problems
+    /// that came with the old model — the clip view re-centring anything smaller than
+    /// the window, and fitting against a frame that hadn't been resized yet.
+    private(set) var origin: CGPoint = .zero { didSet { publishViewport() } }
+    private(set) var scale: CGFloat = 1 { didSet { publishViewport() } }
+
+    /// Reports where the canvas is looking, for tests.
+    ///
+    /// The artboard labels are drawn with Core Graphics and aren't in the
+    /// accessibility tree, so from outside the app there is otherwise nothing that
+    /// moves when you pan — a test asking whether scrolling worked would be reading
+    /// the layer list and always seeing the same answer.
+    private func publishViewport() {
+        setAccessibilityIdentifier("canvas-viewport")
+        setAccessibilityValue("\(Int(origin.x)),\(Int(origin.y)),\(String(format: "%.3f", scale))")
+    }
 
     /// Composed once per page, not once per frame. See Renderer.draw(drawables:in:).
     private var composed: [Drawable] = []
@@ -397,61 +411,17 @@ final class PageCanvas: NSView {
     /// name, because names collide across documents.
     private var boundsToken: Int = -1
     var pageToken: Int = 0 { didSet { if pageToken != oldValue { adoptPage(); needsDisplay = true } } }
-
-    /// How far past the artwork you can scroll.
-    ///
-    /// Sketch and Figma both give you a canvas that doesn't end — you push the page
-    /// off to one side and work in the space beside it. With a margin sized to the
-    /// labels there was nowhere to go: the document view barely exceeded the content,
-    /// so scrolling stopped at the artwork and anything smaller than the window was
-    /// pinned to the middle.
-    ///
-    /// Not literally infinite. A document a few times the size of the artwork, with a
-    /// floor for small pages, is indistinguishable from infinite in use and keeps the
-    /// coordinates ordinary.
-    private var canvasMargin: CGFloat {
-        CanvasExtent.margin(for: page?.contentBounds().size ?? .zero)
-    }
-
-    /// The view's frame is the page content plus a margin.
-    ///
-    /// Artboard labels are drawn ABOVE their board, which for the topmost row means
-    /// outside the content bounds — and hit-testing stops at the view's frame, so
-    /// without the margin those labels render but can't be clicked.
-    ///
-    /// Recomputed only when the PAGE changes, never merely because content moved. The
-    /// canvas is infinite: dragging artwork must not shift the coordinate origin under
-    /// everything else, or the whole page appears to jump and re-centre. It only ever
-    /// grows, and growing compensates the scroll so nothing visibly moves.
+    /// The canvas has no size of its own: it is a window onto an unbounded page, and
+    /// there is no document frame to keep in step with the artwork. What used to live
+    /// here — a margin, a frame resize, and code to compensate the scroll when the
+    /// frame grew at the top or left — all existed to fake that.
     private func adoptPage() {
-        guard let page else { bounds1 = .zero; boundsToken = -1; return }
+        guard page != nil else { boundsToken = -1; return }
         if boundsToken != pageToken {
             boundsToken = pageToken
-            let margin = canvasMargin
-            bounds1 = page.contentBounds().insetBy(dx: -margin, dy: -margin)
-            setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
             composedFor = nil
         }
         recompose()
-    }
-
-    private func growBounds() {
-        guard let page else { return }
-        let margin = labelMargin
-        let needed = page.contentBounds().insetBy(dx: -margin, dy: -margin)
-        let union = bounds1.union(needed)
-        guard union != bounds1 else { return }
-        // Growing at the top or left moves the origin; scroll by the same amount so
-        // the view stays put instead of lurching.
-        let dx = bounds1.minX - union.minX
-        let dy = bounds1.minY - union.minY
-        bounds1 = union
-        setFrameSize(NSSize(width: max(1, bounds1.width), height: max(1, bounds1.height)))
-        if dx != 0 || dy != 0, let clip = enclosingScrollView?.contentView {
-            let o = clip.bounds.origin
-            clip.scroll(to: NSPoint(x: o.x + dx, y: o.y + dy))
-            enclosingScrollView?.reflectScrolledClipView(clip)
-        }
     }
 
     /// Deliberately NOT scale-dependent.
@@ -466,17 +436,14 @@ final class PageCanvas: NSView {
         return max(40, max(c.width, c.height) * 0.05)
     }
 
-    /// Where the actual artwork sits inside the padded frame. Fitting to THIS rather
-    /// than the whole view is what keeps zoom-to-fit stable.
-    var contentRectInView: CGRect {
-        guard let page else { return bounds }
-        let c = page.contentBounds()
-        return CGRect(x: c.minX - bounds1.minX, y: c.minY - bounds1.minY,
-                      width: c.width, height: c.height)
-    }
+    /// The artwork, in page coordinates. What zoom-to-fit aims at.
+    var contentRectInView: CGRect { page?.contentBounds() ?? bounds }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        // Nothing behind the canvas any more, so it paints the surround itself.
+        NSColor.underPageBackgroundColor.setFill()
+        dirtyRect.fill()
 
         // No page background. A Sketch-style canvas is infinite and unpainted — only
         // artboards have a colour. Filling the view white made every page look like one
@@ -485,7 +452,8 @@ final class PageCanvas: NSView {
         ctx.saveGState()
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
-        ctx.translateBy(x: -bounds1.minX, y: -bounds1.minY)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -origin.x, y: -origin.y)
 
         Renderer(images: images).draw(drawables: composed, in: ctx)
 
@@ -655,8 +623,79 @@ final class PageCanvas: NSView {
         }
     }
 
-    private var currentScale: CGFloat {
-        enclosingScrollView?.magnification ?? 1
+    private var currentScale: CGFloat { scale }
+
+    /// Page coordinates for a point in the view.
+    private func pagePoint(_ v: CGPoint) -> CGPoint {
+        CGPoint(x: v.x / scale + origin.x, y: v.y / scale + origin.y)
+    }
+
+    /// Where a page point lands in the view.
+    private func viewPoint(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: (p.x - origin.x) * scale, y: (p.y - origin.y) * scale)
+    }
+
+    private func viewRect(_ r: CGRect) -> CGRect {
+        CGRect(origin: viewPoint(r.origin),
+               size: CGSize(width: r.width * scale, height: r.height * scale))
+    }
+
+    /// The page point at the middle of the window, which is what zooming in and out
+    /// from the keyboard should keep still.
+    var pageCentre: CGPoint { pagePoint(CGPoint(x: bounds.midX, y: bounds.midY)) }
+
+    /// Pans by a delta in view pixels.
+    func pan(byViewDelta d: CGSize) {
+        origin.x -= d.width / scale
+        origin.y -= d.height / scale
+        needsDisplay = true
+    }
+
+    /// Zooms about a page point, so what's under the pointer stays under it.
+    func zoom(to newScale: CGFloat, around anchor: CGPoint) {
+        let clamped = max(0.01, min(64, newScale))
+        guard clamped != scale else { return }
+        let before = viewPoint(anchor)
+        scale = clamped
+        let after = viewPoint(anchor)
+        origin.x += (after.x - before.x) / scale
+        origin.y += (after.y - before.y) / scale
+        needsDisplay = true
+    }
+
+    /// Scales and centres so `rect` (page space) fills the view.
+    func fit(_ rect: CGRect) {
+        let size = bounds.size
+        guard rect.width > 0, rect.height > 0, size.width > 1, size.height > 1 else { return }
+        scale = max(0.01, min(64, min(size.width / rect.width, size.height / rect.height) * 0.94))
+        origin = CGPoint(x: rect.midX - size.width / (2 * scale),
+                         y: rect.midY - size.height / (2 * scale))
+        needsDisplay = true
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        // scrollingDelta is what a trackpad and a modern mouse report; deltaY is the
+        // older line-based value, and some events carry only that.
+        var dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+        if dx == 0, dy == 0 { dx = event.deltaX * 10; dy = event.deltaY * 10 }
+
+        if event.modifierFlags.contains(.command) {
+            // Zoom about the pointer. exp() keeps it symmetric, so scrolling up then
+            // down comes back to where it started.
+            let raw = dy
+            guard raw != 0 else { return }
+            let sensitivity: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.06
+            zoom(to: scale * exp(raw * sensitivity),
+                 around: pagePoint(convert(event.locationInWindow, from: nil)))
+            return
+        }
+        // Nothing clamps this. Pan as far as you like in any direction.
+        pan(byViewDelta: CGSize(width: dx, height: dy))
+    }
+
+    override func magnify(with event: NSEvent) {
+        zoom(to: scale * (1 + event.magnification),
+             around: pagePoint(convert(event.locationInWindow, from: nil)))
     }
 
     /// Walks to the selected layer, accumulating transforms, and returns its canvas frame.
@@ -738,6 +777,13 @@ final class PageCanvas: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        publishViewport()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -747,8 +793,7 @@ final class PageCanvas: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
-        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        let p = pagePoint(convert(event.locationInWindow, from: nil))
         dragAnchor = p
         dragOffset = .zero
         marquee = nil
@@ -885,8 +930,7 @@ final class PageCanvas: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
-        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        let p = pagePoint(convert(event.locationInWindow, from: nil))
 
         // Nothing is drawn out there, so the cursor is the only clue the rotate zone
         // exists. Without it you'd only find it by accident.
@@ -1004,8 +1048,7 @@ final class PageCanvas: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        let local = convert(event.locationInWindow, from: nil)
-        let p = CGPoint(x: local.x + bounds1.minX, y: local.y + bounds1.minY)
+        let p = pagePoint(convert(event.locationInWindow, from: nil))
 
         if let i = draggingPoint {
             editPath?.points[i].move(to: p); needsDisplay = true; return
@@ -1160,50 +1203,6 @@ final class PageCanvas: NSView {
     }
 }
 
-/// Keeps the page centred when it's smaller than the viewport. NSScrollView pins content
-/// to the top-left otherwise, which reads as broken on a canvas.
-///
-/// It also has to catch clicks. When the page is fitted by height, the bare space to its
-/// left and right belongs to the clip view, not the canvas — so clicking there never
-/// reached PageCanvas and the selection wouldn't clear, while clicking above or below
-/// (inside the canvas's own label margin) did. Deselecting has to work on every piece of
-/// empty space, not just the parts that happen to be inside the document view.
-final class CenteringClipView: NSClipView {
-
-    /// Route every click inside the scroll area to the canvas, even the bare space
-    /// beyond the page.
-    ///
-    /// The document view is only as big as the page plus a margin, so when a page is
-    /// fitted by height the gray either side belongs to the clip view. That made
-    /// deselect-by-clicking work above and below but not left or right, and made
-    /// marquee-dragging impossible from exactly the empty space you'd naturally start
-    /// a marquee in. Handing those points to the canvas fixes both at the source
-    /// rather than patching each symptom — the canvas converts to page coordinates
-    /// the same way regardless of whether the point is inside its frame.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        if let doc = documentView, let sup = superview,
-           convert(bounds, to: sup).contains(point) {
-            return doc
-        }
-        return super.hitTest(point)
-    }
-
-    /// Centres only what genuinely can't be scrolled.
-    ///
-    /// This used to re-centre on every axis where the document was smaller than the
-    /// window, which is what pinned the artboards in the middle and made a sideways
-    /// swipe spring back. With a canvas that extends well past the artwork it rarely
-    /// applies at all; zoomed far out it still does, and there centring is right —
-    /// there is nothing else to look at.
-    override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposed)
-        guard let doc = documentView else { return rect }
-        let d = doc.frame
-        if rect.width > d.width { rect.origin.x = (d.width - rect.width) / 2 }
-        if rect.height > d.height { rect.origin.y = (d.height - rect.height) / 2 }
-        return rect
-    }
-}
 
 struct CanvasRepresentable: NSViewRepresentable {
     @EnvironmentObject var store: DocumentStore
@@ -1216,31 +1215,14 @@ struct CanvasRepresentable: NSViewRepresentable {
     let tool: DocumentStore.Tool
     let pageToken: Int
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scroll = ZoomingScrollView()
-        scroll.contentView = CenteringClipView()
-        // Overlay scrollers: on a canvas that runs well past the artwork a permanent
-        // scrollbar is both meaningless and in the way. They appear while you scroll
-        // and get out of the way afterwards, which is what Sketch and Figma do.
-        scroll.scrollerStyle = .overlay
-        scroll.autohidesScrollers = true
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = true
-        scroll.allowsMagnification = true
-        scroll.minMagnification = 0.02
-        scroll.maxMagnification = 40
-        scroll.backgroundColor = .underPageBackgroundColor
-
+    func makeNSView(context: Context) -> PageCanvas {
         let canvas = PageCanvas()
         wire(canvas)
-        scroll.documentView = canvas
         context.coordinator.canvas = canvas
-
-        return scroll
+        return canvas
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let canvas = context.coordinator.canvas else { return }
+    func updateNSView(_ canvas: PageCanvas, context: Context) {
         let pageChanged = context.coordinator.lastPageToken != pageToken
         canvas.images = images
         canvas.page = page
@@ -1255,51 +1237,37 @@ struct CanvasRepresentable: NSViewRepresentable {
         }
         if context.coordinator.lastZoomSerial != zoom.serial {
             context.coordinator.lastZoomSerial = zoom.serial
-            apply(zoom.intent, scroll: scroll, canvas: canvas)
+            apply(zoom.intent, canvas: canvas)
         }
         if pageChanged, let page {
             context.coordinator.lastPageToken = pageToken
             // Fit on arrival: these pages range from 180pt to 15,000pt wide, so a
-            // fixed default zoom would be useless most of the time.
-            //
-            // Twice, the second time after the run loop has come round. The canvas is
-            // resized when the page is adopted, and fitting against a frame that hasn't
-            // been applied yet scrolls to where the content used to be. That was
-            // survivable when the canvas was barely larger than the artwork; with room
-            // to scroll either side of it, the same mistake leaves you looking at empty
-            // space with the artwork somewhere off-screen.
-            fitToContent(scroll, canvas)
-            DispatchQueue.main.async { fitToContent(scroll, canvas) }
+            // fixed default zoom would be useless most of the time. Once the view has
+            // a size — on the very first pass through SwiftUI it hasn't.
+            _ = page
+            if canvas.bounds.width > 1 {
+                canvas.fit(canvas.contentRectInView)
+            } else {
+                DispatchQueue.main.async { canvas.fit(canvas.contentRectInView) }
+            }
         }
     }
 
-    /// Scales and scrolls so the artwork fills the window.
-    private func fitToContent(_ scroll: NSScrollView, _ canvas: PageCanvas) {
-        guard let page = canvas.page else { return }
-        let b = page.contentBounds()
-        let vis = scroll.contentView.bounds.size
-        guard b.width > 0, b.height > 0, vis.width > 1, vis.height > 1 else { return }
-        canvas.layoutSubtreeIfNeeded()
-        // A little past the content so the leftmost and topmost artboard labels
-        // aren't flush against the edge.
-        scroll.magnify(toFit: canvas.contentRectInView.insetBy(dx: -b.width * 0.03,
-                                                               dy: -b.height * 0.03))
-    }
-
-    /// Carries out a zoom request against the live scroll view.
-    private func apply(_ intent: ZoomIntent, scroll: NSScrollView, canvas: PageCanvas) {
-        guard let zoomer = scroll as? ZoomingScrollView else { return }
-        canvas.layoutSubtreeIfNeeded()
+    /// Carries out a zoom request. The canvas owns its own magnification now, so
+    /// there is no scroll view to ask and no layout to wait for.
+    private func apply(_ intent: ZoomIntent, canvas: PageCanvas) {
+        let centre = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
         switch intent {
-        case .zoomIn:      zoomer.zoom(by: ZoomingScrollView.step)
-        case .zoomOut:     zoomer.zoom(by: 1 / ZoomingScrollView.step)
-        case .actualSize:  zoomer.setMagnification(1, centeredAt: canvas.contentRectInView.centre)
-        case .fit:         zoomer.fit(canvas.contentRectInView)
+        case .zoomIn:     canvas.zoom(to: canvas.scale * 1.25, around: canvas.pageCentre)
+        case .zoomOut:    canvas.zoom(to: canvas.scale / 1.25, around: canvas.pageCentre)
+        case .actualSize: canvas.zoom(to: 1, around: canvas.pageCentre)
+        case .fit:        canvas.fit(canvas.contentRectInView)
         case .toSelection:
             // Falls back to fit rather than doing nothing, which would read as broken.
             let rect = canvas.selectionRectInView
-            zoomer.fit(rect.isEmpty ? canvas.contentRectInView : rect)
+            canvas.fit(rect.isEmpty ? canvas.contentRectInView : rect)
         }
+        _ = centre
     }
 
     private func wire(_ canvas: PageCanvas) {
