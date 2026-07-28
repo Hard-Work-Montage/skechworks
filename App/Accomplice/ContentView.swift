@@ -20,7 +20,6 @@ struct ContentView: View {
     /// possible, which is the entire point.
     /// The split view used to provide the collapse button; with plain columns it's
     /// ours to keep.
-    @AppStorage("showLeftRail") private var showLeftRail = true
     @State private var renamingID: String?
     @State private var renamingPage: Int?
     @State private var renameText = ""
@@ -33,29 +32,37 @@ struct ContentView: View {
         // The split view gives its first column macOS's sidebar treatment — inset,
         // translucent, rounded — while the detail column stays flush and opaque. Side
         // by side in one window the two read as different materials, and the window
-        // controls end up sitting on top of the sidebar rather than beside it. These
-        // are three panels of one tool, so they're built the same way.
-        HSplitView {
-            if showLeftRail {
-                leftRail.frame(minWidth: 200, idealWidth: 250, maxWidth: 380)
-                    .background(SwiftUI.Color.rail)
-            }
-            canvas.frame(minWidth: 320)
-            rightRail.frame(minWidth: 260, idealWidth: 330, maxWidth: 520)
-                .background(SwiftUI.Color.rail)
+        // NavigationSplitView, which is what Apple asks for: on macOS 26 the first
+        // column becomes a Liquid Glass sidebar that floats above the content, and you
+        // get it by using the standard structure rather than by building one.
+        //
+        // Adam had this right. The rounded sidebar was never the mistake — pairing it
+        // with a full-width solid toolbar was, because that's the older idiom and the
+        // two collide where they meet. Apple's own guidance for the new design is to
+        // remove custom backgrounds from behind toolbars, which is the one line below.
+        //
+        // I did try hand-rolling three columns to get the inset. It doesn't work and
+        // the reason is worth writing down: an NSView with no intrinsic content size
+        // maps to 0…0…∞ in SwiftUI, so both rails — NSScrollViews, both of them — take
+        // whatever size is proposed, and in a plain HStack that resolves to zero. The
+        // left rail vanished entirely. NavigationSplitView assigns column widths
+        // itself, which is exactly the part that was missing.
+        NavigationSplitView {
+            leftRail
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 380)
+        } content: {
+            canvas
+                .navigationSplitViewColumnWidth(min: 320, ideal: 720)
+        } detail: {
+            rightRail
+                .navigationSplitViewColumnWidth(min: 260, ideal: 330, max: 520)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .toolbarBackground(.hidden, for: .windowToolbar)
         // "Untitled" rather than the app name: with several new documents open, every
         // tab reading "Accomplice" tells you nothing.
         .navigationTitle(store.displayName)
         .navigationSubtitle(store.isDirty ? "Edited" : "")
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button { showLeftRail.toggle() } label: {
-                    Label("Sidebar", systemImage: "sidebar.leading")
-                }
-                .help(showLeftRail ? "Hide pages and layers" : "Show pages and layers")
-            }
             ToolbarItem(placement: .navigation) {
                 // The logo sits left of the insert menu, the way Sketch does it.
                 if let icon = AppIconTheme.current.thumbnail(points: 22) {
