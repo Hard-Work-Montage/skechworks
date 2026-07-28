@@ -31,7 +31,6 @@ private struct ChatPanelBody: View {
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
 
     @State private var draft = ""
-    @State private var example = 0
     @FocusState private var focused: Bool
 
     private var settings: ModelConnector.Settings {
@@ -72,11 +71,17 @@ private struct ChatPanelBody: View {
         .padding(.horizontal, 12).padding(.bottom, 6)
     }
 
+    @ViewBuilder
     private var transcript: some View {
-        ScrollViewReader { proxy in
+        // The empty state sits outside the scroll view. Inside it, "fill the height"
+        // means nothing — a scroll view's content is as tall as its content — so the
+        // placeholder was pinned to the top however it was centred.
+        if session.messages.isEmpty {
+            placeholder
+        } else {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    if session.messages.isEmpty { placeholder }
                     ForEach(session.messages) { m in
                         MessageRow(message: m) { pending in
                             session.confirm(pending, store: store)
@@ -91,53 +96,23 @@ private struct ChatPanelBody: View {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
+            }
         }
     }
 
     /// Centred, like "No selection" in the inspector above it — the two empty states
     /// sit in the same column and should read as the same kind of thing.
-    ///
-    /// One example at a time rather than a list of four. A wall of blue links is a
-    /// menu you have to read; a single line rotating slowly is a suggestion you can
-    /// ignore, and it gets through more of them than a static list would.
     private var placeholder: some View {
         VStack(spacing: 8) {
             Image(systemName: "sparkles")
                 .font(.system(size: 26)).foregroundStyle(.tertiary)
-            Text("Ask for changes to this document.")
+            Text("Ask for changes to this document")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button {
-                draft = Self.examples[example]
-                send()
-            } label: {
-                Text(Self.examples[example])
-                    .font(.caption)
-                    .multilineTextAlignment(.center)
-                    .transition(.opacity)
-                    .id(example)          // so the transition has something to animate
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.tint)
-            .help("Try this")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 18)
-        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
-            withAnimation(.easeInOut(duration: 0.45)) {
-                example = (example + 1) % Self.examples.count
-            }
-        }
     }
-
-    private static let examples = [
-        "Rename every artboard to coin-{i}",
-        "Make the black shapes 50% opacity",
-        "Add a 400×400 artboard called Back",
-        "Clean up the paths carrying too many points",
-        "Curve this text along the bottom of the coin",
-        "Which layers overflow their artboard?",
-    ]
 
     private var composer: some View {
         HStack(spacing: 8) {

@@ -163,7 +163,7 @@ struct ContentView: View {
                     properties
                         .frame(minHeight: 140, idealHeight: 300)
                     VStack(alignment: .leading, spacing: 0) {
-                        railHeader("Chat", count: nil)
+                        railHeader("Accomplice Chat", count: nil)
                         ChatPanel().environmentObject(store)
                     }
                     .frame(minHeight: 200)
