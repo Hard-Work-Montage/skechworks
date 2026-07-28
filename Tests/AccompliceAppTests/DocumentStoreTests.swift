@@ -86,6 +86,27 @@ final class DocumentStoreTests: XCTestCase {
         XCTAssertEqual(store.page?.layer(group)?.style.shadows.count, 1)
     }
 
+    func testTheConversationBelongsToTheDocument() {
+        // It was a @StateObject inside ChatPanel, which SwiftUI destroys with the view,
+        // so hiding chat threw the conversation away. Owning it here is what makes it
+        // outlive the panel.
+        let (store, _, _) = loaded()
+        store.chat.messages.append(ChatMessage(role: .user, text: "make the coin bigger"))
+        XCTAssertEqual(store.chat.messages.count, 1)
+
+        // The same store hands back the same session however many times it's asked.
+        XCTAssertTrue(store.chat === store.chat)
+        XCTAssertEqual(store.chat.messages.first?.text, "make the coin bigger")
+    }
+
+    func testEachDocumentHasItsOwnConversation() {
+        let (a, _, _) = loaded()
+        let (b, _, _) = loaded()
+        a.chat.messages.append(ChatMessage(role: .user, text: "only in a"))
+        XCTAssertEqual(a.chat.messages.count, 1)
+        XCTAssertTrue(b.chat.messages.isEmpty, "windows must not share a conversation")
+    }
+
     func testEveryMenuShortcutResolvesInTheRegistry() {
         // The menus bind by id. A typo would be a menu item with no shortcut at all,
         // which is invisible until someone reaches for the key.

@@ -37,6 +37,13 @@ final class DocumentStore: ObservableObject {
     /// only it knows the viewport. See ZoomIntent.
     @Published var zoomRequest = ZoomRequest()
 
+    /// The conversation, owned by the document rather than by the panel.
+    ///
+    /// It used to be a @StateObject inside ChatPanel, which SwiftUI destroys along with
+    /// the view — so hiding chat threw the conversation away. It lasts as long as the
+    /// document is open now, and goes when you clear it or close the window.
+    let chat = ChatSession()
+
     /// The point currently being edited on the canvas, so the inspector can show its
     /// type. Point Type is a property of the point, not a tool — which is why the
     /// bend tool that used to stand in for it is gone.

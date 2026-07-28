@@ -13,7 +13,16 @@ import SwiftUI
 /// throws that away every time.
 struct ChatPanel: View {
     @EnvironmentObject var store: DocumentStore
-    @StateObject private var session = ChatSession()
+
+    var body: some View {
+        // The session belongs to the document, so it survives the panel being hidden.
+        ChatPanelBody(session: store.chat)
+    }
+}
+
+private struct ChatPanelBody: View {
+    @EnvironmentObject var store: DocumentStore
+    @ObservedObject var session: ChatSession
 
     @AppStorage("ai.backend") private var backend = ModelConnector.Backend.ollama.rawValue
     @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
@@ -22,6 +31,7 @@ struct ChatPanel: View {
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
 
     @State private var draft = ""
+    @State private var example = 0
     @FocusState private var focused: Bool
 
     private var settings: ModelConnector.Settings {
@@ -84,22 +94,50 @@ struct ChatPanel: View {
         }
     }
 
+    /// Centred, like "No selection" in the inspector above it — the two empty states
+    /// sit in the same column and should read as the same kind of thing.
+    ///
+    /// One example at a time rather than a list of four. A wall of blue links is a
+    /// menu you have to read; a single line rotating slowly is a suggestion you can
+    /// ignore, and it gets through more of them than a static list would.
     private var placeholder: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 26)).foregroundStyle(.tertiary)
             Text("Ask for changes to this document.")
-                .font(.callout).foregroundStyle(.secondary)
-            ForEach(["Rename every artboard to coin-{i}",
-                     "Delete any path narrower than 4",
-                     "Make the black shapes 50% opacity",
-                     "Which layers overflow their artboard?"], id: \.self) { example in
-                Button(example) { draft = example; send() }
-                    .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                draft = Self.examples[example]
+                send()
+            } label: {
+                Text(Self.examples[example])
                     .font(.caption)
-                    .foregroundStyle(.tint)
+                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
+                    .id(example)          // so the transition has something to animate
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+            .help("Try this")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 18)
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            withAnimation(.easeInOut(duration: 0.45)) {
+                example = (example + 1) % Self.examples.count
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private static let examples = [
+        "Rename every artboard to coin-{i}",
+        "Make the black shapes 50% opacity",
+        "Add a 400×400 artboard called Back",
+        "Clean up the paths carrying too many points",
+        "Curve this text along the bottom of the coin",
+        "Which layers overflow their artboard?",
+    ]
 
     private var composer: some View {
         HStack(spacing: 8) {
