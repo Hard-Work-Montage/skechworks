@@ -104,6 +104,7 @@ struct ChatPanel: View {
     private var composer: some View {
         HStack(spacing: 8) {
             TextField("Ask…", text: $draft, axis: .vertical)
+                .accessibilityIdentifier("chat-input")
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .focused($focused)

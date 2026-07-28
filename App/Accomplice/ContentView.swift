@@ -7,7 +7,10 @@ import UniformTypeIdentifiers
 // editing lands means the inspector has somewhere to grow into.
 struct ContentView: View {
     @EnvironmentObject var store: DocumentStore
-    @State private var showCommandBar = false
+    /// Chat is open by default, and stays however you last left it — the same as the
+    /// sidebar. It was hidden behind a toolbar button, which is a poor place for
+    /// something you'd otherwise forget is there.
+    @AppStorage("showChat") private var showCommandBar = true
 
     /// Which groups are open in the layer list.
     ///
@@ -122,7 +125,8 @@ struct ContentView: View {
                 Button { showCommandBar.toggle() } label: {
                     Label("Ask", systemImage: "sparkles")
                 }
-                .help("Ask (⌘K)")
+                .help(showCommandBar ? "Hide chat (⌘K)" : "Show chat (⌘K)")
+                .symbolVariant(showCommandBar ? .fill : .none)
             }
             ToolbarItem {
                 Menu {
@@ -133,7 +137,9 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showCommandBar)) { _ in
-            showCommandBar = true
+            // ⌘K toggles now that it starts open — otherwise the key does nothing
+            // visible the first time you press it.
+            showCommandBar.toggle()
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let p = providers.first else { return false }

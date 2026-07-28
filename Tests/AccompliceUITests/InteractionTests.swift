@@ -83,6 +83,13 @@ final class InteractionTests: XCTestCase {
                           "⇧⌘ should reach the layer under the pointer")
     }
 
+    func testChatIsVisibleWithoutHuntingForIt() {
+        // It used to be hidden behind a toolbar button, which is a good way to forget
+        // a feature exists.
+        let input = app.windows.firstMatch.descendants(matching: .any)["chat-input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5), "chat should be open on launch")
+    }
+
     func testDraggingALayerRowReordersIt() {
         let backdrop = row("Backdrop")
         let group = row("Group")
