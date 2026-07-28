@@ -242,6 +242,7 @@ final class PageCanvas: NSView {
     /// layer takes its rotation with it, so the cursor lines up with the edge you are
     /// actually about to drag rather than with the screen.
     private func handleAngle(_ h: Handle) -> CGFloat {
+        // A double-headed arrow is symmetric, so opposite handles share an angle.
         let base: CGFloat
         switch h {
         case .e, .w:   base = 0
@@ -256,6 +257,26 @@ final class PageCanvas: NSView {
         return base
     }
 
+    /// Which way the rotate cursor faces at a corner: outward, away from the shape.
+    ///
+    /// The curved arrow is NOT symmetric — the arc opens to one side — so unlike the
+    /// resize arrow it can't share an angle between opposite corners. Reusing the
+    /// ±45 pair had the two left-hand corners curling the wrong way.
+    private func rotateAngle(_ h: Handle) -> CGFloat {
+        let outward: CGFloat
+        switch h {
+        case .se: outward = 45          // down-right
+        case .sw: outward = 135         // down-left
+        case .nw: outward = 225         // up-left
+        case .ne: outward = 315         // up-right
+        default:  outward = 0
+        }
+        if selected.count == 1, let id = selected.first, let l = page?.layer(id) {
+            return outward - l.rotation
+        }
+        return outward
+    }
+
     /// Picks the cursor for wherever the pointer is.
     private func updateCursor(at p: CGPoint) {
         if editPath != nil {
@@ -264,7 +285,7 @@ final class PageCanvas: NSView {
             return
         }
         if let corner = rotateCornerUnder(p) {
-            HandleCursors.rotate(handleAngle(corner)).set()
+            HandleCursors.rotate(rotateAngle(corner)).set()
             return
         }
         if let h = handleUnder(p) {

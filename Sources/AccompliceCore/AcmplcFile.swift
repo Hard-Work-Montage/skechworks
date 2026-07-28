@@ -126,6 +126,30 @@ public struct AcmplcFile {
         }
     }
 
+    /// The extension every Accomplice document ends with.
+    public static let suffix = "acmplc.png"
+
+    /// Forces a filename back to `<name>.acmplc.png`.
+    ///
+    /// The save panel highlights "Untitled.acmplc" and leaves ".png" outside the
+    /// selection, so typing a new name naturally produces "Coin.png". The bytes would
+    /// still be a complete document — the payload is found by scanning, not by name —
+    /// but the compound extension is what makes the file open in Accomplice rather than
+    /// Preview, so it's put back.
+    public static func normalisedName(_ name: String) -> String {
+        var base = name
+        if base.lowercased().hasSuffix("." + suffix) {
+            return base
+        }
+        // Strip a trailing .png or .acmplc, in either order, then re-apply both.
+        for tail in [".png", ".acmplc"] where base.lowercased().hasSuffix(tail) {
+            base = String(base.dropLast(tail.count))
+        }
+        if base.lowercased().hasSuffix(".acmplc") { base = String(base.dropLast(7)) }
+        if base.isEmpty { base = "Untitled" }
+        return base + "." + suffix
+    }
+
     public static func read(_ data: Data) throws -> (document: Document, images: [String: Data]) {
         let z: [String: Data]
         do { z = try Zip.read(data) } catch { throw ReadError.stripped }

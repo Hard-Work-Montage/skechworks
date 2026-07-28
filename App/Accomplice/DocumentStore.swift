@@ -948,12 +948,11 @@ final class DocumentStore: ObservableObject {
         panel.message = "Save as an Accomplice document"
         panel.allowsOtherFileTypes = true
         guard panel.runModal() == .OK, var out = panel.url else { completion?(false); return }
-        // Keep the compound extension: it's what makes the file read as an image
-        // everywhere, which is the whole point of the format.
-        if !out.lastPathComponent.hasSuffix(".acmplc.png") {
-            out = out.deletingPathExtension()
-                .appendingPathExtension("acmplc.png")
-        }
+        // Keep the compound extension whatever was typed. The rule lives in Core so
+        // it can be tested; getting it wrong doesn't lose data, but it does lose the
+        // file to Preview.
+        out = out.deletingLastPathComponent()
+            .appendingPathComponent(AcmplcFile.normalisedName(out.lastPathComponent))
         url = out
         writeToDisk(completion: completion)
     }

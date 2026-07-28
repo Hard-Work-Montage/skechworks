@@ -2016,3 +2016,46 @@ private func shadowedGroup() -> Layer {
     }
     #expect(abs(page.layers[0].rotation - 25) < 0.001)
 }
+
+// MARK: - Saving
+
+@Test func theCompoundExtensionIsPutBackWhateverGetsTyped() {
+    // The save panel highlights "Untitled.acmplc" and leaves ".png" outside the
+    // selection, so typing over it produces "Coin.png".
+    #expect(AcmplcFile.normalisedName("Coin.png") == "Coin.acmplc.png")
+    #expect(AcmplcFile.normalisedName("Coin") == "Coin.acmplc.png")
+    #expect(AcmplcFile.normalisedName("Coin.acmplc") == "Coin.acmplc.png")
+    #expect(AcmplcFile.normalisedName("Coin.acmplc.png") == "Coin.acmplc.png")
+    // Dots in the name itself are not an extension.
+    #expect(AcmplcFile.normalisedName("1 Year v2.png") == "1 Year v2.acmplc.png")
+    #expect(AcmplcFile.normalisedName(".png") == "Untitled.acmplc.png")
+}
+
+@Test func aRenamedDocumentStillHoldsEveryLayer() throws {
+    // The question behind the naming: is the document in the NAME or in the bytes?
+    // It's in the bytes — the payload is found by scanning for the archive, so a file
+    // renamed in Finder still opens with everything in it.
+    var page = Page(name: "Page 1")
+    page.layers = [maskedGroup(), shadowedGroup()]
+    var doc = Document()
+    doc.pages = [page]
+
+    let written = try AcmplcFile.write(document: doc, images: [:])
+    let renamed = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("just-a-picture-\(UUID().uuidString).png")
+    try written.write(to: renamed)
+    defer { try? FileManager.default.removeItem(at: renamed) }
+
+    let (back, _) = try AcmplcFile.read(url: renamed)
+    #expect(back.pages.count == 1)
+    #expect(back.pages[0].layers.count == 2)
+    guard case .group(let kids) = back.pages[0].layers[0].kind else {
+        Issue.record("group lost"); return
+    }
+    #expect(kids.count == 2)
+    #expect(kids[0].hasClippingMask)              // and the mask survived too
+
+    // Still a valid PNG, which is the other half of the bargain.
+    let head = try Data(contentsOf: renamed).prefix(8)
+    #expect(head.elementsEqual([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+}
