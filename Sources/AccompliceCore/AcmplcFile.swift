@@ -203,6 +203,7 @@ public struct AcmplcFile {
         let kids = { (j["layers"] as? [[String: Any]] ?? []).compactMap(readLayer) }
         let kind: LayerKind
         var modes: [CurveMode] = []
+        var erased: [EraseStroke] = []
         switch j["type"] as? String ?? "" {
         case "group":
             kind = .group(kids())
@@ -236,6 +237,13 @@ public struct AcmplcFile {
             }
             kind = .text(run)
         case "bitmap":
+            if let strokes = j["erased"] as? [[String: Any]] {
+                erased = strokes.compactMap { e in
+                    guard let pts = e["points"] as? [[Double]], let r = dbl(e["radius"]) else { return nil }
+                    return EraseStroke(points: pts.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil },
+                                       radius: r, softness: dbl(e["softness"]) ?? 0.5)
+                }
+            }
             guard let ref = j["image"] as? String else { return nil }
             kind = .bitmap(imageRef: ref.hasPrefix("assets/") ? String(ref.dropFirst(7)) : ref)
         default:
@@ -244,6 +252,7 @@ public struct AcmplcFile {
 
         var l = Layer(kind: kind)
         l.curveModes = modes
+        l.erased = erased
         l.id = j["id"] as? String ?? UUID().uuidString
         l.name = j["name"] as? String ?? ""
         if let f = j["frame"] as? [String: Any] {
@@ -392,6 +401,12 @@ public struct AcmplcFile {
             d["text"] = text
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
+            if !l.erased.isEmpty {
+                d["erased"] = l.erased.map { e in
+                    ["points": e.points.map { [$0.x, $0.y] },
+                     "radius": e.radius, "softness": e.softness] as [String: Any]
+                }
+            }
         }
         return d
     }

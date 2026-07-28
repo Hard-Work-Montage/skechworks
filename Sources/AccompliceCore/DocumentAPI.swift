@@ -533,6 +533,13 @@ extension Layer {
         s += "|\(hasClippingMask ? 1 : 0)\(breaksMaskChain ? 1 : 0)"
         // Adding a shadow moves nothing. Fourth thing to need saying here, so: if it
         // can be edited and isn't geometry, it belongs in the signature.
+        // An erase moves nothing and changes no frame; without this the change detector
+        // throws the stroke away. Sixth time, and the rule holds: if it can be edited
+        // and isn't geometry, it belongs here.
+        if !erased.isEmpty {
+            s += "|e" + erased.map { "\($0.points.count):\(Int($0.radius)):\(Int($0.softness * 100))" }
+                .joined(separator: ",")
+        }
         s += "|" + style.shadows.map {
             "\($0.color.hex)\(Int($0.color.a * 100)):\(Int($0.offset.width)),\(Int($0.offset.height)):\(Int($0.blur)):\(Int($0.spread))"
         }.joined(separator: ",")

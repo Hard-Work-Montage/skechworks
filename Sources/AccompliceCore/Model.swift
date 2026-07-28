@@ -182,6 +182,13 @@ public struct Layer: @unchecked Sendable {
     /// stick, so it's stored.
     public var curveModes: [CurveMode] = []
 
+    /// Erase strokes for a bitmap layer, applied when it draws.
+    ///
+    /// Stored rather than burnt into the pixels: the same photo is used across several
+    /// coins, and an erase you can't take back is a copy of the photo you didn't want
+    /// to make.
+    public var erased: [EraseStroke] = []
+
     public init(kind: LayerKind) { self.kind = kind }
 
     public var bounds: CGRect { frame }

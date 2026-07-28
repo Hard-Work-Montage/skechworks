@@ -19,21 +19,33 @@ final class DocumentStore: ObservableObject {
     @Published var selection: Set<String> = []
 
     enum Tool: String, CaseIterable {
-        case select, pen
+        case select, pen, erase
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
+            case .erase: return "eraser"
             }
         }
         var title: String {
             switch self {
-            case .select: return "Select (V)"
-            case .pen: return "Pen (P)"
+            case .select: return "Select"
+            case .pen: return "Vector"
+            case .erase: return "Erase"
             }
         }
     }
     @Published var tool: Tool = .select
+    /// Brush settings, kept across strokes and documents — you pick a size once.
+    /// UserDefaults directly rather than @AppStorage: this is a store, not a view.
+    var eraseRadius: Double {
+        get { UserDefaults.standard.object(forKey: "eraseRadius") as? Double ?? 24 }
+        set { UserDefaults.standard.set(newValue, forKey: "eraseRadius"); objectWillChange.send() }
+    }
+    var eraseSoftness: Double {
+        get { UserDefaults.standard.object(forKey: "eraseSoftness") as? Double ?? 0.5 }
+        set { UserDefaults.standard.set(newValue, forKey: "eraseSoftness"); objectWillChange.send() }
+    }
     /// Zoom is a request, not a value — the canvas owns the magnification because
     /// only it knows the viewport. See ZoomIntent.
     @Published var zoomRequest = ZoomRequest()
@@ -734,6 +746,26 @@ final class DocumentStore: ObservableObject {
 
     func setBooleanOp(_ id: String, to op: BooleanOp) {
         edit(id, actionName: "Change Boolean") { $0.booleanOp = op }
+    }
+
+    /// Records an erase stroke against a bitmap layer.
+    func erase(_ id: String, points: [CGPoint]) {
+        guard points.count >= 1 else { return }
+        edit(id, actionName: "Erase") { l in
+            guard case .bitmap = l.kind else { return }
+            l.erased.append(EraseStroke(points: points,
+                                        radius: CGFloat(self.eraseRadius),
+                                        softness: CGFloat(self.eraseSoftness)))
+        }
+    }
+
+    /// Throws away every erase on the selection, which is the thing a destructive
+    /// eraser could never offer.
+    func clearErasing() {
+        let ids = selection
+        mutatePage("Restore Erased") { page in
+            for id in ids { page.updateLayer(id) { $0.erased = [] } }
+        }
     }
 
     /// Renames a layer, for the layer list and its context menu.

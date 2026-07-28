@@ -104,6 +104,7 @@ public enum Shortcuts {
         .init(id: "insertText", title: "Text", key: "T", context: .canvas, group: "Insert"),
         .init(id: "vector", title: "Vector", key: "P", context: .canvas, group: "Insert"),
         .init(id: "select", title: "Select", key: "V", context: .canvas, group: "Insert"),
+        .init(id: "erase", title: "Erase", key: "E", context: .canvas, group: "Insert"),
 
         // Arrange
         .init(id: "bringForward", title: "Bring Forward", key: "]", modifiers: .command, group: "Arrange"),

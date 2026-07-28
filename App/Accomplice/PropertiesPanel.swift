@@ -20,6 +20,7 @@ struct PropertiesPanel: View {
                         geometry(layer)
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
+                        if case .bitmap = layer.kind { Divider(); eraser(layer) }
                         Divider(); shadows(layer)   // always: you add one from here
                         if case .text(let t) = layer.kind { Divider(); text(t, layer) }
                         if let pt = store.editingPoint { Divider(); pointType(pt) }
@@ -403,6 +404,41 @@ struct PropertiesPanel: View {
             if case .shapeGroup = page.layer(id)?.kind { return true }
         }
         return false
+    }
+
+    /// Brush settings, and the way back.
+    ///
+    /// Only on a bitmap, because there is nothing to rub out of a vector shape.
+    private func eraser(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Eraser")
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    NumberField(label: "Size", value: CGFloat(store.eraseRadius)) {
+                        store.eraseRadius = Double(max(1, $0))
+                    }
+                    NumberField(label: "Soft", value: CGFloat(store.eraseSoftness * 100), suffix: "%") {
+                        store.eraseSoftness = Double(min(100, max(0, $0)) / 100)
+                    }
+                }
+            }
+            if l.erased.isEmpty {
+                Text("Press E, then paint over the image.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            } else {
+                HStack {
+                    Text("\(l.erased.count) stroke\(l.erased.count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Restore") {
+                        store.selection = [l.id]
+                        store.clearErasing()
+                    }
+                    .font(.callout)
+                    .help("Bring the whole image back. Nothing was ever removed from it.")
+                }
+            }
+        }
     }
 
     private func combined(_ count: Int, _ rule: WindingRule, _ l: Layer) -> some View {

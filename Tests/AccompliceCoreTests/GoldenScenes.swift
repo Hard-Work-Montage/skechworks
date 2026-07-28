@@ -152,3 +152,42 @@ private func maskCircle(_ size: CGFloat) -> Layer {
 
     expectGolden("boolean-operations", page: page, maxDimension: 680)
 }
+
+@Test func goldenErasedBitmap() throws {
+    // A real image, erased three ways: hard, soft, and a dragged stroke. Numbers can
+    // say the mask is right; only a picture says the softness looks like softness.
+    let side = 200
+    guard let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                              bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+          let checks = { () -> CGImage? in
+              for y in 0..<10 {
+                  for x in 0..<10 {
+                      ctx.setFillColor(red: (x + y).isMultiple(of: 2) ? 0.2 : 0.75,
+                                       green: 0.35, blue: 0.6, alpha: 1)
+                      ctx.fill(CGRect(x: x * 20, y: y * 20, width: 20, height: 20))
+                  }
+              }
+              return ctx.makeImage()
+          }(),
+          let png = Renderer.png(checks) else {
+        Issue.record("couldn't build the test image"); return
+    }
+
+    func photo(_ x: CGFloat, _ strokes: [EraseStroke]) -> Layer {
+        var l = Layer(kind: .bitmap(imageRef: "checks"))
+        l.frame = CGRect(x: x, y: 20, width: 200, height: 200)
+        l.erased = strokes
+        return l
+    }
+    let centre = CGPoint(x: 100, y: 100)
+    var page = Page(name: "erase")
+    page.layers = [
+        plate(700, 240),
+        photo(20, [EraseStroke(points: [centre], radius: 60, softness: 0)]),
+        photo(250, [EraseStroke(points: [centre], radius: 60, softness: 1)]),
+        photo(480, [EraseStroke(points: [CGPoint(x: 40, y: 60), CGPoint(x: 160, y: 140)],
+                                radius: 28, softness: 0.6)]),
+    ]
+    expectGolden("erased-bitmap", page: page, images: ["checks": png], maxDimension: 700)
+}

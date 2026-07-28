@@ -72,6 +72,8 @@ final class PageCanvas: NSView {
     private var penCursor: CGPoint?
     /// Where a double-click would drop a new point, while hovering an edited path.
     private var insertPreview: CGPoint?
+    /// Where to draw the brush outline, when the eraser is over a bitmap.
+    private var brushAt: CGPoint?
     /// The segment and parameter that preview refers to, so the keyboard can use it.
     private var insertTarget: (segment: Int, t: CGFloat)?
     /// Last known pointer position in page space, for the keyboard shortcuts.
@@ -152,6 +154,13 @@ final class PageCanvas: NSView {
     var onNudge: ((CGFloat, CGFloat) -> Void)?
     var onDelete: (() -> Void)?
     var onZoom: ((ZoomIntent) -> Void)?
+    var onErase: ((String, [CGPoint]) -> Void)?
+    /// Brush size and softness, in page units, supplied by the store.
+    var eraseRadius: CGFloat = 24
+    var eraseSoftness: CGFloat = 0.5
+
+    /// The stroke in progress, in the target layer's own coordinates.
+    private var erasing: (layer: String, points: [CGPoint], transform: CGAffineTransform)?
 
     /// Live drag state. The model isn't touched until mouse-up; until then the canvas
     /// just offsets the already-composed drawables belonging to the dragged subtree.
@@ -274,6 +283,15 @@ final class PageCanvas: NSView {
 
     /// Picks the cursor for wherever the pointer is.
     private func updateCursor(at p: CGPoint) {
+        if tool == .erase {
+            // The ring IS the size control: you can see how big the brush is before
+            // committing a stroke you'd have to undo to judge.
+            brushAt = bitmapHit(p) != nil ? p : nil
+            needsDisplay = true
+            NSCursor.crosshair.set()
+            return
+        }
+        if brushAt != nil { brushAt = nil; needsDisplay = true }
         if editPath != nil {
             // Point editing has its own affordance.
             NSCursor.crosshair.set()
@@ -490,6 +508,7 @@ final class PageCanvas: NSView {
         drawPenPreview(ctx)
         drawArtboardLabels()
         ctx.restoreGState()
+        drawBrush(ctx)
         drawMinimap(ctx)
     }
 
@@ -648,6 +667,22 @@ final class PageCanvas: NSView {
                size: CGSize(width: r.width * scale, height: r.height * scale))
     }
 
+    /// The brush outline, drawn in page space so it scales with the artwork.
+    private func drawBrush(_ ctx: CGContext) {
+        guard tool == .erase, let p = brushAt else { return }
+        ctx.saveGState()
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -origin.x, y: -origin.y)
+        let ring = CGRect(x: p.x - eraseRadius, y: p.y - eraseRadius,
+                          width: eraseRadius * 2, height: eraseRadius * 2)
+        ctx.setLineWidth(1 / max(0.01, scale))
+        ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.7).cgColor)
+        ctx.strokeEllipse(in: ring)
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        ctx.strokeEllipse(in: ring.insetBy(dx: -1 / max(0.01, scale), dy: -1 / max(0.01, scale)))
+        ctx.restoreGState()
+    }
+
     // MARK: - Minimap
 
     /// The card's place in the view: bottom-left, clear of the status line.
@@ -797,6 +832,17 @@ final class PageCanvas: NSView {
 
     /// Hit-tests against the cached composition rather than recomposing per click.
     /// Named distinctly because NSView already has `hitTest(_:) -> NSView?`.
+    /// The bitmap under a point. Erasing only applies to images — there's nothing to
+    /// rub out of a vector shape, and quietly doing nothing is worse than not offering
+    /// the tool at all.
+    private func bitmapHit(_ point: CGPoint) -> Layer? {
+        for d in composed.reversed() where d.imageRef != nil {
+            let r = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
+            if r.contains(point) { return d.layer }
+        }
+        return nil
+    }
+
     /// What clicking on `leaf` selects.
     ///
     /// A group is one object: clicking any part of it selects the whole thing, not the
@@ -876,6 +922,16 @@ final class PageCanvas: NSView {
         if minimapJump(convert(event.locationInWindow, from: nil)) { return }
 
         let p = pagePoint(convert(event.locationInWindow, from: nil))
+
+        // --- Erase: paint on the bitmap under the pointer ---
+        if tool == .erase {
+            if let target = bitmapHit(p), let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
+                erasing = (target.id, [p.applying(t.inverted())], t)
+                needsDisplay = true
+            }
+            return
+        }
+
         dragAnchor = p
         dragOffset = .zero
         marquee = nil
@@ -1138,6 +1194,12 @@ final class PageCanvas: NSView {
         if let h = draggingHandle {
             editPath?.points[h.index].setHandle(out: h.out, to: p); needsDisplay = true; return
         }
+        if var stroke = erasing {
+            stroke.points.append(p.applying(stroke.transform.inverted()))
+            erasing = stroke
+            needsDisplay = true
+            return
+        }
         if let rot = rotating {
             var degrees = -(atan2(p.y - rot.centre.y, p.x - rot.centre.x) - rot.startAngle)
                 * 180 / .pi
@@ -1190,6 +1252,11 @@ final class PageCanvas: NSView {
         defer { needsDisplay = true }   // a click that commits nothing still changes what's drawn
         if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
         if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
+        if let stroke = erasing {
+            erasing = nil
+            onErase?(stroke.layer, stroke.points)
+            return
+        }
         if let rot = rotating {
             rotating = nil
             let d = rotationDelta
@@ -1363,6 +1430,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onNudge = { dx, dy in store.nudge(dx: dx, dy: dy) }
         canvas.onDelete = { store.deleteSelection() }
         canvas.onZoom = { store.zoom($0) }
+        canvas.onErase = { id, points in store.erase(id, points: points) }
+        canvas.eraseRadius = CGFloat(store.eraseRadius)
+        canvas.eraseSoftness = CGFloat(store.eraseSoftness)
         canvas.onPointSelected = { i, m in
             store.editingPoint = i.flatMap { idx in m.map { DocumentStore.EditingPoint(index: idx, mode: $0) } }
         }

@@ -133,6 +133,13 @@ public struct Renderer {
             ctx.concatenate(d.transform)
             let r = CGRect(origin: .zero, size: d.layer.frame.size)
 
+            // Erase strokes clip the image rather than altering it. Built at twice the
+            // layer size so a soft edge stays soft when you zoom in.
+            if !d.layer.erased.isEmpty,
+               let mask = EraseMask.image(strokes: d.layer.erased, size: r.size) {
+                ctx.clip(to: r, mask: mask)
+            }
+
             // Order is load-bearing. The EXIF transform is defined in y-DOWN display
             // space, so it has to be applied while we're still in that space. Flipping
             // first (for CGImage's y-up drawing) and rotating after mirrors the result.

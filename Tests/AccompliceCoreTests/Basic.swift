@@ -2428,3 +2428,98 @@ private func drawnBounds(_ page: Page) -> CGRect {
         Issue.record("should be a plain path now"); return
     }
 }
+
+// MARK: - Erasing a bitmap
+
+/// Reads the mask's grey value at a point in layer coordinates. White keeps, black
+/// erases, so this answers "was this bit rubbed out?".
+private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) -> Int? {
+    guard let img = EraseMask.image(strokes: strokes, size: size, scale: 1),
+          let data = img.dataProvider?.data,
+          let bytes = CFDataGetBytePtr(data) else { return nil }
+    let x = Int(p.x), y = Int(size.height - p.y)      // the mask is built y-up
+    guard x >= 0, y >= 0, x < img.width, y < img.height else { return nil }
+    return Int(bytes[y * img.bytesPerRow + x])
+}
+
+@Test func aHardStrokeRemovesWhatItCoversAndNothingElse() {
+    let size = CGSize(width: 200, height: 200)
+    let stroke = EraseStroke(points: [CGPoint(x: 100, y: 100)], radius: 30, softness: 0)
+
+    #expect(maskValue([stroke], size: size, at: CGPoint(x: 100, y: 100)) == 0)   // erased
+    #expect(maskValue([stroke], size: size, at: CGPoint(x: 20, y: 20)) == 255)   // untouched
+}
+
+@Test func softnessFadesTheEdgeRatherThanCuttingIt() {
+    let size = CGSize(width: 200, height: 200)
+    let soft = EraseStroke(points: [CGPoint(x: 100, y: 100)], radius: 40, softness: 1)
+
+    let centre = maskValue([soft], size: size, at: CGPoint(x: 100, y: 100)) ?? -1
+    let middle = maskValue([soft], size: size, at: CGPoint(x: 122, y: 100)) ?? -1
+    let outside = maskValue([soft], size: size, at: CGPoint(x: 145, y: 100)) ?? -1
+
+    // Effectively gone at the centre. Not exactly 0: at full softness the fade starts
+    // from the middle, so the very centre pixel carries a little of the gradient.
+    #expect(centre < 10)
+    #expect(middle > 20 && middle < 235)       // and part-way out, part-way gone
+    #expect(outside == 255)                    // beyond the brush, untouched
+}
+
+@Test func aHardBrushHasNoGradientAtAll() {
+    let size = CGSize(width: 200, height: 200)
+    let hard = EraseStroke(points: [CGPoint(x: 100, y: 100)], radius: 40, softness: 0)
+    // Just inside the edge is still fully erased, unlike the soft brush.
+    #expect(maskValue([hard], size: size, at: CGPoint(x: 135, y: 100)) == 0)
+}
+
+@Test func aDraggedStrokeErasesTheWholeLineNotJustTheEnds() {
+    // Stamped along the path: a gap in the middle would mean the dab spacing is wrong.
+    let size = CGSize(width: 300, height: 100)
+    let drag = EraseStroke(points: [CGPoint(x: 30, y: 50), CGPoint(x: 270, y: 50)],
+                           radius: 15, softness: 0)
+    for x in stride(from: 35.0, through: 265.0, by: 10.0) {
+        #expect(maskValue([drag], size: size, at: CGPoint(x: x, y: 50)) == 0,
+                "gap at x=\(x)")
+    }
+}
+
+@Test func erasingIsStoredNotBurntIntoThePicture() throws {
+    // The same photo is used on several coins; an erase that edited the pixels would
+    // be a second copy of it.
+    var photo = Layer(kind: .bitmap(imageRef: "coin.png"))
+    photo.name = "Photo"
+    photo.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+    photo.erased = [EraseStroke(points: [CGPoint(x: 50, y: 50), CGPoint(x: 150, y: 150)],
+                                radius: 20, softness: 0.6)]
+
+    var page = Page(name: "Page 1")
+    page.layers = [photo]
+    var doc = Document()
+    doc.pages = [page]
+
+    let (back, _) = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    let restored = back.pages[0].layers[0]
+    #expect(restored.erased.count == 1)
+    #expect(restored.erased[0].points.count == 2)
+    #expect(restored.erased[0].radius == 20)
+    #expect(abs(restored.erased[0].softness - 0.6) < 0.001)
+    // Still a plain bitmap reference: the image itself was never rewritten.
+    guard case .bitmap(let ref) = restored.kind else { Issue.record("not a bitmap"); return }
+    #expect(ref == "coin.png")
+}
+
+@Test func anEraseCountsAsAChange() {
+    var l = Layer(kind: .bitmap(imageRef: "x.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let clean = l.contentSignature
+    l.erased = [EraseStroke(points: [CGPoint(x: 10, y: 10)], radius: 5)]
+    #expect(l.contentSignature != clean)
+
+    let one = l.contentSignature
+    l.erased[0].radius = 25
+    #expect(l.contentSignature != one, "changing the brush size is a change too")
+}
+
+@Test func anEmptyStrokeListCostsNothing() {
+    #expect(EraseMask.image(strokes: [], size: CGSize(width: 100, height: 100)) == nil)
+}

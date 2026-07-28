@@ -180,6 +180,8 @@ struct AccompliceApp: App {
                     .shortcut("select")
                 Button("Vector") { AppDelegate.shared?.active?.tool = .pen }
                     .shortcut("vector")
+                Button("Erase") { AppDelegate.shared?.active?.tool = .erase }
+                    .shortcut("erase")
             }
             CommandGroup(replacing: .saveItem) {
                 // Close lives in this placement too, not in .newItem — replacing the
