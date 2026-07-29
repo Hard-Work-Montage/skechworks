@@ -78,7 +78,16 @@ final class CloseGuard: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let store, store.isDirty else { return true }
+        // Closing the last tab in a group would otherwise close the window itself —
+        // and if it's the only window left, that quits the app. Resetting to a fresh
+        // document in place keeps a window around the way ⌘N would, instead of
+        // dropping you with nothing (or nothing at all).
+        let isLastTab = (sender.tabGroup?.windows.count ?? 1) <= 1
+
+        guard let store, store.isDirty else {
+            if isLastTab { store?.newDocument(); return false }
+            return true
+        }
 
         let alert = NSAlert()
         alert.messageText = "Do you want to save the changes made to “\(store.displayName)”?"
@@ -93,10 +102,13 @@ final class CloseGuard: NSObject, NSWindowDelegate {
                 case .alertFirstButtonReturn:
                     // Only close if the bytes actually landed — an untitled document
                     // goes through Save As, and cancelling that must not lose the work.
-                    store.save { saved in if saved { sender.close() } }
+                    store.save { saved in
+                        guard saved else { return }
+                        if isLastTab { store.newDocument() } else { sender.close() }
+                    }
                 case .alertSecondButtonReturn:
                     store.discardChanges()
-                    sender.close()
+                    if isLastTab { store.newDocument() } else { sender.close() }
                 default:
                     break   // Cancel: stay open
                 }
