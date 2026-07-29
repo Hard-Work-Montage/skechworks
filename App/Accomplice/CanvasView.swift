@@ -1166,6 +1166,25 @@ final class PageCanvas: NSView {
         // Not a single click: in point-editing a single click already selects and
         // drags points and starts a marquee, so it has nowhere free to go.
         // --- Double-click a shape to edit its points ---
+        // Double-click inside a subtracted hole: the composed fill has nothing there,
+        // so the normal hit walks straight past the shape and lands on the artboard —
+        // Sketch's only way back in is the layer list. But the member that CUT the
+        // hole still covers that point, so the cut-out itself can be found and edited
+        // from the canvas.
+        if event.clickCount >= 2, editPath == nil, tool == .select {
+            let plain = layerHit(p)
+            if plain == nil || plain?.isArtboard == true {
+                for d in composed.reversed() {
+                    guard case .shapeGroup = d.layer.kind,
+                          let member = memberPathHit(in: d.layer, at: p) else { continue }
+                    enteredGroup = d.layer.id
+                    editingLayerID = member
+                    onSelect?(member, false)
+                    return
+                }
+            }
+        }
+
         if event.clickCount >= 2, editPath == nil, tool == .select, let leaf = layerHit(p) {
             // Already on the layer itself and it's a path: the next step in is its
             // points.
@@ -1177,8 +1196,13 @@ final class PageCanvas: NSView {
             // group is all a click can hit — there is no plain path to step onto, and
             // without this the double-click just re-selected the group forever. Go
             // straight to the points of the member under the pointer instead, the
-            // same one gesture a plain path gets.
-            if selected == [leaf.id], case .shapeGroup = leaf.kind,
+            // same one gesture a plain path gets. A member picked in the layer list
+            // counts too: double-clicking the shape then edits that member's points
+            // rather than bouncing back out to the group.
+            if case .shapeGroup = leaf.kind,
+               selected == [leaf.id]
+                || (selected.count == 1
+                    && page?.ancestors(of: selected.first!).contains(leaf.id) == true),
                let member = memberPathHit(in: leaf, at: p) {
                 enteredGroup = leaf.id
                 editingLayerID = member
@@ -1643,8 +1667,19 @@ final class PageCanvas: NSView {
     override func keyDown(with event: NSEvent) {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
-        case 36:   // return — finish an open path
+        case 36:   // return — finish an open path, or step into the selected path
             if tool == .pen { finishPen(close: false); onExitTool?(); return }
+            // Sketch's Enter: point editing on whatever is selected. This is also the
+            // reliable way into a combined shape's member picked from the layer list —
+            // no hunting for a spot the hit-test can reach.
+            if tool == .select, editingLayerID == nil, selected.count == 1,
+               let id = selected.first, let page,
+               let l = page.layer(id), case .path = l.kind {
+                if let group = page.ancestors(of: id).last,
+                   page.layer(group)?.isContainer == true { enteredGroup = group }
+                editingLayerID = id
+                return
+            }
         case 53:   // escape — abandon
             // Escape drops whatever is half-drawn *and* hands the cursor back. Staying
             // in the pen after cancelling was the trap: nothing on screen changed, so
