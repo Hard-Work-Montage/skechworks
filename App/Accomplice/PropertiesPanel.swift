@@ -128,12 +128,8 @@ struct PropertiesPanel: View {
             if l.isArtboard {
                 Divider().padding(.vertical, 2)
                 sectionTitle("Artboard")
-                if let bg = l.backgroundColor {
-                    HStack(spacing: 8) {
-                        swatch(bg)
-                        Text(bg.hex.uppercased()).font(.system(.body, design: .monospaced))
-                        Spacer()
-                    }
+                ColorField(color: l.backgroundColor ?? Color(r: 1, g: 1, b: 1, a: 1)) {
+                    store.setArtboardBackground(l.id, to: $0)
                 }
                 // Sketch's "Include in export" checkbox. The coin front/back artboards
                 // keep this off: white while you work, transparent when engraved.
@@ -153,52 +149,111 @@ struct PropertiesPanel: View {
     }
 
     private func fills(_ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Fill")
-            ForEach(Array(l.style.fills.enumerated()), id: \.offset) { _, f in
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                sectionTitle("Fill")
+                Spacer()
+                Button { store.addFill(l.id) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Add a fill")
+            }
+            ForEach(Array(l.style.fills.enumerated()), id: \.offset) { i, f in
                 switch f.paint {
                 case .color(let c):
                     HStack(spacing: 8) {
-                        swatch(c)
-                        Text(c.hex.uppercased()).font(.system(.body, design: .monospaced))
-                        Spacer()
-                        if c.a != 1 {
-                            Text("\(Int(c.a * 100))%").font(.caption).foregroundStyle(.secondary)
-                        }
+                        ColorField(color: c) { store.setFillColor(l.id, at: i, to: $0) }
+                        removeButton("Remove fill") { store.removeFill(l.id, at: i) }
                     }
                 case .gradient(let g):
-                    HStack(spacing: 8) {
-                        LinearGradient(colors: g.stops.map { Color(nsColor: NSColor(cgColor: $0.color.cg) ?? .black) },
-                                       startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 22, height: 22)
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
-                        Text("\(["Linear", "Radial", "Angular"][g.kind.rawValue]) · \(g.stops.count) stops")
-                        Spacer()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            LinearGradient(colors: g.stops.map { SwiftUI.Color(nsColor: $0.color.nsColor) },
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 44, height: 20)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
+                            Text("\(["Linear", "Radial", "Angular"][g.kind.rawValue])")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            removeButton("Remove fill") { store.removeFill(l.id, at: i) }
+                        }
+                        // One row per stop. Positions aren't draggable yet — this is
+                        // recolouring an existing gradient, not authoring a new one.
+                        ForEach(Array(g.stops.enumerated()), id: \.offset) { j, stop in
+                            HStack(spacing: 8) {
+                                Text("\(Int(stop.position * 100))%")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 34, alignment: .trailing)
+                                ColorField(color: stop.color) {
+                                    store.setGradientStopColor(l.id, fill: i, stop: j, to: $0)
+                                }
+                            }
+                        }
+                        .padding(.leading, 4)
                     }
                 }
+            }
+            if l.style.fills.isEmpty {
+                Text("No fill").font(.caption).foregroundStyle(.tertiary)
             }
         }
     }
 
     private func borders(_ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionTitle("Border")
-            ForEach(Array(l.style.borders.enumerated()), id: \.offset) { _, b in
-                HStack(spacing: 8) {
-                    swatch(b.color)
-                    Text(b.color.hex.uppercased()).font(.system(.body, design: .monospaced))
-                    Spacer()
-                    Text("\(trim(b.thickness))pt")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    Text(["Center", "Inside", "Outside"][b.position.rawValue])
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if !b.dashPattern.isEmpty {
-                    Text("Dashed · \(b.dashPattern.map(trim).joined(separator: ", "))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                sectionTitle("Border")
+                Spacer()
+                Button { store.addBorder(l.id) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Add a border")
             }
+            ForEach(Array(l.style.borders.enumerated()), id: \.offset) { i, b in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        ColorField(color: b.color) { store.setBorderColor(l.id, at: i, to: $0) }
+                        removeButton("Remove border") { store.removeBorder(l.id, at: i) }
+                    }
+                    HStack(spacing: 8) {
+                        numberField("Width", b.thickness) { store.setBorderThickness(l.id, at: i, to: $0) }
+                        Picker("", selection: Binding(
+                            get: { b.position },
+                            set: { store.setBorderPosition(l.id, at: i, to: $0) }
+                        )) {
+                            Text("Center").tag(BorderPosition.center)
+                            Text("Inside").tag(BorderPosition.inside)
+                            Text("Outside").tag(BorderPosition.outside)
+                        }
+                        .labelsHidden().pickerStyle(.menu).frame(width: 92)
+                    }
+                    if !b.dashPattern.isEmpty {
+                        Text("Dashed · \(b.dashPattern.map(trim).joined(separator: ", "))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if i < l.style.borders.count - 1 { Divider() }
+            }
+            if l.style.borders.isEmpty {
+                Text("No border").font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func removeButton(_ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "minus") }
+            .buttonStyle(.plain).foregroundStyle(.tertiary).help(help)
+    }
+
+    private func numberField(_ label: String, _ value: CGFloat,
+                             _ set: @escaping (CGFloat) -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            TextField("", value: Binding(get: { Double(value) }, set: { set(CGFloat($0)) }),
+                      format: .number.precision(.fractionLength(0...2)))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 52)
+                .multilineTextAlignment(.trailing)
         }
     }
 
@@ -231,13 +286,11 @@ struct PropertiesPanel: View {
     private func shadowEditor(_ l: Layer, _ i: Int, _ s: Shadow) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
-                swatch(s.color)
-                Text(s.color.hex.uppercased()).font(.system(.caption, design: .monospaced))
-                Spacer()
-                Text("\(Int(s.color.a * 100))%").font(.caption).foregroundStyle(.secondary)
-                Button { store.removeShadow(l.id, at: i) } label: { Image(systemName: "minus") }
-                    .buttonStyle(.plain).foregroundStyle(.tertiary)
-                    .help("Remove")
+                ColorField(color: s.color) { c in
+                    store.editShadow(l.id, at: i, actionName: "Change Shadow Colour",
+                                     coalescingAs: "shadow:\(l.id):\(i)") { $0.color = c }
+                }
+                removeButton("Remove shadow") { store.removeShadow(l.id, at: i) }
             }
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
@@ -495,13 +548,6 @@ struct PropertiesPanel: View {
                 .padding(.vertical, 3).padding(.horizontal, 6)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
         }
-    }
-
-    private func swatch(_ c: AccompliceCore.Color) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(SwiftUI.Color(nsColor: NSColor(cgColor: c.cg) ?? .black))
-            .frame(width: 22, height: 22)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
     }
 
     private func trim(_ v: CGFloat) -> String {

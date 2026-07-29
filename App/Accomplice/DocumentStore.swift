@@ -16,7 +16,11 @@ final class DocumentStore: ObservableObject {
     /// The selection. A set rather than a single id because boolean ops, aligning and
     /// bulk moves all act on several layers at once, and retrofitting that later would
     /// touch every edit path.
-    @Published var selection: Set<String> = []
+    @Published var selection: Set<String> = [] {
+        // Selecting something else ends whatever was being dragged, so the next
+        // colour change starts its own undo step rather than joining the last one.
+        didSet { if selection != oldValue { endCoalescing() } }
+    }
 
     enum Tool: String, CaseIterable {
         case select, pen, erase
@@ -276,13 +280,41 @@ final class DocumentStore: ObservableObject {
     /// diffing properties. A Layer is a value type, so a snapshot is cheap and
     /// correct by construction — no chance of an undo step that restores position
     /// but forgets the fill.
-    func edit(_ layerID: String, actionName: String, _ body: (inout Layer) -> Void) {
-        edit([layerID], actionName: actionName, body)
+    func edit(_ layerID: String, actionName: String,
+              coalescingAs key: String? = nil,
+              _ body: (inout Layer) -> Void) {
+        edit([layerID], actionName: actionName, coalescingAs: key, body)
     }
+
+    /// The continuous edit in progress, if any.
+    ///
+    /// A colour well fires on every tick of the drag. Registering an undo step per tick
+    /// would make ⌘Z walk backwards through every shade you passed through on the way,
+    /// which is not what "undo" means to anyone. So the first edit under a given key
+    /// registers the step and the rest ride on it: one gesture, one undo.
+    private var coalescing: String?
+
+    /// The redo snapshot of the open coalesced step, kept current as the drag runs.
+    /// A box rather than a value because the registered undo closure has already
+    /// captured it by the time the second tick arrives.
+    private final class RedoBox {
+        var layers: [String: Layer]
+        init(_ l: [String: Layer]) { layers = l }
+    }
+    private var coalescingRedo: RedoBox?
+
+    /// Ends any run of coalesced edits, so the next one starts a fresh undo step.
+    /// Called when the selection or page changes, and after undo/redo.
+    func endCoalescing() { coalescing = nil; coalescingRedo = nil }
 
     /// Applies the same change across several layers as ONE undo step — so moving a
     /// six-layer selection is one ⌘Z, not six.
-    func edit(_ ids: [String], actionName: String, _ body: (inout Layer) -> Void) {
+    ///
+    /// Pass `coalescingAs` for a value being dragged: consecutive edits sharing a key
+    /// collapse into the step the first one registered.
+    func edit(_ ids: [String], actionName: String,
+              coalescingAs key: String? = nil,
+              _ body: (inout Layer) -> Void) {
         guard var page, let src = source, !ids.isEmpty else { return }
         var before: [String: Layer] = [:], after: [String: Layer] = [:]
         for id in ids {
@@ -294,7 +326,16 @@ final class DocumentStore: ObservableObject {
         guard !before.isEmpty else { return }
 
         apply(page, at: pageIndex, src: src)
-        registerUndo(restore: before, redo: after, pageIndex: pageIndex, actionName: actionName)
+        if key != nil, key == coalescing, let open = coalescingRedo {
+            // Riding on the step the first tick registered. Its redo snapshot has to
+            // keep up with the drag, or redo would jump back to the first shade.
+            open.layers = after
+        } else {
+            let box = RedoBox(after)
+            registerUndo(restore: before, redo: box, pageIndex: pageIndex, actionName: actionName)
+            coalescingRedo = key == nil ? nil : box
+        }
+        coalescing = key
         revision += 1
         isDirty = true
         refreshUndoState()
@@ -614,6 +655,86 @@ final class DocumentStore: ObservableObject {
 
     /// A new shadow, with the settings you'd have typed anyway: soft, black, slightly
     /// below. A shadow added at 0/0/0 looks like nothing happened.
+    // MARK: - Fills and borders
+
+    /// Sets a solid fill colour. `coalescing` is on by default because this is nearly
+    /// always driven by a colour well being dragged.
+    func setFillColor(_ id: String, at index: Int, to c: Color) {
+        edit(id, actionName: "Change Fill", coalescingAs: "fill:\(id):\(index)") { l in
+            guard l.style.fills.indices.contains(index) else { return }
+            l.style.fills[index].paint = .color(c)
+        }
+    }
+
+    /// Moves one stop of a gradient. Position stays put; only the colour changes.
+    func setGradientStopColor(_ id: String, fill index: Int, stop: Int, to c: Color) {
+        edit(id, actionName: "Change Gradient", coalescingAs: "grad:\(id):\(index):\(stop)") { l in
+            guard l.style.fills.indices.contains(index),
+                  case .gradient(var g) = l.style.fills[index].paint,
+                  g.stops.indices.contains(stop) else { return }
+            g.stops[stop].color = c
+            l.style.fills[index].paint = .gradient(g)
+        }
+    }
+
+    func setBorderColor(_ id: String, at index: Int, to c: Color) {
+        edit(id, actionName: "Change Border", coalescingAs: "border:\(id):\(index)") { l in
+            guard l.style.borders.indices.contains(index) else { return }
+            l.style.borders[index].color = c
+        }
+    }
+
+    func setBorderThickness(_ id: String, at index: Int, to w: CGFloat) {
+        edit(id, actionName: "Change Border Width") { l in
+            guard l.style.borders.indices.contains(index) else { return }
+            l.style.borders[index].thickness = max(0, w)
+        }
+    }
+
+    func setBorderPosition(_ id: String, at index: Int, to p: BorderPosition) {
+        edit(id, actionName: "Change Border Position") { l in
+            guard l.style.borders.indices.contains(index) else { return }
+            l.style.borders[index].position = p
+        }
+    }
+
+    func setArtboardBackground(_ id: String, to c: Color) {
+        edit(id, actionName: "Change Artboard Colour", coalescingAs: "artboard:\(id)") {
+            $0.backgroundColor = c
+        }
+    }
+
+    /// A new fill starts mid-grey rather than black: black on a white artboard reads as
+    /// "it worked", and black on a dark one reads as "nothing happened".
+    func addFill(_ id: String) {
+        edit(id, actionName: "Add Fill") {
+            $0.style.fills.append(Fill(paint: .color(Color(r: 0.5, g: 0.5, b: 0.5, a: 1))))
+        }
+    }
+
+    func removeFill(_ id: String, at index: Int) {
+        edit(id, actionName: "Remove Fill") {
+            guard $0.style.fills.indices.contains(index) else { return }
+            $0.style.fills.remove(at: index)
+        }
+    }
+
+    func addBorder(_ id: String) {
+        edit(id, actionName: "Add Border") {
+            var b = Border()
+            b.color = .black
+            b.thickness = 1
+            $0.style.borders.append(b)
+        }
+    }
+
+    func removeBorder(_ id: String, at index: Int) {
+        edit(id, actionName: "Remove Border") {
+            guard $0.style.borders.indices.contains(index) else { return }
+            $0.style.borders.remove(at: index)
+        }
+    }
+
     func addShadow(_ id: String) {
         edit(id, actionName: "Add Shadow") { l in
             var s = Shadow()
@@ -632,8 +753,9 @@ final class DocumentStore: ObservableObject {
     }
 
     func editShadow(_ id: String, at index: Int, actionName: String,
+                    coalescingAs key: String? = nil,
                     _ body: @escaping (inout Shadow) -> Void) {
-        edit(id, actionName: actionName) { l in
+        edit([id], actionName: actionName, coalescingAs: key) { l in
             guard l.style.shadows.indices.contains(index) else { return }
             body(&l.style.shadows[index])
         }
@@ -1031,15 +1153,24 @@ final class DocumentStore: ObservableObject {
         selection = extend ? selection.union(hits) : hits
     }
 
-    private func registerUndo(restore: [String: Layer], redo: [String: Layer],
+    /// How many undo steps have been registered. Only tests read it — asking "did that
+    /// drag make one step or ninety" any other way means reasoning about UndoManager's
+    /// run-loop grouping, which a synchronous test can't reproduce.
+    private(set) var undoStepsRegistered = 0
+
+    private func registerUndo(restore: [String: Layer], redo: RedoBox,
                               pageIndex idx: Int, actionName: String) {
+        undoStepsRegistered += 1
         undoManager.registerUndo(withTarget: self) { store in
             MainActor.assumeIsolated {
                 store.replaceLayers(restore, pageIndex: idx)
-                // Registering during undo is what makes redo work.
-                store.registerUndo(restore: redo, redo: restore,
+                // Registering during undo is what makes redo work. Reading the box
+                // here rather than at registration is what lets a coalesced gesture
+                // finish before its redo state is fixed.
+                store.registerUndo(restore: redo.layers, redo: RedoBox(restore),
                                    pageIndex: idx, actionName: actionName)
                 store.isDirty = true
+                store.endCoalescing()
                 store.refreshUndoState()
             }
         }

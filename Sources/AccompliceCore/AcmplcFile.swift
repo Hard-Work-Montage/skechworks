@@ -331,12 +331,7 @@ public struct AcmplcFile {
     }
 
     private static func colorFrom(_ hex: String, _ alpha: CGFloat) -> Color? {
-        var h = hex
-        if h.hasPrefix("#") { h.removeFirst() }
-        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
-        return Color(r: CGFloat((v >> 16) & 0xff) / 255,
-                     g: CGFloat((v >> 8) & 0xff) / 255,
-                     b: CGFloat(v & 0xff) / 255, a: alpha)
+        Color(hex: hex, alpha: alpha)
     }
 
     private static func dbl(_ v: Any?) -> CGFloat? {

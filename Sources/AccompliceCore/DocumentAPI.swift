@@ -525,8 +525,30 @@ extension Layer {
     public var contentSignature: String {
         var s = "\(id)|\(name)|\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
         s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation * 100))"
-        s += "|\(firstFillHex ?? "-")|\(style.borders.first.map { "\($0.color.hex):\(Int($0.thickness)) " } ?? "-")"
-        s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)\(backgroundColor?.hex ?? "-")"
+        // EVERY fill and border, not just the first, and including alpha — `hex` is
+        // #rrggbb only. Seventh time this has caught an edit, and this one was found
+        // by reading rather than by an edit vanishing: a colour well can change the
+        // second fill, a fill's alpha, or one gradient stop, and the old signature
+        // could see none of the three. Whatever replaces this must be exhaustive
+        // by construction; a list you have to remember to extend will keep doing this.
+        s += "|" + style.fills.map { f in
+            let paint: String
+            switch f.paint {
+            case .color(let c): paint = "\(c.hex)\(Int(c.a * 1000))"
+            case .gradient(let g):
+                paint = "g\(g.kind.rawValue):\(Int(g.from.x * 100)),\(Int(g.from.y * 100))"
+                    + ":\(Int(g.to.x * 100)),\(Int(g.to.y * 100)):"
+                    + g.stops.map { "\(Int($0.position * 1000))@\($0.color.hex)\(Int($0.color.a * 1000))" }
+                        .joined(separator: "/")
+            }
+            return "\(paint)x\(Int(f.opacity * 1000))"
+        }.joined(separator: ",")
+        s += "|" + style.borders.map {
+            "\($0.color.hex)\(Int($0.color.a * 1000)):\(Int($0.thickness * 100)):\($0.position.rawValue)"
+                + ":\($0.dashPattern.map { d in String(Int(d)) }.joined(separator: "-"))"
+        }.joined(separator: ",")
+        s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)"
+        s += backgroundColor.map { "\($0.hex)\(Int($0.a * 1000))" } ?? "-"
         // Marking a mask changes no geometry. Left out, mutatePage sees an unchanged
         // page and throws the edit away — which it did whenever the shape was already
         // at the back, so Use as Mask worked from the layer list and not from the canvas.

@@ -613,6 +613,116 @@ private func styledPage() -> Page {
     #expect(untouched.contentSignature == original)
 }
 
+@Test func hexParsesEveryFormAColourArrivesIn() {
+    // #rrggbb, the ordinary case, with and without the hash.
+    #expect(Color(hex: "#A9A9A9")!.matches(Color(r: 169/255, g: 169/255, b: 169/255, a: 1)))
+    #expect(Color(hex: "a9a9a9")!.matches(Color(hex: "#A9A9A9")!))
+    // Shorthand, as CSS writes it.
+    #expect(Color(hex: "#f00")!.matches(Color(r: 1, g: 0, b: 0, a: 1)))
+    // Eight digits carry their own alpha and must win over the parameter.
+    #expect(abs(Color(hex: "#00000080", alpha: 1)!.a - 128.0/255.0) < 1e-9)
+    // Six digits don't, so the parameter is what's left of the old colour's alpha —
+    // typing a new hex into the field shouldn't silently make a translucent fill opaque.
+    #expect(Color(hex: "#000000", alpha: 0.25)!.a == 0.25)
+    #expect(Color(hex: "#ffffff")!.matches(Color(r: 1, g: 1, b: 1, a: 1)))
+
+    for junk in ["", "#", "nope", "#12345", "#gggggg", "#1234567", "  "] {
+        #expect(Color(hex: junk) == nil, "\"\(junk)\" should not parse")
+    }
+    // Surrounding whitespace survives a copy-paste and shouldn't.
+    #expect(Color(hex: "  #A9A9A9\n")!.matches(Color(hex: "#a9a9a9")!))
+}
+
+@Test func colourEqualityIgnoresNothingThatMatters() {
+    let c = Color(r: 0.5, g: 0.5, b: 0.5, a: 1)
+    // Same rgb, different alpha, is a different colour. Comparing on `hex` alone —
+    // which is #rrggbb — would call these equal and drop the change.
+    #expect(!c.matches(Color(r: 0.5, g: 0.5, b: 0.5, a: 0.5)))
+    // Below what the file stores, so it isn't an edit.
+    #expect(c.matches(Color(r: 0.5001, g: 0.5, b: 0.5, a: 1)))
+}
+
+/// Every editable, non-geometric property, one per row.
+///
+/// The signature has silently discarded an edit seven times — point types, masks,
+/// shadows, rotation, erase, and twice on fills — each found only because something
+/// stopped working in the app. Each fix added one field and left the next gap in
+/// place. This is the standing list: adding an editable property means adding a row,
+/// and the row fails until the signature can see it.
+@Test func contentSignatureSeesEveryEditableProperty() {
+    var base = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+    base.id = "x"
+    base.name = "before"
+    base.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    base.style.fills = [Fill(paint: .color(Color(r: 1, g: 0, b: 0, a: 1))),
+                        Fill(paint: .color(Color(r: 0, g: 1, b: 0, a: 1)))]
+    var border = Border()
+    border.color = .black
+    border.thickness = 1
+    base.style.borders = [border]
+    base.style.shadows = [Shadow()]
+
+    var gradient = Gradient()
+    gradient.stops = [(position: 0, color: .black), (position: 1, color: Color(r: 1, g: 1, b: 1, a: 1))]
+
+    let edits: [(String, (inout Layer) -> Void)] = [
+        ("rename", { $0.name = "after" }),
+        ("move", { $0.frame.origin.x += 5 }),
+        ("resize", { $0.frame.size.width += 5 }),
+        ("hide", { $0.isVisible = false }),
+        ("layer opacity", { $0.style.opacity = 0.5 }),
+        ("rotate", { $0.rotation = 12.5 }),
+        // A hair under a degree: rotation used to be rounded to whole degrees here,
+        // so nudging a layer round did nothing until you passed the next integer.
+        ("rotate by a fraction of a degree", { $0.rotation = 0.4 }),
+        ("first fill colour", { $0.style.fills[0].paint = .color(Color(r: 0, g: 0, b: 1, a: 1)) }),
+        // Only the first fill was ever in the signature.
+        ("second fill colour", { $0.style.fills[1].paint = .color(Color(r: 0, g: 0, b: 1, a: 1)) }),
+        // `hex` is #rrggbb; alpha travels separately and was dropped.
+        ("fill alpha", { $0.style.fills[0].paint = .color(Color(r: 1, g: 0, b: 0, a: 0.5)) }),
+        ("fill opacity", { $0.style.fills[0].opacity = 0.5 }),
+        ("add a fill", { $0.style.fills.append(Fill(paint: .color(.black))) }),
+        ("remove a fill", { $0.style.fills.removeLast() }),
+        ("fill becomes a gradient", { $0.style.fills[0].paint = .gradient(gradient) }),
+        ("gradient stop colour", {
+            var g = gradient
+            g.stops[0].color = Color(r: 0.5, g: 0.5, b: 0.5, a: 1)
+            $0.style.fills[0].paint = .gradient(g)
+        }),
+        ("gradient direction", {
+            var g = gradient
+            g.to = CGPoint(x: 1, y: 1)
+            $0.style.fills[0].paint = .gradient(g)
+        }),
+        ("border colour", { $0.style.borders[0].color = Color(r: 0, g: 0, b: 1, a: 1) }),
+        ("border alpha", { $0.style.borders[0].color = Color(r: 0, g: 0, b: 0, a: 0.5) }),
+        // Thickness was stored as Int, so 1pt to 1.5pt was invisible.
+        ("fractional border thickness", { $0.style.borders[0].thickness = 1.5 }),
+        ("border position", { $0.style.borders[0].position = .inside }),
+        ("border dash", { $0.style.borders[0].dashPattern = [4, 2] }),
+        ("add a border", { $0.style.borders.append(Border()) }),
+        ("shadow colour", { $0.style.shadows[0].color = Color(r: 1, g: 0, b: 0, a: 1) }),
+        ("shadow offset", { $0.style.shadows[0].offset = CGSize(width: 3, height: 3) }),
+        ("shadow blur", { $0.style.shadows[0].blur = 20 }),
+        ("shadow spread", { $0.style.shadows[0].spread = 4 }),
+        ("add a shadow", { $0.style.shadows.append(Shadow()) }),
+        ("mask", { $0.hasClippingMask = true }),
+        ("break the mask chain", { $0.breaksMaskChain = true }),
+        ("erase", { $0.erased = [EraseStroke(points: [.zero], radius: 4, softness: 0.5)] }),
+    ]
+
+    for (what, apply) in edits {
+        var changed = base
+        apply(&changed)
+        #expect(changed.contentSignature != base.contentSignature,
+                "changing \(what) left the signature identical, so the edit is discarded")
+    }
+
+    var untouched = base
+    untouched.name = base.name
+    #expect(untouched.contentSignature == base.contentSignature)
+}
+
 @Test func setFillAcceptsTheKeyTheModelActuallyUsed() {
     // Verbatim from qwen3-coder:30b, asked to "update all the black fills to dark
     // gray". It used "value" where the schema said "hex"; the strict decoder dropped

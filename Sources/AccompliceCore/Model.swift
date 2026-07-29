@@ -329,6 +329,29 @@ public struct Color: Sendable {
         func c(_ v: CGFloat) -> Int { max(0, min(255, Int((v * 255).rounded()))) }
         return String(format: "#%02x%02x%02x", c(r), c(g), c(b))
     }
+
+    /// Accepts `#rgb`, `#rrggbb`, `#rrggbbaa` and any of those without the hash —
+    /// all four turn up depending on where the colour was copied from. `alpha`
+    /// applies only when the string doesn't carry its own.
+    public init?(hex: String, alpha: CGFloat = 1) {
+        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard !s.isEmpty, s.allSatisfy(\.isHexDigit) else { return nil }
+        if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
+        guard s.count == 6 || s.count == 8, let v = UInt32(s, radix: 16) else { return nil }
+        let carriesAlpha = s.count == 8
+        let shift: UInt32 = carriesAlpha ? 8 : 0
+        func byte(_ n: UInt32) -> CGFloat { CGFloat((v >> (n + shift)) & 0xFF) / 255 }
+        self.init(r: byte(16), g: byte(8), b: byte(0),
+                  a: carriesAlpha ? CGFloat(v & 0xFF) / 255 : alpha)
+    }
+
+    /// Equal to the precision the file stores, so round-tripping a colour through the
+    /// system colour panel doesn't read as an edit.
+    public func matches(_ other: Color) -> Bool {
+        func q(_ v: CGFloat) -> Int { Int((v * 1000).rounded()) }
+        return q(r) == q(other.r) && q(g) == q(other.g) && q(b) == q(other.b) && q(a) == q(other.a)
+    }
 }
 
 public enum GradientKind: Int, Sendable { case linear = 0, radial = 1, angular = 2 }

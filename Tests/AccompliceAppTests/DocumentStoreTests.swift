@@ -319,3 +319,94 @@ extension PageTests {
     }
 }
 
+
+// MARK: - Colour
+
+extension DocumentStoreTests {
+
+    private func fillHex(_ store: DocumentStore, _ id: String) -> String? {
+        guard case .color(let c)? = store.page?.layer(id)?.style.fills.first?.paint else { return nil }
+        return c.hex
+    }
+
+    /// The system colour panel reports continuously while you drag around the wheel.
+    /// One undo step per report would make ⌘Z walk back through every shade you passed
+    /// through on the way to the one you wanted.
+    func testDraggingThroughColoursIsOneUndoStep() {
+        let (store, _, photo) = loaded()
+        store.selection = [photo]
+        store.addFill(photo)
+        let steps = store.undoStepsRegistered
+
+        for shade in stride(from: 0.1, through: 0.9, by: 0.1) {
+            store.setFillColor(photo, at: 0, to: Color(r: shade, g: 0, b: 0, a: 1))
+        }
+        XCTAssertEqual(store.undoStepsRegistered, steps + 1,
+                       "nine reports from the colour panel should be one undo step, not nine")
+        XCTAssertEqual(fillHex(store, photo), "#e60000")
+
+        // And redo has to land where the drag ENDED. The redo snapshot is captured
+        // when the step opens, so unless the gesture keeps it current this comes back
+        // #1a0000 — the first shade passed through on the way.
+        store.undo()
+        store.redo()
+        XCTAssertEqual(fillHex(store, photo), "#e60000")
+    }
+
+    /// Two separate visits to the colour well are two edits, however quickly they
+    /// follow each other — coalescing keys off the gesture, not off elapsed time.
+    func testColouringADifferentLayerStartsANewUndoStep() {
+        let (store, group, photo) = loaded()
+        store.selection = [photo]
+        store.addFill(photo)
+        store.addFill(group)
+
+        store.setFillColor(photo, at: 0, to: Color(r: 1, g: 0, b: 0, a: 1))
+        let steps = store.undoStepsRegistered
+        store.selection = [group]
+        store.setFillColor(group, at: 0, to: Color(r: 0, g: 1, b: 0, a: 1))
+
+        XCTAssertEqual(store.undoStepsRegistered, steps + 1,
+                       "a different layer is a different gesture and needs its own step")
+        XCTAssertEqual(fillHex(store, photo), "#ff0000")
+        XCTAssertEqual(fillHex(store, group), "#00ff00")
+    }
+
+    /// The bug this guards is the seventh of its kind: the change detector saw only
+    /// the FIRST fill's #rrggbb, so a second fill, an alpha, or a gradient stop could
+    /// be changed and the edit thrown away as a no-op.
+    func testTheSecondFillAndItsAlphaAreRealEdits() {
+        let (store, _, photo) = loaded()
+        store.selection = [photo]
+        store.addFill(photo)
+        store.addFill(photo)
+
+        store.setFillColor(photo, at: 1, to: Color(r: 0, g: 0, b: 1, a: 1))
+        guard case .color(let second)? = store.page?.layer(photo)?.style.fills[1].paint else {
+            return XCTFail("second fill missing")
+        }
+        XCTAssertEqual(second.hex, "#0000ff")
+
+        store.endCoalescing()
+        store.setFillColor(photo, at: 0, to: Color(r: 0.5, g: 0.5, b: 0.5, a: 0.5))
+        guard case .color(let faded)? = store.page?.layer(photo)?.style.fills[0].paint else {
+            return XCTFail("first fill missing")
+        }
+        XCTAssertEqual(faded.a, 0.5, accuracy: 0.001, "changing only alpha is still an edit")
+    }
+
+    func testBorderColourAndWidthSurvive() {
+        let (store, _, photo) = loaded()
+        store.selection = [photo]
+        store.addBorder(photo)
+        store.setBorderColor(photo, at: 0, to: Color(r: 1, g: 0, b: 0, a: 1))
+        store.setBorderThickness(photo, at: 0, to: 2.5)
+        store.setBorderPosition(photo, at: 0, to: .inside)
+
+        let b = store.page?.layer(photo)?.style.borders.first
+        XCTAssertEqual(b?.color.hex, "#ff0000")
+        XCTAssertEqual(b?.thickness ?? 0, 2.5, accuracy: 0.001,
+                       "a fractional width was rounded away by the change detector")
+        XCTAssertEqual(b?.position, .inside)
+    }
+}
