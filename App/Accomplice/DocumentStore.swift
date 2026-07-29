@@ -421,10 +421,15 @@ final class DocumentStore: ObservableObject {
 
     // MARK: - Adding and removing layers
 
-    /// Appends a layer (the pen tool's output) as one undoable step.
+    /// Appends a layer (the pen tool's output, a placed image) as one undoable step.
+    ///
+    /// Frames arrive in page coordinates, and the layer lands in whatever artboard it
+    /// was drawn on — see Page.adoptIntoArtboard, which is also where the frame gets
+    /// converted into that artboard's space.
     func addLayer(_ layer: Layer, actionName: String = "Draw Path") {
         guard var p = page, let src = source else { return }
         p.layers.append(layer)
+        p.adoptIntoArtboard(layer.id)
         apply(p, at: pageIndex, src: src)
         revision += 1
         isDirty = true
@@ -437,17 +442,23 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
+    /// Removes a layer from anywhere in the tree.
+    ///
+    /// Anywhere, not just the top level: now that a drawn shape lands inside the
+    /// artboard it was drawn on, undoing the drawing has to be able to reach it there.
     func removeLayer(_ id: String, pageIndex idx: Int, actionName: String = "Delete") {
         guard let src = source, var p = src.page(at: idx),
-              let i = p.layers.firstIndex(where: { $0.id == id }) else { return }
-        let removed = p.layers.remove(at: i)
+              let gone = p.removeLayer(id) else { return }
         if pageIndex != idx { pageIndex = idx }
         apply(p, at: idx, src: src)
         revision += 1
         isDirty = true
         selection.remove(id)
         undoManager.registerUndo(withTarget: self) { store in
-            MainActor.assumeIsolated { store.reinsertLayer(removed, at: i, pageIndex: idx, actionName: actionName) }
+            MainActor.assumeIsolated {
+                store.reinsertLayer(gone.layer, parent: gone.parent, at: gone.index,
+                                    pageIndex: idx, actionName: actionName)
+            }
         }
         undoManager.setActionName(actionName)
         refreshUndoState()
@@ -491,9 +502,10 @@ final class DocumentStore: ObservableObject {
         refreshUndoState()
     }
 
-    private func reinsertLayer(_ layer: Layer, at i: Int, pageIndex idx: Int, actionName: String) {
+    private func reinsertLayer(_ layer: Layer, parent: String?, at i: Int,
+                               pageIndex idx: Int, actionName: String) {
         guard let src = source, var p = src.page(at: idx) else { return }
-        p.layers.insert(layer, at: min(i, p.layers.count))
+        p.insertLayer(layer, parent: parent, index: i)
         if pageIndex != idx { pageIndex = idx }
         apply(p, at: idx, src: src)
         revision += 1
@@ -931,7 +943,14 @@ final class DocumentStore: ObservableObject {
 
     func copySelection() {
         guard let page, !selection.isEmpty else { return }
-        let layers = selection.compactMap { page.layer($0) }
+        // Copied out in page coordinates. A frame relative to an artboard means nothing
+        // once it's on the clipboard, and pasting one anywhere else threw it by that
+        // artboard's offset; paste puts it back into whatever it lands on.
+        let layers = selection.compactMap { id -> Layer? in
+            guard var l = page.layer(id) else { return nil }
+            if let absolute = page.absoluteOrigin(of: id) { l.frame.origin = absolute }
+            return l
+        }
         guard !layers.isEmpty else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -974,6 +993,7 @@ final class DocumentStore: ObservableObject {
         }
         source = newSource
         p.layers.append(contentsOf: fresh)
+        for l in fresh { p.adoptIntoArtboard(l.id) }
         apply(p, at: pageIndex, src: newSource)
         revision += 1
         isDirty = true

@@ -397,6 +397,9 @@ extension Page {
             return l.id
         }
         layers.append(l)
+        // Nobody named a parent, so the artboard it lands on gets it. An artboard is
+        // never adopted by another one: nesting them isn't a thing here.
+        if kind != "artboard" { adoptIntoArtboard(l.id) }
         return l.id
     }
 }

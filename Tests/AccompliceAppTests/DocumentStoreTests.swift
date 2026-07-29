@@ -160,6 +160,49 @@ final class DocumentStoreTests: XCTestCase {
         XCTAssertNotNil(back.pages[0].layer(photo), "the photo should have survived the save")
     }
 
+    /// A shape drawn over an artboard has to land inside it — and undo has to be able
+    /// to reach it there. Removal used to search only the top level, so an undo of a
+    /// drawing that had been adopted would have quietly done nothing.
+    func testADrawnShapeLandsInTheArtboardAndUndoTakesItBack() {
+        let (store, _, _) = loaded()
+        guard let board = store.page?.layers.first?.id else { return XCTFail("no artboard") }
+
+        var drawn = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40),
+                                             transform: nil), closed: true))
+        drawn.name = "Drawn"
+        drawn.frame = CGRect(x: 200, y: 200, width: 40, height: 40)
+        store.addLayer(drawn)
+
+        XCTAssertEqual(store.page?.ancestors(of: drawn.id), [board])
+        XCTAssertEqual(store.page?.layers.count, 1, "it should not also be a sibling of the artboard")
+        // Adopted, not moved: still at 200,200 on the page.
+        XCTAssertEqual(store.page?.absoluteOrigin(of: drawn.id), CGPoint(x: 200, y: 200))
+
+        store.undo()
+        XCTAssertNil(store.page?.layer(drawn.id), "undo left the drawing inside the artboard")
+    }
+
+    /// Copying out of an artboard and pasting has to put it back in the same place.
+    /// Frames are relative to their container, so a clipboard holding one straight
+    /// threw the paste by the artboard's offset.
+    func testPastingSomethingCopiedFromAnArtboardLandsBackInIt() {
+        let (store, _, photo) = loaded()
+        guard let board = store.page?.layers.first?.id else { return XCTFail("no artboard") }
+        let before = store.page?.absoluteOrigin(of: photo)
+
+        store.selection = [photo]
+        store.copySelection()
+        store.paste()
+
+        guard let pasted = store.selection.first, pasted != photo else {
+            return XCTFail("nothing was pasted")
+        }
+        XCTAssertEqual(store.page?.ancestors(of: pasted).last, board)
+        // Nudged by 20 so a paste-in-place is visible, and no further.
+        XCTAssertEqual(store.page?.absoluteOrigin(of: pasted),
+                       before.map { CGPoint(x: $0.x + 20, y: $0.y + 20) })
+    }
+
     func testEveryMenuShortcutResolvesInTheRegistry() {
         // The menus bind by id. A typo would be a menu item with no shortcut at all,
         // which is invisible until someone reaches for the key.

@@ -97,6 +97,33 @@ extension Page {
         return true
     }
 
+    /// The artboard a layer centred at `point` belongs to, if any.
+    ///
+    /// Front-most wins. Artboards aren't supposed to overlap, but when they do the one
+    /// on top is the one you were aiming at, and layer 0 is the back-most.
+    public func artboard(containing point: CGPoint) -> Layer? {
+        layers.reversed().first { $0.isArtboard && $0.frame.contains(point) }
+    }
+
+    /// Moves a newly made layer into the artboard it's sitting on.
+    ///
+    /// Not a nicety — an artboard is the export unit and it clips what's inside it, so a
+    /// shape lying on top of one but not *in* it looks right on the canvas and then comes
+    /// out of the export missing. Sketch adopts on the way in for the same reason.
+    ///
+    /// By centre, not by containment: a shape half over the edge is still one you drew
+    /// on that artboard, and adopting it is what makes the clipped edge visible.
+    @discardableResult
+    public mutating func adoptIntoArtboard(_ id: String) -> Bool {
+        guard let l = layer(id), !l.isArtboard,
+              layers.contains(where: { $0.id == id }) else { return false }
+        let centre = CGPoint(x: l.frame.midX, y: l.frame.midY)
+        guard let board = artboard(containing: centre) else { return false }
+        // Through reparent, so the frame is converted out of page space and into the
+        // artboard's — keeping its own origin would jump it by the artboard's offset.
+        return reparent([id], into: board.id, at: children(of: board.id).count)
+    }
+
     /// Where a layer's container sits, in page coordinates.
     public func parentOrigin(of id: String) -> CGPoint {
         var o = CGPoint.zero
