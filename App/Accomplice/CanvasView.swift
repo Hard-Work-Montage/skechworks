@@ -41,7 +41,9 @@ final class PageCanvas: NSView {
     /// Points used to appear as soon as a path was selected, which left no room for a
     /// single click to mean "add a point" — it already meant "drag the shape". Sketch
     /// separates the two with a mode, and so does this.
-    private var editingLayerID: String? { didSet { rebuildEditPath(); needsDisplay = true } }
+    private var editingLayerID: String? {
+        didSet { rebuildEditPath(); refreshCursor(); needsDisplay = true }
+    }
     /// The canvas resolves what a click means (group vs the layer inside it) before
     /// telling anyone, so selection policy lives in one place rather than in the store.
     var onSelect: ((String?, Bool) -> Void)?        // layer id, extend (shift held)
@@ -62,6 +64,7 @@ final class PageCanvas: NSView {
             guard tool != oldValue else { return }
             if tool != .pen { finishPen(close: false) }
             rebuildEditPath()
+            refreshCursor()
             needsDisplay = true
         }
     }
@@ -82,12 +85,22 @@ final class PageCanvas: NSView {
     /// Last known pointer position in page space, for the keyboard shortcuts.
     private var hoverPoint: CGPoint?
 
+    /// The anchor or handle the pointer is over, while point-editing.
+    ///
+    /// Sketch fills the point solid as you come within reach of it and swaps the cursor
+    /// for an arrow. Together those say "this one, and a drag moves it" — without them
+    /// the only way to find out whether you're close enough is to press and see.
+    private var hoveredPoint: Int?
+    private var hoveredHandle: (index: Int, out: Bool)?
+
     /// The selected path, exploded into editable points (page space).
     private var editPath: VectorPath?
     private var editLayerID: String?
     private var editTransform: CGAffineTransform = .identity
     private var draggingPoint: Int?
     private var draggingHandle: (index: Int, out: Bool)?
+    /// Whether the point drag in flight has actually gone anywhere.
+    private var pointDragMoved = false
     private var bendingSegment: Int?
     /// A press on a segment, not yet decided. Moving turns it into a bend; releasing
     /// without moving adds a point there.
@@ -306,9 +319,20 @@ final class PageCanvas: NSView {
             return
         }
         if brushAt != nil { brushAt = nil; needsDisplay = true }
+        if tool == .pen {
+            // The badge is the whole point of drawing our own: it says whether this
+            // click extends the path or shuts it, which is the one thing the canvas
+            // can't tell you — the first point looks like every other point.
+            VectorCursors.pen(penWouldClose(at: p) ? .close : .add).set()
+            return
+        }
         if editPath != nil {
-            // Point editing has its own affordance.
-            NSCursor.crosshair.set()
+            // Three different clicks live on top of each other in point editing, so the
+            // cursor has to name which one is armed: move what's under the pointer, add
+            // a point to the segment, or leave the mode.
+            if hoveredPoint != nil || hoveredHandle != nil { VectorCursors.movePoint.set() }
+            else if insertPreview != nil { VectorCursors.pen(.add).set() }
+            else { NSCursor.arrow.set() }
             return
         }
         if let corner = rotateCornerUnder(p) {
@@ -320,6 +344,30 @@ final class PageCanvas: NSView {
             return
         }
         NSCursor.arrow.set()
+    }
+
+    /// True when a pen click at `p` would close the path rather than extend it.
+    private func penWouldClose(at p: CGPoint) -> Bool {
+        guard let first = penPoints.first, penPoints.count >= 2 else { return false }
+        return hypot(p.x - first.point.x, p.y - first.point.y) <= grabRadius
+    }
+
+    /// Re-picks the cursor without waiting for a mouse move.
+    ///
+    /// Entering a tool has to change the pointer straight away. Otherwise the pen looks
+    /// like it hasn't started until you twitch the mouse, which reads as the click on
+    /// the toolbar not having landed.
+    private func refreshCursor() {
+        window?.invalidateCursorRects(for: self)
+        guard let p = hoverPoint else {
+            if tool == .pen { VectorCursors.pen(.add).set() }
+            return
+        }
+        // Entering point editing happens with the pointer already sitting on the shape,
+        // so what it's over has to be worked out here rather than waiting for a move.
+        refreshHover(at: p)
+        refreshInsertPreview()
+        updateCursor(at: p)
     }
 
     private func handleUnder(_ p: CGPoint) -> Handle? {
@@ -540,25 +588,35 @@ final class PageCanvas: NSView {
 
         for (i, p) in vp.points.enumerated() {
             // Handles first, so anchors sit on top of their own lines.
-            for (has, h) in [(p.hasCurveFrom, p.curveFrom), (p.hasCurveTo, p.curveTo)] where has {
+            for (has, h, out) in [(p.hasCurveFrom, p.curveFrom, true),
+                                  (p.hasCurveTo, p.curveTo, false)] where has {
                 ctx.move(to: p.point); ctx.addLine(to: h)
                 ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.5).cgColor)
                 ctx.setLineWidth(1 / sc)
                 ctx.strokePath()
-                let hr = pointRadius * 0.8
-                ctx.addEllipse(in: CGRect(x: h.x - hr, y: h.y - hr, width: hr * 2, height: hr * 2))
+                let warm = hoveredHandle?.index == i && hoveredHandle?.out == out
+                let hr = pointRadius * (warm ? 1.1 : 0.8)
+                let hbox = CGRect(x: h.x - hr, y: h.y - hr, width: hr * 2, height: hr * 2)
                 ctx.setFillColor(NSColor.controlAccentColor.cgColor)
-                ctx.fillPath()
+                ctx.fillEllipse(in: hbox)
+                if warm {
+                    ctx.setStrokeColor(NSColor.white.cgColor)
+                    ctx.setLineWidth(1.4 / sc)
+                    ctx.strokeEllipse(in: hbox)
+                }
             }
-            let r = pointRadius
+            // The point under the pointer fills solid and grows, the way Sketch's does.
+            // A hollow point that stays hollow when you reach it gives you nothing to
+            // aim at, so you find the grab radius by missing it.
+            let warm = hoveredPoint == i
+            let r = pointRadius * (warm ? 1.3 : 1)
             let box = CGRect(x: p.point.x - r, y: p.point.y - r, width: r * 2, height: r * 2)
-            ctx.setFillColor(NSColor.white.cgColor)
-            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setFillColor(warm ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor)
+            ctx.setStrokeColor(warm ? NSColor.white.cgColor : NSColor.controlAccentColor.cgColor)
             ctx.setLineWidth(1.4 / sc)
             // Corners draw square, smooth points round — the shape tells you the mode.
             if p.isCorner { ctx.fill(box); ctx.stroke(box) }
             else { ctx.fillEllipse(in: box); ctx.strokeEllipse(in: box) }
-            _ = i
         }
 
         // A ghost point with a cross through it: where a double-click would land.
@@ -984,8 +1042,7 @@ final class PageCanvas: NSView {
 
         // --- Pen: click to drop a corner point ---
         if tool == .pen {
-            if let first = penPoints.first, penPoints.count >= 2,
-               hypot(p.x - first.point.x, p.y - first.point.y) <= grabRadius {
+            if penWouldClose(at: p) {
                 finishPen(close: true)          // clicking the first point closes it
                 onExitTool?()                  // …and the shape is done, so hand back the cursor
             } else {
@@ -1051,20 +1108,39 @@ final class PageCanvas: NSView {
         // --- Bend: grab the nearest segment of the edited path ---
 
 
+        // --- Double-click a point to curve it, and again to straighten it ---
+        //
+        // The pen drops straight points, which is right for tracing an outline click by
+        // click, but the outline itself is mostly curves. Going through the Point Type
+        // control for each one means leaving the drawing to do it; Sketch makes it a
+        // double-click, which is quick enough to do without breaking the trace.
+        if event.clickCount >= 2, let vp = editPath,
+           let i = vp.points.firstIndex(where: { hypot(p.x - $0.point.x, p.y - $0.point.y) <= grabRadius }) {
+            draggingPoint = nil
+            lastTouchedPoint = i
+            // Mirrored, not asymmetric: with both handles equal and opposite one drag
+            // shapes the curve on either side, which is what you want while tracing.
+            applyPointMode(vp.points[i].isCorner ? .mirrored : .straight)
+            refreshHover(at: p)
+            return
+        }
+
         // --- Point editing on the selected path ---
         if let vp = editPath {
             for (i, pt) in vp.points.enumerated() {
                 if pt.hasCurveFrom, hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius {
-                    draggingHandle = (i, true); return
+                    draggingHandle = (i, true); pointDragMoved = false; refreshHover(at: p); return
                 }
                 if pt.hasCurveTo, hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius {
-                    draggingHandle = (i, false); return
+                    draggingHandle = (i, false); pointDragMoved = false; refreshHover(at: p); return
                 }
             }
             for (i, pt) in vp.points.enumerated()
             where hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius {
                 draggingPoint = i
+                pointDragMoved = false
                 lastTouchedPoint = i
+                refreshHover(at: p)
                 return
             }
         }
@@ -1116,21 +1192,54 @@ final class PageCanvas: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let p = pagePoint(convert(event.locationInWindow, from: nil))
-
-        // Nothing is drawn out there, so the cursor is the only clue the rotate zone
-        // exists. Without it you'd only find it by accident.
-        if editPath == nil { updateCursor(at: p) }
+        hoverPoint = p
 
         if tool == .pen, !penPoints.isEmpty {
             penCursor = p
             needsDisplay = true
-            return
+        } else {
+            // Show where a point would land while editing one. Double-click is not a
+            // gesture anyone guesses at, so the path has to offer it.
+            refreshHover(at: p)
+            refreshInsertPreview()
         }
 
-        // Show where a point would land while editing one. Double-click is not a
-        // gesture anyone guesses at, so the path has to offer it.
-        hoverPoint = p
-        refreshInsertPreview()
+        // Last, because it reads the hover state the two calls above just settled.
+        // Nothing is drawn in the rotate zone either, so out there the cursor is the
+        // only clue it exists — without it you'd only find it by accident.
+        updateCursor(at: p)
+    }
+
+    /// Works out which anchor or handle the pointer is over.
+    private func refreshHover(at p: CGPoint?) {
+        var point: Int?
+        var handle: (index: Int, out: Bool)?
+        if let i = draggingPoint {
+            point = i                       // stays lit for the whole drag
+        } else if let h = draggingHandle {
+            handle = h
+        } else if let p, let vp = editPath {
+            // Handles before anchors, the same order a press resolves in — otherwise
+            // where the two overlap the highlight would promise one thing and the click
+            // do another.
+            for (i, pt) in vp.points.enumerated() {
+                if pt.hasCurveFrom, hypot(p.x - pt.curveFrom.x, p.y - pt.curveFrom.y) <= grabRadius {
+                    handle = (i, true); break
+                }
+                if pt.hasCurveTo, hypot(p.x - pt.curveTo.x, p.y - pt.curveTo.y) <= grabRadius {
+                    handle = (i, false); break
+                }
+            }
+            if handle == nil {
+                point = vp.points.firstIndex { hypot(p.x - $0.point.x, p.y - $0.point.y) <= grabRadius }
+            }
+        }
+        let changed = point != hoveredPoint
+            || handle?.index != hoveredHandle?.index
+            || handle?.out != hoveredHandle?.out
+        hoveredPoint = point
+        hoveredHandle = handle
+        if changed { needsDisplay = true }
     }
 
     /// True when the pointer is over an existing anchor or handle, which always wins:
@@ -1171,9 +1280,6 @@ final class PageCanvas: NSView {
             insertTarget = target
             needsDisplay = true
         }
-        // Sketch shows a pen with a plus here. The cursor is what tells you a click
-        // will add rather than select, before you find out by doing it.
-        if spot != nil { NSCursor.crosshair.set() }
     }
 
     /// Applies a point-type change from the inspector.
@@ -1189,12 +1295,23 @@ final class PageCanvas: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        if editPath == nil { NSCursor.arrow.set() }
+        // AppKit resets the pointer whenever the rects are invalidated, so a tool cursor
+        // has to be reinstated here or an unrelated redraw drops it back to an arrow.
+        if tool == .pen {
+            VectorCursors.pen(hoverPoint.map(penWouldClose) == true ? .close : .add).set()
+            return
+        }
+        if editPath != nil {
+            if let p = hoverPoint { updateCursor(at: p) }
+            return
+        }
+        NSCursor.arrow.set()
     }
 
     /// Shift can be pressed without the pointer moving, and the preview has to follow.
     override func flagsChanged(with event: NSEvent) {
         refreshInsertPreview()
+        if let p = hoverPoint { updateCursor(at: p) }
         super.flagsChanged(with: event)
     }
 
@@ -1229,6 +1346,7 @@ final class PageCanvas: NSView {
 
     override func mouseExited(with event: NSEvent) {
         hoverPoint = nil
+        refreshHover(at: nil)
         refreshInsertPreview()
     }
 
@@ -1236,10 +1354,13 @@ final class PageCanvas: NSView {
         let p = pagePoint(convert(event.locationInWindow, from: nil))
 
         if let i = draggingPoint {
-            editPath?.points[i].move(to: p); needsDisplay = true; return
+            editPath?.points[i].move(to: p); pointDragMoved = true; needsDisplay = true; return
         }
         if let h = draggingHandle {
-            editPath?.points[h.index].setHandle(out: h.out, to: p); needsDisplay = true; return
+            editPath?.points[h.index].setHandle(out: h.out, to: p)
+            pointDragMoved = true
+            needsDisplay = true
+            return
         }
         if var stroke = erasing {
             stroke.points.append(p.applying(stroke.transform.inverted()))
@@ -1315,8 +1436,21 @@ final class PageCanvas: NSView {
 
     override func mouseUp(with event: NSEvent) {
         defer { needsDisplay = true }   // a click that commits nothing still changes what's drawn
-        if draggingPoint != nil { draggingPoint = nil; commitEdit("Move Point"); return }
-        if draggingHandle != nil { draggingHandle = nil; commitEdit("Adjust Handle"); return }
+        // A press that never went anywhere is a click, not an edit. Committing it anyway
+        // put an empty step on the undo stack — and the first half of every double-click
+        // is exactly that press, so curving a point would take two undos to take back.
+        if draggingPoint != nil {
+            draggingPoint = nil
+            if pointDragMoved { commitEdit("Move Point") }
+            refreshHover(at: hoverPoint)
+            return
+        }
+        if draggingHandle != nil {
+            draggingHandle = nil
+            if pointDragMoved { commitEdit("Adjust Handle") }
+            refreshHover(at: hoverPoint)
+            return
+        }
         if let stroke = erasing {
             erasing = nil
             onErase?(stroke.layer, stroke.points)
