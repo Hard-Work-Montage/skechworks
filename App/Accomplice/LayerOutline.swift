@@ -195,7 +195,9 @@ struct LayerOutline: NSViewRepresentable {
         }
 
         func outlineView(_ v: NSOutlineView, isItemExpandable item: Any) -> Bool {
-            !((item as? LayerItem)?.children.isEmpty ?? true)
+            // Containers, empty or not — the way Finder gives an empty folder a triangle.
+            // It's also the affordance that says something can be dropped in there.
+            (item as? LayerItem)?.isContainer ?? false
         }
 
         // MARK: - Rows

@@ -203,6 +203,36 @@ final class DocumentStoreTests: XCTestCase {
                        before.map { CGPoint(x: $0.x + 20, y: $0.y + 20) })
     }
 
+    /// The layer list refuses a drop onto anything it thinks is a leaf, and it read
+    /// "leaf" off a nil child list — which an EMPTY group reported. So an empty artboard
+    /// took no drops at all, and getting the first layer into one is the only time you
+    /// need to. Everything after that worked, which is why it read as random.
+    func testAnEmptyArtboardStillCountsAsSomethingYouCanDropInto() {
+        var art = Layer(kind: .group([]))
+        art.name = "Frame"
+        art.isArtboard = true
+        art.frame = CGRect(x: 0, y: 0, width: 500, height: 500)
+        var stray = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40),
+                                             transform: nil), closed: true))
+        stray.name = "Path"
+        stray.frame = CGRect(x: 900, y: 900, width: 40, height: 40)
+
+        var page = Page(name: "Page 1")
+        page.layers = [art, stray]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+
+        // The list is built from these, and LayerItem.isContainer is `children != nil`.
+        let tree = (store.page?.layers ?? []).map(LayerNode.init)
+        XCTAssertNotNil(tree.first { $0.name == "Frame" }?.children,
+                        "an empty artboard has to read as a container, or it takes no drops")
+
+        XCTAssertTrue(store.moveLayers([stray.id], into: art.id, at: 0))
+        XCTAssertEqual(store.page?.ancestors(of: stray.id), [art.id])
+    }
+
     func testEveryMenuShortcutResolvesInTheRegistry() {
         // The menus bind by id. A typo would be a menu item with no shortcut at all,
         // which is invisible until someone reaches for the key.

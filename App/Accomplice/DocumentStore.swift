@@ -1453,13 +1453,17 @@ struct LayerNode: Identifiable {
         id = l.id
         isVisible = l.isVisible
         switch l.kind {
+        // An empty container is still a container. `nil` here means "a leaf, nothing can
+        // go inside it", and collapsing empty to nil made an empty artboard refuse every
+        // drop — so there was no way to get the FIRST layer into one, which is the only
+        // time you need to.
         case .group(let k):
             kindLabel = l.isArtboard ? "Artboard" : "Group"
             systemImage = l.isArtboard ? "rectangle.dashed" : "folder"
-            children = k.isEmpty ? nil : k.map(LayerNode.init)
+            children = k.map(LayerNode.init)
         case .shapeGroup(let k, _):
             kindLabel = "Combined"; systemImage = "square.on.circle"
-            children = k.isEmpty ? nil : k.map(LayerNode.init)
+            children = k.map(LayerNode.init)
         case .path:
             kindLabel = "Path"; systemImage = "scribble"; children = nil
         case .text(let t):

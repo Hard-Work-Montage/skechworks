@@ -964,11 +964,14 @@ private let arcFrame = CGRect(x: 0, y: 0, width: 400, height: 400)   // centre (
      {"op":"add","kind":"ellipse","name":"Disc","parent":"Back"}]
     """.utf8)))
 
-    guard case .group(let oldKids) = page.layers[0].kind,
-          case .group(let newKids) = page.layers[1].kind else {
+    // By name, not by index: a new artboard goes to the BACK of the page, so which
+    // slot each one is in isn't what this test is about.
+    guard let older = page.layers.first(where: { $0.name == "back" }),
+          let newer = page.layers.first(where: { $0.name == "Back" }),
+          case .group(let oldKids) = older.kind,
+          case .group(let newKids) = newer.kind else {
         Issue.record("expected two artboards"); return
     }
-    #expect(page.layers[1].name == "Back")
     #expect(newKids.count == 1)            // the disc landed in the new artboard
     #expect(newKids[0].name == "Disc")
     #expect(oldKids.isEmpty)               // and not in the old one

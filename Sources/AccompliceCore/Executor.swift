@@ -396,10 +396,17 @@ extension Page {
             updateLayer(parent.id) { $0.kind = .group(kids) }
             return l.id
         }
-        layers.append(l)
-        // Nobody named a parent, so the artboard it lands on gets it. An artboard is
-        // never adopted by another one: nesting them isn't a thing here.
-        if kind != "artboard" { adoptIntoArtboard(l.id) }
+        if kind == "artboard" {
+            // Behind everything. An artboard is a backdrop with a white fill, and one
+            // added in front paints straight over the artwork it was meant to hold —
+            // which looks exactly like the drawing having been deleted.
+            layers.insert(l, at: 0)
+        } else {
+            layers.append(l)
+            // Nobody named a parent, so the artboard it lands on gets it. An artboard is
+            // never adopted by another one: nesting them isn't a thing here.
+            adoptIntoArtboard(l.id)
+        }
         return l.id
     }
 }
