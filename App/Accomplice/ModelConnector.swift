@@ -23,7 +23,7 @@ struct ModelConnector {
     struct Settings {
         var backend: Backend = .ollama
         var ollamaHost = "http://127.0.0.1:11434"
-        var model = "qwen3-coder:30b"
+        var model = LocalModel.recommended
         var openRouterKey = ""
         var openRouterModel = "anthropic/claude-sonnet-4.5"
     }

@@ -215,6 +215,24 @@ public enum DocumentCommand: Sendable {
 
 // MARK: - JSON
 
+/// The first number in a string, ignoring whatever it's wrapped in.
+///
+/// Deliberately forgiving in one direction only: it reads a number out of decoration,
+/// it never invents one. "half" stays nil, so the command is refused and reported
+/// rather than quietly becoming 0.
+func number(in s: String) -> Double? {
+    var digits = ""
+    var seenDot = false
+    for ch in s {
+        if ch.isNumber { digits.append(ch) }
+        else if ch == "." && !seenDot && !digits.isEmpty { seenDot = true; digits.append(ch) }
+        else if ch == "-" && digits.isEmpty { digits.append(ch) }
+        else if !digits.isEmpty && digits != "-" { break }
+    }
+    guard digits.hasSuffix(".") ? digits.count > 1 : !digits.isEmpty, digits != "-" else { return nil }
+    return Double(digits.hasSuffix(".") ? String(digits.dropLast()) : digits)
+}
+
 extension DocumentCommand {
 
     /// Decodes `{"op": "...", ...}`. Written by hand rather than derived so the wire
@@ -235,6 +253,12 @@ extension DocumentCommand {
             for k in keys {
                 if let v = d[k] as? Double { return v }
                 if let v = d[k] as? Int { return Double(v) }
+                // Numbers arrive as strings, and dressed up. Asked for 50% opacity,
+                // real models returned "50", "50%", "0.5" and "{0.5}" — the same
+                // request, four models, four spellings. Refusing them dropped the
+                // command while the model's "done" stood with nothing behind it,
+                // which is the one outcome worse than an error.
+                if let v = d[k] as? String, let parsed = number(in: v) { return parsed }
             }
             return nil
         }

@@ -723,6 +723,40 @@ private func styledPage() -> Page {
     #expect(untouched.contentSignature == base.contentSignature)
 }
 
+@Test func opacityArrivesInEverySpellingModelsUse() {
+    // Four models, one request — "make every text layer 50% opacity" — and four
+    // spellings of the answer. The decoder took only JSON numbers, so three of the
+    // four dropped the command while the model's "done" stood unchallenged.
+    func opacity(_ value: Any) -> Double? {
+        guard case .setOpacity(_, let v)? = DocumentCommand.decode(
+            ["op": "setOpacity", "value": value] as [String: Any]) else { return nil }
+        return v
+    }
+    #expect(opacity(50) == 0.5)
+    #expect(opacity(0.5) == 0.5)
+    #expect(opacity("50") == 0.5)
+    #expect(opacity("50%") == 0.5)
+    #expect(opacity("0.5") == 0.5)
+    #expect(opacity("{0.5}") == 0.5)      // qwen3.5:4b, verbatim
+    #expect(opacity(" 50 % ") == 0.5)
+    // Refused, not guessed at. A command that silently becomes zero opacity makes
+    // the layer vanish and reports success.
+    #expect(opacity("half") == nil)
+    #expect(opacity("") == nil)
+}
+
+@Test func numbersAreReadOutOfDecorationButNeverInvented() {
+    #expect(number(in: "12") == 12)
+    #expect(number(in: "12.5pt") == 12.5)
+    #expect(number(in: "-4") == -4)
+    #expect(number(in: "width: 300px") == 300)
+    #expect(number(in: "#000000") == 0)     // hex is not a number; callers ask for hex as a string
+    #expect(number(in: "abc") == nil)
+    #expect(number(in: "") == nil)
+    #expect(number(in: "-") == nil)
+    #expect(number(in: ".") == nil)
+}
+
 @Test func setFillAcceptsTheKeyTheModelActuallyUsed() {
     // Verbatim from qwen3-coder:30b, asked to "update all the black fills to dark
     // gray". It used "value" where the schema said "hex"; the strict decoder dropped
