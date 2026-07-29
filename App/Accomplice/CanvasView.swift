@@ -1053,6 +1053,31 @@ final class PageCanvas: NSView {
         return target
     }
 
+    /// The deepest path inside a combined shape whose fill sits under the point.
+    ///
+    /// Members are walked front-first, so on a Subtract the cut-out wins over the
+    /// base it was cut from — clicking the black between the eyes lands on the face,
+    /// clicking an eye's edge lands on the eye.
+    private func memberPathHit(in group: Layer, at p: CGPoint) -> String? {
+        guard let page,
+              let base = transformOf(group.id, in: page.layers, base: .identity) else { return nil }
+        func search(_ children: [Layer], _ base: CGAffineTransform) -> String? {
+            for m in children.reversed() where m.isVisible {
+                let t = Compose.transform(m).concatenating(base)
+                switch m.kind {
+                case .group(let k), .shapeGroup(let k, _):
+                    if let hit = search(k, t) { return hit }
+                case .path:
+                    if let path = Compose.resolvedPath(m),
+                       path.transformed(by: t).contains(p, using: .winding) { return m.id }
+                default: continue
+                }
+            }
+            return nil
+        }
+        return search(page.children(of: group.id), base)
+    }
+
     /// One step further into whatever is under the pointer, from what's selected now.
     /// Double-clicking a group enters it; double-clicking again goes deeper.
     private func deeper(than current: Set<String>, towards leaf: Layer) -> Layer? {
@@ -1146,6 +1171,18 @@ final class PageCanvas: NSView {
             // points.
             if selected == [leaf.id], case .path = leaf.kind {
                 editingLayerID = leaf.id
+                return
+            }
+            // A combined shape (Subtract, Union…) composes to one drawable, so the
+            // group is all a click can hit — there is no plain path to step onto, and
+            // without this the double-click just re-selected the group forever. Go
+            // straight to the points of the member under the pointer instead, the
+            // same one gesture a plain path gets.
+            if selected == [leaf.id], case .shapeGroup = leaf.kind,
+               let member = memberPathHit(in: leaf, at: p) {
+                enteredGroup = leaf.id
+                editingLayerID = member
+                onSelect?(member, false)
                 return
             }
             // Otherwise step into the group under the pointer and take whatever is
