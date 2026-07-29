@@ -95,25 +95,38 @@ struct ContentView: View {
                 .help("Insert artboard, shape, vector, text or image")
                 .disabled(store.source == nil)
             }
-            // No tool picker. Insert ▸ Vector (P) starts drawing and Escape stops,
-            // so a persistent three-way switch was one redundant control and one that
-            // stood in for a point property.
-            ToolbarItem {
-                if store.tool == .pen {
-                    HStack(spacing: 6) {
-                        Image(systemName: "pencil.tip").foregroundStyle(.tint)
-                        Text("Vector — Return to finish, Esc to cancel")
-                            .font(.caption).foregroundStyle(.secondary)
+            // No tool picker. Insert ▸ Vector (P) starts drawing, and Escape or the
+            // cursor button below stops — so a persistent three-way switch was one
+            // redundant control and one that stood in for a point property.
+            //
+            // The badge names the mode and nothing else. It used to spell out both key
+            // bindings, which made a wide strip of small grey text out of a thing whose
+            // whole job is to be glanced at.
+            ToolbarItem(placement: .principal) {
+                if store.tool != .select {
+                    HStack(spacing: 5) {
+                        Image(systemName: store.tool.symbol).font(.caption)
+                        Text(store.tool.title).font(.caption.weight(.medium))
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .foregroundStyle(.tint)
+                    .padding(.horizontal, 9).padding(.vertical, 3)
                     .background(.tint.opacity(0.12), in: Capsule())
+                    .help("\(store.tool.title) mode — press Esc to go back to the cursor")
                 }
             }
+            // The way out. Escape does the same thing, but only while the canvas has
+            // the keyboard — after typing in the inspector there has to be something
+            // to click.
             ToolbarItem {
-                Button { store.zoom(.fit) } label: { Label("Fit", systemImage: "arrow.up.left.and.arrow.down.right") }
-                    .help("Fit page to window")
-                    .disabled(store.page == nil)
+                Button { store.tool = .select } label: {
+                    Label("Select", systemImage: "cursorarrow")
+                }
+                .help(store.tool == .select ? "Select tool" : "Back to the cursor (Esc)")
+                .foregroundStyle(store.tool == .select ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
             }
+            // No Fit button: View ▸ Zoom to Fit already has it, and pages fit
+            // themselves on arrival, so the toolbar copy was spending permanent space
+            // on something you reach for once a session.
             ToolbarItem {
                 Button { store.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .help("Undo").disabled(!store.canUndo)

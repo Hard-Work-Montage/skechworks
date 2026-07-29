@@ -51,6 +51,9 @@ final class PageCanvas: NSView {
     var onResizeEnd: ((CGSize, CGPoint) -> Void)?
     var onDrawPath: ((VectorPath) -> Void)?
     var onEditPath: ((VectorPath, String, String) -> Void)?
+    /// "I'm done with this tool" — the canvas can end a drawing mode, but only the
+    /// store owns which tool is current, so finishing has to travel back up.
+    var onExitTool: (() -> Void)?
     /// Which point is under the cursor's attention, for the Point Type control.
     var onPointSelected: ((Int?, CurveMode?) -> Void)?
 
@@ -984,6 +987,7 @@ final class PageCanvas: NSView {
             if let first = penPoints.first, penPoints.count >= 2,
                hypot(p.x - first.point.x, p.y - first.point.y) <= grabRadius {
                 finishPen(close: true)          // clicking the first point closes it
+                onExitTool?()                  // …and the shape is done, so hand back the cursor
             } else {
                 penPoints.append(VectorPoint(p))
                 needsDisplay = true
@@ -1364,9 +1368,17 @@ final class PageCanvas: NSView {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 36:   // return — finish an open path
-            if tool == .pen { finishPen(close: false); return }
+            if tool == .pen { finishPen(close: false); onExitTool?(); return }
         case 53:   // escape — abandon
-            if tool == .pen { penPoints = []; penCursor = nil; needsDisplay = true; return }
+            // Escape drops whatever is half-drawn *and* hands the cursor back. Staying
+            // in the pen after cancelling was the trap: nothing on screen changed, so
+            // the tool read as stuck.
+            if tool == .pen {
+                penPoints = []; penCursor = nil; needsDisplay = true
+                onExitTool?()
+                return
+            }
+            if tool != .select { onExitTool?(); return }
             if editingLayerID != nil { editingLayerID = nil; return }
             if enteredGroup != nil { enteredGroup = nil; return }
         case 51, 117:  // delete
@@ -1504,6 +1516,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onRotateEnd = { degrees, centre in store.endRotate(degrees: degrees, centre: centre) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
         canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
+        canvas.onExitTool = { store.tool = .select }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
