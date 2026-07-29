@@ -97,10 +97,27 @@ final class PageCanvas: NSView {
     private var editPath: VectorPath?
     private var editLayerID: String?
     private var editTransform: CGAffineTransform = .identity
+    /// The points picked out in the path being edited.
+    ///
+    /// A set, because the reason to nudge from the keyboard rather than drag is usually
+    /// that several points have to move together and stay in line. Shift adds to it, the
+    /// way shift does everywhere else in the app.
+    private var selectedPoints: Set<Int> = [] {
+        didSet { if selectedPoints != oldValue { needsDisplay = true } }
+    }
+
     private var draggingPoint: Int?
     private var draggingHandle: (index: Int, out: Bool)?
     /// Whether the point drag in flight has actually gone anywhere.
     private var pointDragMoved = false
+    /// Whether shift was down for the press that started this point drag.
+    private var pressExtended = false
+    /// Where every selected point stood when the drag began.
+    ///
+    /// Dragging works off a delta from the press rather than snapping the point to the
+    /// pointer: with more than one selected there's no single point to snap, and even
+    /// with one it means grabbing slightly off-centre doesn't jerk it under the cursor.
+    private var dragPointStart: [Int: CGPoint] = [:]
     private var bendingSegment: Int?
     /// A press on a segment, not yet decided. Moving turns it into a bend; releasing
     /// without moving adds a point there.
@@ -121,6 +138,8 @@ final class PageCanvas: NSView {
     /// Points live in page space so hit-testing and dragging need no per-event
     /// transform maths; they're converted back into the layer's own space on commit.
     private func rebuildEditPath() {
+        let was = editLayerID
+        defer { reconcilePointSelection(previousLayer: was) }
         editPath = nil; editLayerID = nil; editTransform = .identity
         // The bend tool is a point-editing tool: it implies the mode.
         let target = editingLayerID
@@ -131,6 +150,64 @@ final class PageCanvas: NSView {
         editTransform = t
         editLayerID = id
         editPath = VectorPath(cgPath: cg.transformed(by: t), modes: l.curveModes)
+    }
+
+    /// Keeps the picked points honest across a rebuild.
+    ///
+    /// This runs on every content change, including the one a nudge itself causes, so it
+    /// can't simply clear. Moving to a different shape drops the selection; within the
+    /// same one, indices that no longer exist are dropped and the rest stand.
+    private func reconcilePointSelection(previousLayer: String?) {
+        guard editLayerID != nil, editLayerID == previousLayer, let vp = editPath else {
+            selectedPoints = []
+            lastTouchedPoint = nil
+            return
+        }
+        selectedPoints = selectedPoints.filter { vp.points.indices.contains($0) }
+        if let i = lastTouchedPoint, !vp.points.indices.contains(i) { lastTouchedPoint = nil }
+    }
+
+    /// Adds a point to the picked set, or replaces it.
+    ///
+    /// A plain click on one that's already picked leaves the set alone, so a drag
+    /// starting on one of several selected points moves all of them rather than
+    /// throwing the rest away first.
+    private func selectPoint(_ i: Int, extend: Bool) {
+        if extend {
+            if selectedPoints.contains(i) { selectedPoints.remove(i) } else { selectedPoints.insert(i) }
+        } else if !selectedPoints.contains(i) {
+            selectedPoints = [i]
+        }
+        lastTouchedPoint = selectedPoints.contains(i) ? i : selectedPoints.sorted().first
+    }
+
+    /// Moves every picked point. One arrow press, one undo step, like nudging a layer.
+    @discardableResult
+    private func nudgePoints(_ dx: CGFloat, _ dy: CGFloat) -> Bool {
+        guard let vp = editPath, !selectedPoints.isEmpty else { return false }
+        for i in selectedPoints where vp.points.indices.contains(i) {
+            let at = vp.points[i].point
+            editPath?.points[i].move(to: CGPoint(x: at.x + dx, y: at.y + dy))
+        }
+        commitEdit(selectedPoints.count == 1 ? "Nudge Point" : "Nudge Points")
+        needsDisplay = true
+        return true
+    }
+
+    /// Removes every picked point, deepest index first so the rest keep their numbers.
+    @discardableResult
+    private func removeSelectedPoints() -> Bool {
+        guard let vp = editPath, !selectedPoints.isEmpty else { return false }
+        // A path needs two points to still be a path.
+        let going = selectedPoints.sorted(by: >).prefix(max(0, vp.points.count - 2))
+        guard !going.isEmpty else { return false }
+        for i in going { editPath?.removePoint(i) }
+        selectedPoints = []
+        lastTouchedPoint = nil
+        commitEdit(going.count == 1 ? "Delete Point" : "Delete Points")
+        refreshInsertPreview()
+        needsDisplay = true
+        return true
     }
 
     private func transformOf(_ id: String, in layers: [Layer], base: CGAffineTransform) -> CGAffineTransform? {
@@ -605,14 +682,21 @@ final class PageCanvas: NSView {
                     ctx.strokeEllipse(in: hbox)
                 }
             }
-            // The point under the pointer fills solid and grows, the way Sketch's does.
-            // A hollow point that stays hollow when you reach it gives you nothing to
-            // aim at, so you find the grab radius by missing it.
+            // Three states, and they have to be three pictures. Picked points stay
+            // filled so you can see what an arrow key is about to move; the one under
+            // the pointer fills part-way, which reads as "this is the one you'd get";
+            // and everything else stays hollow. A hollow point that stays hollow when
+            // you reach it gives you nothing to aim at, so you find the grab radius by
+            // missing it.
+            let picked = selectedPoints.contains(i)
             let warm = hoveredPoint == i
-            let r = pointRadius * (warm ? 1.3 : 1)
+            let r = pointRadius * (picked || warm ? (picked && warm ? 1.3 : 1.15) : 1)
             let box = CGRect(x: p.point.x - r, y: p.point.y - r, width: r * 2, height: r * 2)
-            ctx.setFillColor(warm ? NSColor.controlAccentColor.cgColor : NSColor.white.cgColor)
-            ctx.setStrokeColor(warm ? NSColor.white.cgColor : NSColor.controlAccentColor.cgColor)
+            let accent = NSColor.controlAccentColor
+            ctx.setFillColor(picked ? accent.cgColor
+                             : warm ? accent.withAlphaComponent(0.55).cgColor
+                             : NSColor.white.cgColor)
+            ctx.setStrokeColor(picked || warm ? NSColor.white.cgColor : accent.cgColor)
             ctx.setLineWidth(1.4 / sc)
             // Corners draw square, smooth points round — the shape tells you the mode.
             if p.isCorner { ctx.fill(box); ctx.stroke(box) }
@@ -1117,7 +1201,7 @@ final class PageCanvas: NSView {
         if event.clickCount >= 2, let vp = editPath,
            let i = vp.points.firstIndex(where: { hypot(p.x - $0.point.x, p.y - $0.point.y) <= grabRadius }) {
             draggingPoint = nil
-            lastTouchedPoint = i
+            selectPoint(i, extend: false)
             // Mirrored, not asymmetric: with both handles equal and opposite one drag
             // shapes the curve on either side, which is what you want while tracing.
             applyPointMode(vp.points[i].isCorner ? .mirrored : .straight)
@@ -1139,7 +1223,12 @@ final class PageCanvas: NSView {
             where hypot(p.x - pt.point.x, p.y - pt.point.y) <= grabRadius {
                 draggingPoint = i
                 pointDragMoved = false
-                lastTouchedPoint = i
+                pressExtended = extend
+                selectPoint(i, extend: extend)
+                // Everything picked travels together, from where it stands now.
+                dragPointStart = Dictionary(uniqueKeysWithValues: selectedPoints.compactMap { j in
+                    vp.points.indices.contains(j) ? (j, vp.points[j].point) : nil
+                })
                 refreshHover(at: p)
                 return
             }
@@ -1320,7 +1409,8 @@ final class PageCanvas: NSView {
     private func insertPointAtPreview() -> Bool {
         guard let t = insertTarget, let made = editPath?.insertPoint(onSegment: t.segment, at: t.t)
         else { return false }
-        lastTouchedPoint = made
+        // Inserting picks it, so the arrows are already aimed at the point just added.
+        selectPoint(made, extend: false)
         commitEdit("Add Point")
         refreshInsertPreview()
         needsDisplay = true
@@ -1337,6 +1427,7 @@ final class PageCanvas: NSView {
         if index == nil { index = lastTouchedPoint }
         guard let i = index, vp.points.indices.contains(i) else { return false }
         editPath?.removePoint(i)
+        selectedPoints = []
         lastTouchedPoint = nil
         commitEdit("Delete Point")
         refreshInsertPreview()
@@ -1353,8 +1444,14 @@ final class PageCanvas: NSView {
     override func mouseDragged(with event: NSEvent) {
         let p = pagePoint(convert(event.locationInWindow, from: nil))
 
-        if let i = draggingPoint {
-            editPath?.points[i].move(to: p); pointDragMoved = true; needsDisplay = true; return
+        if draggingPoint != nil {
+            let dx = p.x - dragAnchor.x, dy = p.y - dragAnchor.y
+            for (i, start) in dragPointStart {
+                editPath?.points[i].move(to: CGPoint(x: start.x + dx, y: start.y + dy))
+            }
+            pointDragMoved = true
+            needsDisplay = true
+            return
         }
         if let h = draggingHandle {
             editPath?.points[h.index].setHandle(out: h.out, to: p)
@@ -1439,9 +1536,17 @@ final class PageCanvas: NSView {
         // A press that never went anywhere is a click, not an edit. Committing it anyway
         // put an empty step on the undo stack — and the first half of every double-click
         // is exactly that press, so curving a point would take two undos to take back.
-        if draggingPoint != nil {
+        if let i = draggingPoint {
             draggingPoint = nil
-            if pointDragMoved { commitEdit("Move Point") }
+            if pointDragMoved {
+                commitEdit(dragPointStart.count > 1 ? "Move Points" : "Move Point")
+            } else if !pressExtended {
+                // The press left the set alone so a drag could take everything with it.
+                // It didn't drag, so it was a click, and a click means just this one.
+                selectedPoints = [i]
+                lastTouchedPoint = i
+            }
+            dragPointStart = [:]
             refreshHover(at: hoverPoint)
             return
         }
@@ -1513,16 +1618,13 @@ final class PageCanvas: NSView {
                 return
             }
             if tool != .select { onExitTool?(); return }
+            // One step at a time on the way out: drop the picked points, then the mode.
+            if !selectedPoints.isEmpty { selectedPoints = []; lastTouchedPoint = nil; return }
             if editingLayerID != nil { editingLayerID = nil; return }
             if enteredGroup != nil { enteredGroup = nil; return }
         case 51, 117:  // delete
-            // A targeted point goes first; otherwise the whole selection goes.
-            if let vp = editPath, let i = lastTouchedPoint, vp.points.count > 2 {
-                editPath?.removePoint(i)
-                lastTouchedPoint = nil
-                commitEdit("Delete Point")
-                return
-            }
+            // Picked points go first; otherwise the layer selection goes.
+            if removeSelectedPoints() { return }
             onDelete?()
             return
         case 24 where event.modifierFlags.contains(.command):   // ⌘= — unshifted ⌘+
@@ -1551,10 +1653,12 @@ final class PageCanvas: NSView {
             if editPath != nil, removePointUnderCursor() { return }
             super.keyDown(with: event)
             return
-        case 123: onNudge?(-step, 0)   // left
-        case 124: onNudge?(step, 0)    // right
-        case 125: onNudge?(0, step)    // down (canvas is y-down)
-        case 126: onNudge?(0, -step)   // up
+        // Arrows move the picked points when there are any, and the layer otherwise —
+        // in point editing the layer is the thing you're least likely to have meant.
+        case 123: if !nudgePoints(-step, 0) { onNudge?(-step, 0) }   // left
+        case 124: if !nudgePoints(step, 0) { onNudge?(step, 0) }     // right
+        case 125: if !nudgePoints(0, step) { onNudge?(0, step) }     // down (canvas is y-down)
+        case 126: if !nudgePoints(0, -step) { onNudge?(0, -step) }   // up
         default: super.keyDown(with: event)
         }
     }
