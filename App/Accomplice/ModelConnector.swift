@@ -15,28 +15,56 @@ import Foundation
 struct ModelConnector {
 
     enum Backend: String, CaseIterable, Identifiable, Sendable {
-        case ollama, openRouter
+        case ollama, openRouter, accomplice
         var id: String { rawValue }
-        var title: String { self == .ollama ? "Local (Ollama)" : "OpenRouter" }
+
+        var title: String {
+            switch self {
+            case .ollama: return "On this Mac"
+            case .openRouter: return "OpenRouter account"
+            case .accomplice: return "Accomplice account"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .ollama:
+                return "A one-time download. Nothing you draw or type leaves the machine."
+            case .openRouter:
+                return "Your own OpenRouter account, billed to you. No download."
+            case .accomplice:
+                return "Sign in and use Accomplice tokens. No download, no separate account."
+            }
+        }
     }
 
     struct Settings {
         var backend: Backend = .ollama
         var ollamaHost = "http://127.0.0.1:11434"
         var model = LocalModel.recommended
-        var openRouterKey = ""
         var openRouterModel = "anthropic/claude-sonnet-4.5"
+        /// Where Accomplice accounts live. Configurable because accomplice.ai
+        /// currently redirects elsewhere, and the app shouldn't need a release to
+        /// follow a domain.
+        var accompliceHost = "https://accomplice.ai"
+
+        /// Read at the point of use rather than held, so disconnecting takes effect
+        /// at once and no key sits in memory longer than a request.
+        var openRouterKey: String { Credentials.get(.openRouterKey) ?? "" }
+        var accompliceToken: String { Credentials.get(.accompliceToken) ?? "" }
     }
 
     enum Failure: LocalizedError {
         case noKey
+        case notSignedIn
         case unreachable(String)
         case badResponse(String)
         case noCommands(String)
 
         var errorDescription: String? {
             switch self {
-            case .noKey: return "Add an OpenRouter key in Settings, or switch to a local model."
+            case .notSignedIn: return "Sign in to Accomplice in Settings, or switch to another option."
+            case .noKey: return "Connect your OpenRouter account in Settings, or switch to another option."
             case .unreachable(let s): return "Couldn't reach the model: \(s)"
             case .badResponse(let s): return "The model's reply couldn't be read: \(s)"
             case .noCommands(let s): return "No commands in the reply.\n\n\(s)"
@@ -72,7 +100,35 @@ struct ModelConnector {
         switch settings.backend {
         case .ollama: return try await ollama(messages)
         case .openRouter: return try await openRouter(messages)
+        case .accomplice: return try await accomplice(messages)
         }
+    }
+
+    /// Accomplice's own endpoint, which fronts a provider and bills tokens to the
+    /// signed-in account. Deliberately the same OpenAI-shaped request as OpenRouter,
+    /// so the only thing that differs between "your key" and "our tokens" is where
+    /// it's addressed and who pays.
+    private func accomplice(_ messages: [[String: String]]) async throws -> String {
+        let token = settings.accompliceToken
+        guard !token.isEmpty else { throw Failure.notSignedIn }
+        guard let url = URL(string: settings.accompliceHost + "/api/v1/chat/completions") else {
+            throw Failure.unreachable("bad url")
+        }
+        let body: [String: Any] = [
+            "temperature": 0.1,
+            "response_format": ["type": "json_object"],
+            "messages": messages,
+        ]
+        let json = try await post(url, body: body, headers: [
+            "Authorization": "Bearer \(token)",
+            "X-Title": "Accomplice",
+        ])
+        guard let choices = json["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw Failure.badResponse(String(describing: json))
+        }
+        return content
     }
 
     private func ollama(_ messages: [[String: String]]) async throws -> String {

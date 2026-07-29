@@ -410,3 +410,45 @@ extension DocumentStoreTests {
         XCTAssertEqual(b?.position, .inside)
     }
 }
+
+// MARK: - Signing in
+
+@MainActor
+final class OAuthTests: XCTestCase {
+
+    /// The worked example from RFC 7636 itself. If the challenge is computed wrongly
+    /// the provider rejects the exchange, and the failure arrives as a flat "couldn't
+    /// finish signing in" with nothing to point at — worth pinning to a known answer
+    /// rather than to our own implementation.
+    func testTheChallengeMatchesTheSpecsOwnExample() {
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+        XCTAssertEqual(OAuthFlow.challenge(for: verifier),
+                       "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    }
+
+    /// Base64 as URLs allow it. A "+" or "/" survives into a query string re-encoded,
+    /// and the verifier no longer matches what was sent.
+    func testEncodingIsUrlSafeAndUnpadded() {
+        for _ in 0..<200 {
+            let v = OAuthFlow.randomVerifier()
+            XCTAssertFalse(v.contains("+"), v)
+            XCTAssertFalse(v.contains("/"), v)
+            XCTAssertFalse(v.contains("="), v)
+            // RFC 7636 requires 43-128 characters; 32 random bytes gives 43.
+            XCTAssertGreaterThanOrEqual(v.count, 43)
+            XCTAssertLessThanOrEqual(v.count, 128)
+        }
+    }
+
+    func testEveryVerifierIsDifferent() {
+        let made = Set((0..<500).map { _ in OAuthFlow.randomVerifier() })
+        XCTAssertEqual(made.count, 500, "a repeated verifier would defeat the point of PKCE")
+    }
+
+    /// Two colours of the same failure: no key at all, and a key for the wrong option.
+    /// Each has to name the thing the user should go and do.
+    func testUnconfiguredBackendsSayWhichSettingToChange() {
+        XCTAssertTrue(ModelConnector.Failure.noKey.errorDescription?.contains("OpenRouter") == true)
+        XCTAssertTrue(ModelConnector.Failure.notSignedIn.errorDescription?.contains("Accomplice") == true)
+    }
+}

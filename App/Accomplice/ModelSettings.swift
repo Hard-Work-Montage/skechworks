@@ -1,41 +1,132 @@
 import SwiftUI
 
-/// Local-first, cloud optional — the same arrangement as Pelocan, and the honest one
-/// for a tool whose pitch is that it runs on your machine.
+/// Three ways to run the model, and the setup for each finishable here.
 ///
-/// The app ships with no model, so this pane has to be able to finish the setup, not
-/// just describe it: check whether Ollama is running, pull the recommended model with
-/// visible progress, and get out of the way once it's there.
+/// Local first, because that's the pitch and because nothing leaves the machine. But
+/// an 18 GB download is a real ask, so the two account options exist for people who
+/// won't spend the disk — one billed to them, one billed to us.
 struct ModelSettings: View {
     @AppStorage("ai.backend") private var backend = ModelConnector.Backend.ollama.rawValue
     @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
     @AppStorage("ai.model") private var model = LocalModel.recommended
-    @AppStorage("ai.openRouterKey") private var openRouterKey = ""
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
+    @AppStorage("ai.accompliceHost") private var accompliceHost = "https://accomplice.ai"
 
     @StateObject private var local = LocalModel(host: "http://127.0.0.1:11434")
+    @State private var flow = OAuthFlow()
+    @State private var connecting = false
+    @State private var problem: String?
+    /// Bumped after connect/disconnect so the Keychain is re-read; the credential is
+    /// deliberately not held in a property, or "Disconnect" wouldn't take effect.
+    @State private var credentialsRevision = 0
 
     var body: some View {
         Form {
-            Picker("Run on", selection: $backend) {
-                ForEach(ModelConnector.Backend.allCases) { Text($0.title).tag($0.rawValue) }
+            Picker("Run the model", selection: $backend) {
+                ForEach(ModelConnector.Backend.allCases) { option in
+                    VStack(alignment: .leading) {
+                        Text(option.title)
+                        Text(option.detail).font(.caption).foregroundStyle(.secondary)
+                    }.tag(option.rawValue)
+                }
             }
             .pickerStyle(.radioGroup)
 
-            if backend == ModelConnector.Backend.ollama.rawValue {
-                localSection
-            } else {
-                SecureField("OpenRouter key", text: $openRouterKey)
-                TextField("Model", text: $openRouterModel)
-                Text("Your key, your account. Used only when this backend is selected.")
-                    .font(.caption).foregroundStyle(.secondary)
+            switch ModelConnector.Backend(rawValue: backend) ?? .ollama {
+            case .ollama: localSection
+            case .openRouter: openRouterSection
+            case .accomplice: accompliceSection
+            }
+
+            if let problem {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
             }
         }
         .formStyle(.grouped)
         .padding(4)
+        .task { Credentials.migrateLegacyDefaults() }
         .task(id: ollamaHost) { await local.refresh(host: ollamaHost, wanted: model) }
         .task(id: model) { await local.refresh(host: ollamaHost, wanted: model) }
     }
+
+    // MARK: - Accounts
+
+    private var openRouterSection: some View {
+        Group {
+            account(connected: Credentials.has(.openRouterKey),
+                    connectedLabel: "Connected to OpenRouter",
+                    connectLabel: "Connect OpenRouter…",
+                    connect: { try await flow.connect(.openRouter) },
+                    disconnect: { Credentials.set(.openRouterKey, nil) })
+            TextField("Model", text: $openRouterModel)
+            Text("Signing in creates a key scoped to Accomplice — we never see your "
+                 + "password, and you can revoke it from OpenRouter at any time. "
+                 + "Requests are billed to your account.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var accompliceSection: some View {
+        Group {
+            account(connected: Credentials.has(.accompliceToken),
+                    connectedLabel: "Signed in to Accomplice",
+                    connectLabel: "Sign in to Accomplice…",
+                    connect: { try await flow.connect(.accomplice(base: accompliceHost)) },
+                    disconnect: { Credentials.set(.accompliceToken, nil) })
+            Text("Uses Accomplice tokens, so there's nothing to download and no second "
+                 + "account to set up. Your document is sent to our service to be "
+                 + "edited — the on-this-Mac option is the one where it never leaves.")
+                .font(.caption).foregroundStyle(.secondary)
+            // Not hidden behind a build flag: accomplice.ai currently redirects
+            // elsewhere, so until the service is up this is where you point it.
+            LabeledContent("Service") {
+                TextField("", text: $accompliceHost).textFieldStyle(.roundedBorder)
+            }
+        }
+    }
+
+    /// Connected/not is the whole state of an account option, so it gets one row that
+    /// says which, and one button that does the other thing.
+    private func account(connected: Bool,
+                         connectedLabel: String,
+                         connectLabel: String,
+                         connect: @escaping () async throws -> Void,
+                         disconnect: @escaping () -> Void) -> some View {
+        HStack {
+            if connected {
+                Label(connectedLabel, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Disconnect") {
+                    disconnect()
+                    credentialsRevision += 1
+                }
+            } else {
+                if connecting {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for the browser…").foregroundStyle(.secondary)
+                } else {
+                    Button(connectLabel) {
+                        problem = nil
+                        connecting = true
+                        Task {
+                            do { try await connect() }
+                            catch OAuthFlow.Failure.cancelled { }
+                            catch { problem = error.localizedDescription }
+                            connecting = false
+                            credentialsRevision += 1
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Spacer()
+            }
+        }
+        .id(credentialsRevision)
+    }
+
+    // MARK: - Local
 
     @ViewBuilder
     private var localSection: some View {
@@ -61,7 +152,7 @@ struct ModelSettings: View {
                         Task { await local.refresh(host: ollamaHost, wanted: model) }
                     }
                 }
-                Text("Or switch to OpenRouter above and use your own key.")
+                Text("Or pick one of the account options above — neither needs a download.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
 
@@ -73,14 +164,8 @@ struct ModelSettings: View {
                        + "Nothing you draw or type ever leaves it."
                      : "Downloaded once through Ollama and kept on this machine.")
                     .font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button("Download") { local.download(model) }
-                        .buttonStyle(.borderedProminent)
-                    if !local.installed.isEmpty {
-                        Text("or pick one you already have, below")
-                            .font(.caption).foregroundStyle(.tertiary)
-                    }
-                }
+                Button("Download") { local.download(model) }
+                    .buttonStyle(.borderedProminent)
             }
 
         case .downloading(let fraction, let detail):

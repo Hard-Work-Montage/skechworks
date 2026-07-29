@@ -27,8 +27,8 @@ private struct ChatPanelBody: View {
     @AppStorage("ai.backend") private var backend = ModelConnector.Backend.ollama.rawValue
     @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
     @AppStorage("ai.model") private var model = LocalModel.recommended
-    @AppStorage("ai.openRouterKey") private var openRouterKey = ""
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
+    @AppStorage("ai.accompliceHost") private var accompliceHost = "https://accomplice.ai"
 
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -38,8 +38,8 @@ private struct ChatPanelBody: View {
         s.backend = ModelConnector.Backend(rawValue: backend) ?? .ollama
         s.ollamaHost = ollamaHost
         s.model = model
-        s.openRouterKey = openRouterKey
         s.openRouterModel = openRouterModel
+        s.accompliceHost = accompliceHost
         return s
     }
 
