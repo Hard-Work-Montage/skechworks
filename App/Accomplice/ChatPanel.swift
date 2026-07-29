@@ -100,13 +100,36 @@ private struct ChatPanelBody: View {
         }
     }
 
+    /// An invitation, not a label. One is drawn per panel appearance — stable across
+    /// re-renders so it doesn't flicker mid-thought, but a fresh face each session.
+    private static let blankDocOpeners = [
+        "Where should we start?",
+        "What are we making?",
+        "Blank page. Big plans?",
+        "Describe it, or just start drawing.",
+        "What's the idea?",
+    ]
+    private static let workingOpeners = [
+        "What's next?",
+        "What should we change?",
+        "Want to tweak something?",
+        "Point me at something.",
+        "What needs work?",
+    ]
+    @State private var openerSeed = Int.random(in: 0..<1_000)
+
     /// Centred, like "No selection" in the inspector above it — the two empty states
     /// sit in the same column and should read as the same kind of thing.
     private var placeholder: some View {
-        VStack(spacing: 8) {
+        // A document with nothing on any page gets the fresh-start voice; anything
+        // else gets the mid-work one. Checked live, so drawing the first shape flips
+        // the question from "where do we begin" to "what now".
+        let blank = store.page.map { $0.layers.isEmpty } ?? true
+        let pool = blank ? Self.blankDocOpeners : Self.workingOpeners
+        return VStack(spacing: 8) {
             Image(systemName: "sparkles")
                 .font(.system(size: 26)).foregroundStyle(.tertiary)
-            Text("Ask for changes to this document")
+            Text(pool[openerSeed % pool.count])
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
