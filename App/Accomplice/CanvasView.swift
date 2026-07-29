@@ -167,6 +167,17 @@ final class PageCanvas: NSView {
     /// Recomposing per frame would cost ~0.6s of CGPath boolean work per tick.
     private var dragOffset: CGSize = .zero
     private var dragging = false
+
+    /// Guides for the snap currently in force, in page coordinates. Cleared on
+    /// mouse-up along with everything else about the gesture.
+    private var snapGuides: [Snapping.Guide] = []
+
+    /// Rectangles to snap against, gathered once when the drag starts.
+    ///
+    /// Once, not per frame: the set can't change mid-drag, and walking the layer tree
+    /// on every mouse-move is the sort of thing that makes a big document feel slow
+    /// for no reason.
+    private var snapTargets: [CGRect] = []
     private var marqueeing = false
 
     /// Which resize handle is being dragged, if any.
@@ -503,6 +514,7 @@ final class PageCanvas: NSView {
             ctx.setLineDash(phase: 0, lengths: [])
         }
 
+        drawSnapGuides(ctx)
         drawHandles(ctx)
         drawPointOverlay(ctx)
         drawPenPreview(ctx)
@@ -600,6 +612,30 @@ final class PageCanvas: NSView {
                           height: r.height * resizeScale.height).standardized
         }
         return r
+    }
+
+    /// The lines that explain a snap.
+    ///
+    /// Drawn at a constant screen width so they stay hairlines at any zoom, and in the
+    /// accent colour rather than Sketch's red — red on this canvas reads as an error.
+    private func drawSnapGuides(_ ctx: CGContext) {
+        guard !snapGuides.isEmpty else { return }
+        let sc = max(0.01, currentScale)
+        ctx.saveGState()
+        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setLineWidth(1 / sc)
+        for g in snapGuides {
+            ctx.beginPath()
+            if g.vertical {
+                ctx.move(to: CGPoint(x: g.position, y: g.from))
+                ctx.addLine(to: CGPoint(x: g.position, y: g.to))
+            } else {
+                ctx.move(to: CGPoint(x: g.from, y: g.position))
+                ctx.addLine(to: CGPoint(x: g.to, y: g.position))
+            }
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
     }
 
     private func drawHandles(_ ctx: CGContext) {
@@ -934,6 +970,7 @@ final class PageCanvas: NSView {
 
         dragAnchor = p
         dragOffset = .zero
+        snapGuides = []
         marquee = nil
         let extend = event.modifierFlags.contains(.shift)
 
@@ -1064,6 +1101,12 @@ final class PageCanvas: NSView {
         if !extend || drill {
             dragging = true
             onDragBegin?(h.id)
+            // Gathered once here, not per frame: the set can't change during the drag.
+            // Everything moving is excluded, including anything inside it — a group
+            // that snapped to its own children could never be dragged anywhere.
+            var moving = selected
+            moving.insert(h.id)
+            snapTargets = page?.snapTargets(excluding: moving) ?? []
         }
     }
 
@@ -1244,7 +1287,25 @@ final class PageCanvas: NSView {
             return
         }
         guard dragging else { return }
-        dragOffset = CGSize(width: p.x - dragAnchor.x, height: p.y - dragAnchor.y)
+        var offset = CGSize(width: p.x - dragAnchor.x, height: p.y - dragAnchor.y)
+
+        // Holding ⌘ turns snapping off for the moment. There is always a position
+        // snapping won't let you reach, and the answer to that has to be a key you
+        // hold rather than a preference you go and find.
+        if event.modifierFlags.contains(.command) || snapTargets.isEmpty {
+            snapGuides = []
+        } else if let bounds = selectionBounds {
+            let proposed = bounds.offsetBy(dx: offset.width, dy: offset.height)
+            // Tolerance in screen pixels, converted: fixed page units would be
+            // unusably grabby zoomed out and unreachable zoomed in.
+            let result = Snapping.snap(proposed, to: snapTargets,
+                                       tolerance: 7 / max(0.01, currentScale))
+            offset.width += result.adjustment.width
+            offset.height += result.adjustment.height
+            snapGuides = result.guides
+        }
+
+        dragOffset = offset
         needsDisplay = true
     }
 
@@ -1295,6 +1356,7 @@ final class PageCanvas: NSView {
         dragging = false
         let o = dragOffset
         dragOffset = .zero
+        snapGuides = []
         onDragEnd?(o)
     }
 
