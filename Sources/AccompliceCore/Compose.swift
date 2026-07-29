@@ -26,7 +26,11 @@ public enum Compose {
     public static func resolvedPath(_ l: Layer) -> CGPath? {
         switch l.kind {
         case .path(let p, _):
-            return p
+            // The one place a corner radius turns into geometry. Everything downstream
+            // — the renderer, the SVG writer, boolean ops, masks, hit-testing — reads
+            // the shape through here, so none of them has to know the radius exists.
+            guard l.cornerRadius > 0 else { return p }
+            return Corners.round(p, radius: l.cornerRadius, style: l.cornerStyle)
 
         case .shapeGroup(let children, let winding):
             let acc = combine(children, winding: winding)

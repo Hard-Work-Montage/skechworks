@@ -253,6 +253,8 @@ public struct AcmplcFile {
 
         var l = Layer(kind: kind)
         l.curveModes = modes
+        l.cornerRadius = dbl(j["cornerRadius"]) ?? 0
+        l.cornerStyle = (j["cornerStyle"] as? String) == "smooth" ? .smooth : .rounded
         l.erased = erased
         l.id = j["id"] as? String ?? UUID().uuidString
         l.name = j["name"] as? String ?? ""
@@ -379,6 +381,10 @@ public struct AcmplcFile {
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
             if !l.curveModes.isEmpty { d["pointTypes"] = l.curveModes.map(\.rawValue) }
+            if l.cornerRadius > 0 {
+                d["cornerRadius"] = l.cornerRadius
+                d["cornerStyle"] = l.cornerStyle == .smooth ? "smooth" : "rounded"
+            }
         case .text(let t):
             d["type"] = "text"
             let align: String

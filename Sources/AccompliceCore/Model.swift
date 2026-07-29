@@ -182,6 +182,15 @@ public struct Layer: @unchecked Sendable {
     /// stick, so it's stored.
     public var curveModes: [CurveMode] = []
 
+    /// Corner radius for a path layer, in the layer's own units.
+    ///
+    /// Applied on the way out through Compose rather than baked into the stored path,
+    /// so the corners stay sharp underneath and the number is one you can go back and
+    /// change. Resizing the layer leaves it alone: a 12pt corner on a wider box is
+    /// still a 12pt corner, which is what every other tool does and what you want.
+    public var cornerRadius: CGFloat = 0
+    public var cornerStyle: CornerStyle = .rounded
+
     /// Erase strokes for a bitmap layer, applied when it draws.
     ///
     /// Stored rather than burnt into the pixels: the same photo is used across several

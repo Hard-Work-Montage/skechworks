@@ -698,6 +698,18 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Rounds the corners of a shape. The stored outline keeps its sharp ones — see
+    /// Layer.cornerRadius — so this stays a number you can change your mind about.
+    func setCornerRadius(_ id: String, to r: CGFloat) {
+        edit(id, actionName: "Change Corner Radius", coalescingAs: "corner:\(id)") {
+            $0.cornerRadius = max(0, r)
+        }
+    }
+
+    func setCornerStyle(_ id: String, to s: CornerStyle) {
+        edit(id, actionName: "Change Corner Style") { $0.cornerStyle = s }
+    }
+
     func setArtboardBackground(_ id: String, to c: Color) {
         edit(id, actionName: "Change Artboard Colour", coalescingAs: "artboard:\(id)") {
             $0.backgroundColor = c

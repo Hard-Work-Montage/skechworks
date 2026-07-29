@@ -18,6 +18,7 @@ struct PropertiesPanel: View {
                         header(layer)
                         Divider()
                         geometry(layer)
+                        if roundableCorners(layer) > 0 { Divider(); corners(layer) }
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
                         if case .bitmap = layer.kind { Divider(); eraser(layer) }
@@ -146,6 +147,51 @@ struct PropertiesPanel: View {
                 .disabled(l.backgroundColor == nil)
             }
         }
+    }
+
+    /// Corner radius, and which kind of corner.
+    ///
+    /// Only on a shape that has a straight-to-straight corner to take off, which is why
+    /// it doesn't appear on a circle or on a trace made entirely of curves — a radius
+    /// field that provably can't do anything is worse than no field.
+    private func corners(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Corners")
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    editable("Radius", l.cornerRadius, l) { layer, v in
+                        layer.cornerRadius = max(0, v)
+                    }
+                    Picker("", selection: Binding(
+                        get: { l.cornerStyle },
+                        set: { if $0 != l.cornerStyle { store.setCornerStyle(l.id, to: $0) } }
+                    )) {
+                        ForEach(CornerStyle.allCases, id: \.self) { s in
+                            Label { Text(s.name) } icon: { Image(nsImage: CornerGlyph.image(s)) }
+                                .tag(s)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu)
+                    .disabled(l.cornerRadius <= 0)
+                }
+            }
+            Text(l.cornerStyle == .smooth
+                 ? "Eases into the corner, like an app icon."
+                 : "A circular arc.")
+                .font(.caption).foregroundStyle(.secondary)
+            if roundableCorners(l) < (l.pointCount ?? 0) {
+                // Otherwise the radius looks broken on a shape that's part curves: the
+                // straight corners take it and the rest never will.
+                let n = roundableCorners(l)
+                Text("\(n) corner\(n == 1 ? "" : "s") to round — the rest are already curved.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private func roundableCorners(_ l: Layer) -> Int {
+        guard case .path(let p, _) = l.kind else { return 0 }
+        return Corners.roundableCorners(in: p)
     }
 
     private func fills(_ l: Layer) -> some View {
