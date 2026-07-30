@@ -18,19 +18,33 @@
   }
   img { width: 72px; height: 72px; border-radius: 17px; margin-bottom: 22px; }
   h1 { font-size: 34px; letter-spacing: -0.02em; margin-bottom: 12px; }
-  p { color: rgba(255,255,255,0.85); line-height: 1.55; max-width: 44ch; margin: 0 auto 8px; }
+  p { color: rgba(255,255,255,0.85); line-height: 1.55; max-width: 46ch; margin: 0 auto 8px; }
+  .btn {
+    display: inline-block;
+    margin-top: 22px;
+    background: #fff;
+    color: #14203a;
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 650;
+    padding: 13px 28px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px -8px rgba(0, 10, 30, 0.55);
+  }
+  .btn:hover { transform: translateY(-1px); }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
           letter-spacing: 0.06em; color: rgba(255,255,255,0.6); margin-top: 26px; }
-  a { color: #9db8e8; }
+  a.plain { color: #9db8e8; }
 </style>
 </head>
 <body>
 <div>
   <img src="logo.png" alt="">
-  <h1>Almost.</h1>
-  <p>The first public build is being signed and notarized right now.
-  Check back shortly &mdash; it will be a single download, no account needed.</p>
-  <p class="mono">macOS &middot; Apple silicon &middot; <a href="/">back to the site</a></p>
+  <h1>Take it.</h1>
+  <p>Unzip, drop it in Applications, open. Signed and notarized —
+  no account, no installer, nothing phones home.</p>
+  <a class="btn" href="/downloads/Accomplice-0.1.zip">Download Accomplice 0.1</a>
+  <p class="mono">macOS 14+ &middot; Apple silicon &middot; 3&nbsp;MB &middot; <a class="plain" href="/">back to the site</a></p>
 </div>
 </body>
 </html>
