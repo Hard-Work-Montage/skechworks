@@ -1102,6 +1102,11 @@ final class PageCanvas: NSView {
         for d in composed.reversed() {
             if let p = d.path, p.contains(point) { return d.layer }
             if d.path == nil {
+                // The pathless rect test is for text and bitmaps, which have no
+                // outline to test. A group-shadow's open/close markers are pathless
+                // too but span their whole container — hit-testing those made a
+                // shadowed artboard swallow every click meant for the art inside it.
+                guard d.text != nil || d.imageRef != nil else { continue }
                 let r = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
                 if r.contains(point) { return d.layer }
             }
