@@ -160,6 +160,8 @@ public enum DocumentCommand: Sendable {
     case align(LayerQuery, edge: String)
     case distribute(LayerQuery, axis: String)
     case order(LayerQuery, where: String)   // front | back | forward | backward
+    /// Reorder the layer list itself: position (canvas reading order) | name.
+    case sort(LayerQuery, by: String)
     case group(LayerQuery, name: String?)
     case ungroup(LayerQuery)
     /// Bend text round a circle. nil radius straightens it again.
@@ -179,6 +181,7 @@ public enum DocumentCommand: Sendable {
         case .setStroke(let q, _, _), .rename(let q, _), .align(let q, _): return q
         case .move(let q, _, _), .resize(let q, _, _): return q
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
+        case .sort(let q, _): return q
         case .curve(let q, _, _, _): return q
         case .duplicate(let q, _, _, _): return q
         case .simplify(let q, _, _): return q
@@ -207,6 +210,7 @@ public enum DocumentCommand: Sendable {
         case .align(_, let e): return "Align \(e)"
         case .distribute(_, let a): return "Distribute \(a)"
         case .order(_, let w): return "Order \(w)"
+        case .sort(_, let by): return "Sort by \(by)"
         case .group: return "Group"
         case .ungroup: return "Ungroup"
         }
@@ -286,8 +290,12 @@ extension DocumentCommand {
         case "align": return s("edge", "value", "to").map { .align(q, edge: $0) }
         case "distribute": return .distribute(q, axis: s("axis", "value") ?? "horizontal")
         case "order", "arrange", "bringtofront", "sendtoback":
+            // "arrange by position" is a sort, not a restack — the "by" gives it away.
+            if let by = s("by", "sortBy") { return .sort(q, by: by.lowercased()) }
             let fallback = op.lowercased() == "sendtoback" ? "back" : "front"
             return .order(q, where: s("where", "value", "to") ?? fallback)
+        case "sort", "organize", "organise", "tidy", "reorder":
+            return .sort(q, by: (s("by", "value", "key") ?? "position").lowercased())
         case "group": return .group(q, name: s("name", "value"))
         case "ungroup": return .ungroup(q)
         case "add", "create", "insert", "new":
@@ -425,6 +433,12 @@ extension DocumentCommand {
           align        edge: left|centre|right|top|middle|bottom
           distribute   axis: horizontal|vertical
           order        where: front|back|forward|backward
+          sort         by: position|name — reorders the LAYER LIST. "position"
+                       puts it in canvas reading order (top-left first), "name"
+                       alphabetises. With no selector it sorts the whole page's
+                       top-level layers, which is usually what's wanted. This is
+                       the whole job in ONE command — never spell it out as
+                       selects and moves.
           group        name (optional)
           ungroup
           add          kind: artboard|rect|ellipse|text|line, plus any of
@@ -463,6 +477,11 @@ extension DocumentCommand {
         Example — "make a new artboard":
         {"say":"Added a 500×500 artboard.",
          "commands":[{"op":"add","kind":"artboard","name":"Artboard"}]}
+
+        Example — "organize the layers in the layer list by their location
+        in the canvas":
+        {"say":"Reordered the layer list to match the canvas, top-left first.",
+         "commands":[{"op":"sort","by":"position"}]}
 
         Example — the request is ambiguous:
         {"say":"Do you mean the artboards themselves, or the shapes inside them?",

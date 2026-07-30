@@ -47,12 +47,20 @@ extension Page {
             }
             let ids: [String]
             if c.query.isEmpty {
-                guard let inherited = scope, !inherited.isEmpty else {
-                    report.append("\(c.summary): refused — no layers specified")
-                    continue
+                if case .sort = c, (scope?.count ?? 0) < 2 {
+                    // "Organize the layers" with nothing named means the layer
+                    // list itself — the page's rows. A single selected layer
+                    // can't be "organized" either, so it doesn't count as a
+                    // scope. Safe to default: sorting rearranges, never destroys.
+                    ids = layers.map(\.id)
+                } else {
+                    guard let inherited = scope, !inherited.isEmpty else {
+                        report.append("\(c.summary): refused — no layers specified")
+                        continue
+                    }
+                    // Preserve document order rather than Set order.
+                    ids = find(LayerQuery()).filter { inherited.contains($0) }
                 }
-                // Preserve document order rather than Set order.
-                ids = find(LayerQuery()).filter { inherited.contains($0) }
             } else {
                 ids = find(c.query, selection: selection)
             }
@@ -156,6 +164,11 @@ extension Page {
             case "forward": p.bringForward(set)
             default: p.sendBackward(set)
             }
+
+        case .sort(_, let by):
+            let n = p.sortLayers(set, by: by)
+            return n > 0 ? "\(n) layer\(n == 1 ? "" : "s") reordered"
+                         : "nothing to reorder — needs 2+ siblings"
 
         case .group(_, let gname):
             p.group(set, named: gname ?? "Group")

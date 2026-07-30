@@ -2737,3 +2737,37 @@ private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) ->
     let path = try #require(restored.onPath)
     #expect(abs(path.boundingBoxOfPath.width - 300) < 2)
 }
+
+@Test func sortByPositionPutsReadingOrderAtTheTopOfTheList() {
+    // Four artboards in a 2×2 grid, stored in a scrambled order. The layer list
+    // shows front-most (array end) first, so after sorting by position the END
+    // of the array must be the top-left board and the START the bottom-right.
+    func board(_ name: String, _ x: CGFloat, _ y: CGFloat) -> Layer {
+        var l = Layer(kind: .group([]))
+        l.isArtboard = true
+        l.name = name
+        l.frame = CGRect(x: x, y: y, width: 100, height: 100)
+        return l
+    }
+    var page = Page(name: "P")
+    page.layers = [board("bottom-left", 0, 200), board("top-right", 200, 0),
+                   board("bottom-right", 200, 200), board("top-left", 0, 0)]
+
+    let run = page.run([.sort(LayerQuery(), by: "position")])
+    #expect(run.report.contains("4 layers reordered"))
+    #expect(page.layers.map(\.name) ==
+            ["bottom-right", "bottom-left", "top-right", "top-left"])
+}
+
+@Test func sortByNameAlphabetisesTheListTopDown() {
+    func layer(_ name: String) -> Layer {
+        var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10), transform: nil), closed: true))
+        l.name = name
+        return l
+    }
+    var page = Page(name: "P")
+    page.layers = [layer("banana"), layer("cherry"), layer("apple")]
+    page.run([.sort(LayerQuery(), by: "name")])
+    // List reads apple, banana, cherry from the top — array end is the top.
+    #expect(page.layers.map(\.name) == ["cherry", "banana", "apple"])
+}

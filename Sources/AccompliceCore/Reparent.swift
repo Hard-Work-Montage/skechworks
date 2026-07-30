@@ -188,6 +188,68 @@ extension Page {
         }
     }
 
+    /// Reorders layers in the list to match the canvas (or the alphabet).
+    ///
+    /// "Organize the layers by where they are" is one request, so it's one
+    /// command — the alternative was a model spelling it out as a fragile chain
+    /// of selects and moves, which in practice it fumbled.
+    ///
+    /// Layers keep their parents; within each parent the targeted siblings swap
+    /// places among the slots they already occupy, so untargeted layers don't
+    /// move. The list shows front-most first, so "reading order at the top"
+    /// means reverse reading order in storage.
+    @discardableResult
+    public mutating func sortLayers(_ ids: Set<String>, by key: String) -> Int {
+        var touched = 0
+        let byParent = Dictionary(grouping: ids) { ancestors(of: $0).last }
+        for (parent, group) in byParent {
+            let ids = Set(group)
+            func rearranged(_ kids: [Layer]) -> [Layer] {
+                let slots = kids.indices.filter { ids.contains(kids[$0].id) }
+                guard slots.count > 1 else { return kids }
+                let targeted = slots.map { kids[$0] }
+                let ordered: [Layer] = key == "name"
+                    ? targeted.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+                    : Array(Page.readingOrder(targeted).reversed())
+                var out = kids
+                for (slot, layer) in zip(slots, ordered) { out[slot] = layer }
+                touched += slots.count
+                return out
+            }
+            if let parent {
+                updateLayer(parent) { l in
+                    switch l.kind {
+                    case .group(let k): l.kind = .group(rearranged(k))
+                    case .shapeGroup(let k, let r): l.kind = .shapeGroup(rearranged(k), r)
+                    default: break
+                    }
+                }
+            } else {
+                layers = rearranged(layers)
+            }
+        }
+        return touched
+    }
+
+    /// Rows top to bottom, left to right within a row — the order a person scans
+    /// a wall of artboards. A new row starts when a layer sits fully below
+    /// everything in the current one.
+    static func readingOrder(_ ls: [Layer]) -> [Layer] {
+        let byTop = ls.sorted { $0.frame.minY < $1.frame.minY }
+        var rows: [[Layer]] = []
+        var rowBottom: CGFloat = -.greatestFiniteMagnitude
+        for l in byTop {
+            if rows.isEmpty || l.frame.minY >= rowBottom {
+                rows.append([l])
+                rowBottom = l.frame.maxY
+            } else {
+                rows[rows.count - 1].append(l)
+                rowBottom = max(rowBottom, l.frame.maxY)
+            }
+        }
+        return rows.flatMap { $0.sorted { $0.frame.minX < $1.frame.minX } }
+    }
+
     /// Direct children of a container, or the page's own layers.
     public func children(of parent: String?) -> [Layer] {
         guard let parent else { return layers }
