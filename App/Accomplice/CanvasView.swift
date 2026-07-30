@@ -58,6 +58,8 @@ final class PageCanvas: NSView {
     var onExitTool: (() -> Void)?
     /// Which point is under the cursor's attention, for the Point Type control.
     var onPointSelected: ((Int?, CurveMode?) -> Void)?
+    /// Inline rename, from double-clicking an artboard label. (id, new name)
+    var onRenameLayer: ((String, String) -> Void)?
 
     var tool: DocumentStore.Tool = .select {
         didSet {
@@ -831,6 +833,46 @@ final class PageCanvas: NSView {
         }
     }
 
+    // MARK: - Inline label rename
+
+    private var labelEditor: NSTextField?
+    private var labelEditingID: String?
+    private var labelNameBeforeEdit = ""
+
+    private func beginLabelEdit(_ ab: ArtboardLabel) {
+        endLabelEdit(commit: true)
+        let v = viewPoint(ab.hit.origin)
+        // Roomier than the label itself, so a longer name has somewhere to go
+        // while it's being typed.
+        let frame = CGRect(x: v.x - 2, y: v.y - 2,
+                           width: max(160, ab.hit.width * scale + 24),
+                           height: max(20, ab.hit.height * scale + 4))
+        let tf = NSTextField(frame: frame)
+        tf.stringValue = ab.name
+        tf.font = .systemFont(ofSize: 11)
+        tf.isBordered = true
+        tf.bezelStyle = .roundedBezel
+        tf.delegate = self
+        addSubview(tf)
+        window?.makeFirstResponder(tf)
+        tf.selectText(nil)
+        labelEditor = tf
+        labelEditingID = ab.id
+        labelNameBeforeEdit = ab.name
+    }
+
+    private func endLabelEdit(commit: Bool) {
+        guard let tf = labelEditor else { return }
+        let id = labelEditingID
+        labelEditor = nil
+        labelEditingID = nil
+        tf.removeFromSuperview()
+        window?.makeFirstResponder(self)
+        guard commit, let id else { return }
+        let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty, name != labelNameBeforeEdit { onRenameLayer?(id, name) }
+    }
+
     private var currentScale: CGFloat { scale }
 
     /// Page coordinates for a point in the view.
@@ -1175,6 +1217,15 @@ final class PageCanvas: NSView {
         // Not a single click: in point-editing a single click already selects and
         // drags points and starts a marquee, so it has nowhere free to go.
         // --- Double-click a shape to edit its points ---
+        // Double-click an artboard's label to rename it in place — type, Enter,
+        // done. The single-click that selects the board still works; this only
+        // takes the second click.
+        if event.clickCount >= 2, tool == .select,
+           let ab = artboards.first(where: { $0.hit.contains(p) }) {
+            beginLabelEdit(ab)
+            return
+        }
+
         // Double-click inside a subtracted hole: the composed fill has nothing there,
         // so the normal hit walks straight past the shape and lands on the artboard —
         // Sketch's only way back in is the layer list. But the member that CUT the
@@ -1746,6 +1797,20 @@ final class PageCanvas: NSView {
 }
 
 
+extension PageCanvas: NSTextFieldDelegate {
+    func controlTextDidEndEditing(_ n: Notification) {
+        // Fires for Enter and for clicking away — both mean "keep what I typed".
+        endLabelEdit(commit: true)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView,
+                 doCommandBy sel: Selector) -> Bool {
+        guard sel == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        endLabelEdit(commit: false)   // Escape: the edit never happened
+        return true
+    }
+}
+
 struct CanvasRepresentable: NSViewRepresentable {
     @EnvironmentObject var store: DocumentStore
     let page: Page?
@@ -1814,6 +1879,7 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     private func wire(_ canvas: PageCanvas) {
         canvas.onSelect = { id, extend in store.select(id, extend: extend) }
+        canvas.onRenameLayer = { id, name in store.rename(id, to: name) }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

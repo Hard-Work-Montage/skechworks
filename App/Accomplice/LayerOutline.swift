@@ -79,7 +79,6 @@ struct LayerOutline: NSViewRepresentable {
     let revision: Int
     @Binding var selection: Set<String>
     let store: DocumentStore
-    let onRename: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let outline = DeletableOutlineView()
@@ -137,7 +136,7 @@ struct LayerOutline: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     @MainActor
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
         static let layerType = NSPasteboard.PasteboardType("com.accomplice.layer")
 
         var parent: LayerOutline
@@ -351,7 +350,53 @@ struct LayerOutline: NSViewRepresentable {
         @objc func doubleClicked() {
             guard let outline, outline.clickedRow >= 0,
                   let item = outline.item(atRow: outline.clickedRow) as? LayerItem else { return }
-            parent.onRename(item.id)
+            beginRename(item)
+        }
+
+        // MARK: - Inline rename
+
+        /// Type, Enter, done — right in the row, the way Finder renames a file.
+        /// A modal for a two-word name was ceremony.
+        private var renamingID: String?
+        private var nameBeforeEdit = ""
+
+        func beginRename(_ item: LayerItem) {
+            guard let outline else { return }
+            let row = outline.row(forItem: item)
+            guard row >= 0,
+                  let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView,
+                  let tf = cell.textField else { return }
+            renamingID = item.id
+            nameBeforeEdit = tf.stringValue
+            tf.isEditable = true
+            tf.delegate = self
+            outline.window?.makeFirstResponder(tf)
+            tf.selectText(nil)
+        }
+
+        func controlTextDidEndEditing(_ n: Notification) {
+            guard let tf = n.object as? NSTextField else { return }
+            tf.isEditable = false
+            guard let id = renamingID else { return }
+            renamingID = nil
+            let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, name != nameBeforeEdit {
+                parent.store.rename(id, to: name)
+            } else {
+                tf.stringValue = nameBeforeEdit    // empty or unchanged: put it back
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView,
+                     doCommandBy sel: Selector) -> Bool {
+            guard sel == #selector(NSResponder.cancelOperation(_:)),
+                  let tf = control as? NSTextField else { return false }
+            // Escape: the edit never happened.
+            renamingID = nil
+            tf.stringValue = nameBeforeEdit
+            tf.isEditable = false
+            control.window?.makeFirstResponder(outline)
+            return true
         }
 
         func makeMenu() -> NSMenu {
@@ -380,7 +425,7 @@ extension LayerOutline.Coordinator: NSMenuDelegate {
             entry.representedObject = Action(action)
             menu.addItem(entry)
         }
-        add("Rename…") { [weak self] in self?.parent.onRename(item.id) }
+        add("Rename…") { [weak self] in self?.beginRename(item) }
         menu.addItem(.separator())
         add("Cut") { self.parent.store.cutSelection() }
         add("Copy") { self.parent.store.copySelection() }

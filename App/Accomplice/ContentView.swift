@@ -20,7 +20,6 @@ struct ContentView: View {
     /// possible, which is the entire point.
     /// The split view used to provide the collapse button; with plain columns it's
     /// ours to keep.
-    @State private var renamingID: String?
     @State private var renamingPage: Int?
     @State private var renameText = ""
     @State private var expanded: Set<String> = []
@@ -261,21 +260,7 @@ struct ContentView: View {
                 LayerOutline(nodes: page.layers.map(LayerNode.init),
                              revision: store.revision &+ store.pageToken,
                              selection: $store.selection,
-                             store: store,
-                             onRename: { id in
-                                 renamingID = id
-                                 renameText = store.page?.layer(id)?.name ?? ""
-                             })
-                    .alert("Rename Layer", isPresented: Binding(
-                        get: { renamingID != nil },
-                        set: { if !$0 { renamingID = nil } })) {
-                        TextField("Name", text: $renameText)
-                        Button("Rename") {
-                            if let id = renamingID { store.rename(id, to: renameText) }
-                            renamingID = nil
-                        }
-                        Button("Cancel", role: .cancel) { renamingID = nil }
-                    }
+                             store: store)
             } else {
                 Spacer()
             }

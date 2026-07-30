@@ -73,6 +73,18 @@ private struct ColorPickerPane: View {
                 channel("B", 2)
             }
             HStack(spacing: 6) {
+                Button {
+                    // The one thing worth keeping from the system panel.
+                    NSColorSampler().show { picked in
+                        guard let p = picked?.usingColorSpace(.sRGB) else { return }
+                        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+                        p.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+                        hue = h; sat = s; bri = b
+                        push()
+                    }
+                } label: { Image(systemName: "eyedropper") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help("Pick a colour from the screen")
                 HStack(spacing: 3) {
                     Text("#").foregroundStyle(.tertiary)
                     TextField("", text: $hexTyped)
@@ -100,18 +112,6 @@ private struct ColorPickerPane: View {
                     .background(RoundedRectangle(cornerRadius: 5).fill(.quaternary.opacity(0.5)))
                     .frame(width: 62)
                 }
-                Button {
-                    // The one thing worth keeping from the system panel.
-                    NSColorSampler().show { picked in
-                        guard let p = picked?.usingColorSpace(.sRGB) else { return }
-                        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
-                        p.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-                        hue = h; sat = s; bri = b
-                        push()
-                    }
-                } label: { Image(systemName: "eyedropper") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Pick a colour from the screen")
             }
         }
         .padding(12)
