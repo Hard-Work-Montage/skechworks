@@ -102,6 +102,100 @@
     will-change: transform;
   }
 
+  .spec {
+    margin-top: 26px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.78);
+    text-shadow: 0 1px 8px rgba(0, 10, 30, 0.45);
+  }
+
+  section {
+    margin-top: 110px;
+  }
+  section h2 {
+    font-size: clamp(28px, 4vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    font-weight: 720;
+    margin-bottom: 14px;
+    text-shadow: 0 2px 14px rgba(0, 10, 30, 0.45);
+  }
+  section .deck {
+    font-size: clamp(16px, 1.8vw, 19px);
+    line-height: 1.55;
+    color: rgba(255,255,255,0.9);
+    max-width: 64ch;
+    text-shadow: 0 1px 10px rgba(0, 10, 30, 0.45);
+  }
+  section .deck + .deck { margin-top: 14px; }
+  section .deck b { color: #fff; }
+
+  .cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    margin-top: 34px;
+  }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+  .cols h3 {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 12px;
+  }
+  .cols ul { list-style: none; }
+  .cols li {
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.18);
+    font-size: 16px;
+    line-height: 1.4;
+    text-shadow: 0 1px 8px rgba(0, 10, 30, 0.4);
+  }
+  .cols .not li { color: rgba(255,255,255,0.55); }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 22px;
+    margin-top: 34px;
+  }
+  @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+  .panel {
+    background: rgba(8, 20, 45, 0.42);
+    border: 1px solid rgba(255,255,255,0.16);
+    backdrop-filter: blur(10px);
+    border-radius: 14px;
+    padding: 24px 22px;
+  }
+  .panel .num {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.6);
+  }
+  .panel h3 {
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    margin: 8px 0 10px;
+  }
+  .panel p {
+    font-size: 15px;
+    line-height: 1.55;
+    color: rgba(255,255,255,0.88);
+  }
+  .panel .tag {
+    margin-top: 14px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.65);
+  }
+
   footer {
     text-align: center;
     padding-top: 64px;
@@ -125,12 +219,90 @@
     Accomplice picks up where <b>Fireworks</b> and early <b>Sketch</b> left off —
     pixels and paths side by side, files that stay yours, and nothing between
     you and the work.</p>
+    <p class="spec">local&nbsp;&nbsp;·&nbsp;&nbsp;no account&nbsp;&nbsp;·&nbsp;&nbsp;works offline&nbsp;&nbsp;·&nbsp;&nbsp;no telemetry</p>
   </header>
 
   <div class="hero-wrap">
     <img class="hero" src="hero.png" width="1820" height="1084"
          alt="Accomplice on a Mac: four artboards of a beanie-wearing robot logo in different colours, with the layer list, properties panel and built-in chat.">
   </div>
+
+  <section>
+    <h2>Fireworks wasn&rsquo;t killed for being&nbsp;bad.</h2>
+    <p class="deck">It was discontinued in 2013 because it belonged to a company whose
+    plans changed. Nothing since has wanted to be what it was: one person, one file,
+    pixels and paths in the same canvas, assets out the door by lunch. Early Sketch
+    came closest &mdash; before it became a platform.</p>
+    <p class="deck">I know how that story ends, because more than half the design
+    files on my own disk are in formats that no longer open. The work didn&rsquo;t
+    wear out. <b>The software left.</b></p>
+    <p class="deck">So Accomplice is built so it can&rsquo;t happen again. Every
+    document is a PNG with the source riding inside it &mdash; the file is its own
+    preview, and every page ships as plain SVG in the archive. If the app vanished
+    tomorrow, your artwork doesn&rsquo;t: unzip it. No app required, ten years from
+    now.</p>
+  </section>
+
+  <section>
+    <h2>Most of what you need. None of what you&nbsp;don&rsquo;t.</h2>
+    <p class="deck">This tool is aimed at one person making one file. Being clear
+    about the edges is the point.</p>
+    <div class="cols">
+      <div>
+        <h3>What it does</h3>
+        <ul>
+          <li>Vector illustration and logo work</li>
+          <li>Bitmap work right beside the vectors</li>
+          <li>Boolean shapes that stay editable</li>
+          <li>Text on circles, for badges and coins</li>
+          <li>Reads your old Sketch files</li>
+          <li>Exports SVG, PNG and JPG at 1&times;&ndash;3&times;</li>
+        </ul>
+      </div>
+      <div class="not">
+        <h3>What it doesn&rsquo;t</h3>
+        <ul>
+          <li>Real-time multiplayer editing</li>
+          <li>Comment threads and approvals</li>
+          <li>Design systems and shared libraries</li>
+          <li>Prototyping and handoff specs</li>
+          <li>A browser tab</li>
+          <li>A seat you pay for monthly</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Three things nothing else does at&nbsp;once.</h2>
+    <div class="panels">
+      <div class="panel">
+        <span class="num">01 &mdash; ONE CANVAS</span>
+        <h3>Pixels and paths, side by side</h3>
+        <p>Subtract one shape from another and both stay editable &mdash; double-click
+        straight into the combined shape, even into the holes. Corner radius stays a
+        number. A star remembers its point count. Erasing a photo never destroys a
+        pixel underneath.</p>
+      </div>
+      <div class="panel">
+        <span class="num">02 &mdash; FILES</span>
+        <h3>A document, not a record</h3>
+        <p>One file per document, in a folder you chose. It previews in Finder because
+        it <em>is</em> a PNG. Diff it, commit it, email it, back it up. What you see on
+        canvas and what exports are drawn by the same code, so they can never
+        disagree.</p>
+      </div>
+      <div class="panel">
+        <span class="num">03 &mdash; THE ACCOMPLICE</span>
+        <h3>It does the part you didn&rsquo;t want to do</h3>
+        <p>Rename forty layers. Reorder the list to match the canvas. Swap the
+        template text on every artboard. It runs against a model on your own machine,
+        it never touches the canvas unless you ask, and every change is one ordinary
+        undo step.</p>
+        <p class="tag">An accomplice does the work and never asks for credit.</p>
+      </div>
+    </div>
+  </section>
 
   <footer>Local, fast, and yours. Made for the Mac.</footer>
 </div>
