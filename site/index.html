@@ -82,6 +82,14 @@
   }
   .sub b { color: #fff; font-weight: 650; }
 
+  /* One size up from the text column, and a gentle turn toward the mouse.
+     The perspective lives on the wrapper so the shadow tilts with the window. */
+  .hero-wrap {
+    perspective: 1400px;
+    margin: 0 -90px;
+  }
+  @media (max-width: 1240px) { .hero-wrap { margin: 0; } }
+
   .hero {
     display: block;
     width: 100%;
@@ -90,6 +98,8 @@
     box-shadow:
       0 50px 100px -20px rgba(0, 10, 30, 0.65),
       0 16px 36px -12px rgba(0, 10, 30, 0.5);
+    transition: transform 0.18s ease-out;
+    will-change: transform;
   }
 
   footer {
@@ -117,10 +127,26 @@
     you and the work.</p>
   </header>
 
-  <img class="hero" src="hero.png" width="1820" height="1084"
-       alt="Accomplice on a Mac: four artboards of a beanie-wearing robot logo in different colours, with the layer list, properties panel and built-in chat.">
+  <div class="hero-wrap">
+    <img class="hero" src="hero.png" width="1820" height="1084"
+         alt="Accomplice on a Mac: four artboards of a beanie-wearing robot logo in different colours, with the layer list, properties panel and built-in chat.">
+  </div>
 
   <footer>Local, fast, and yours. Made for the Mac.</footer>
 </div>
+<script>
+  // The window leans toward the pointer — mostly side to side, a hint of pitch.
+  const wrap = document.querySelector(".hero-wrap");
+  const shot = wrap.querySelector(".hero");
+  wrap.addEventListener("mousemove", (e) => {
+    const r = wrap.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - 0.5;
+    const y = (e.clientY - r.top) / r.height - 0.5;
+    shot.style.transform = `rotateY(${(x * 6).toFixed(2)}deg) rotateX(${(-y * 2.5).toFixed(2)}deg)`;
+  });
+  wrap.addEventListener("mouseleave", () => {
+    shot.style.transform = "rotateY(0deg) rotateX(0deg)";
+  });
+</script>
 </body>
 </html>
