@@ -2805,3 +2805,63 @@ private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) ->
     let star = try #require(back.document.pages.first?.layers.first)
     #expect(star.autoShape == AutoShape(kind: .star, sides: 8, innerRatio: 0.3))
 }
+
+@Test func bitmapAdjustmentsAndCropSurviveTheFormat() throws {
+    var l = Layer(kind: .bitmap(imageRef: "photo.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 80)
+    l.brightness = 0.2
+    l.contrast = 1.3
+    l.saturation = 0.7
+    l.cropRect = CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6)
+    l.erased = [EraseStroke(rect: CGRect(x: 5, y: 5, width: 20, height: 10))]
+    var page = Page(name: "P")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+    let data = try AcmplcFile.write(document: doc, images: ["photo.png": Data([0x89, 0x50])])
+    let back = try AcmplcFile.read(data).document.pages[0].layers[0]
+    #expect(back.brightness == 0.2)
+    #expect(back.contrast == 1.3)
+    #expect(back.saturation == 0.7)
+    #expect(back.cropRect == CGRect(x: 0.1, y: 0.2, width: 0.5, height: 0.6))
+    #expect(back.erased.first?.rect == CGRect(x: 5, y: 5, width: 20, height: 10))
+}
+
+@Test func rectEraseCutsAHoleInTheMask() throws {
+    let strokes = [EraseStroke(rect: CGRect(x: 10, y: 10, width: 30, height: 20))]
+    let mask = try #require(EraseMask.image(strokes: strokes, size: CGSize(width: 100, height: 100)))
+    // Sample the mask: inside the rect should be dark (erased), outside light.
+    func luminance(_ x: Int, _ y: Int) -> UInt8 {
+        let data = mask.dataProvider!.data! as Data
+        let bpr = mask.bytesPerRow
+        return data[y * bpr + x]
+    }
+    // Mask is drawn at 2x scale.
+    #expect(luminance(40, 40) < 32)     // inside (20,20)
+    #expect(luminance(160, 160) > 224)  // outside (80,80)
+}
+
+@Test func brightnessActuallyBrightensTheRender() throws {
+    // A real PNG, mid-grey.
+    let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+    let png = try #require(Renderer.png(ctx.makeImage()!))
+
+    var l = Layer(kind: .bitmap(imageRef: "grey"))
+    l.frame = CGRect(x: 0, y: 0, width: 8, height: 8)
+    var page = Page(name: "P")
+    page.layers = [l]
+
+    func centrePixel() -> UInt8 {
+        let img = Renderer(images: ["grey": png]).render(page: page, maxDimension: 8)!
+        let data = img.dataProvider!.data! as Data
+        return data[(img.height / 2) * img.bytesPerRow + (img.width / 2) * 4]
+    }
+    let before = centrePixel()
+    page.layers[0].brightness = 0.4
+    let after = centrePixel()
+    #expect(after > before + 40)
+}

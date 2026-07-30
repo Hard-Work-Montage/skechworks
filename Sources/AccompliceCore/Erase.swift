@@ -18,11 +18,22 @@ public struct EraseStroke: Sendable, Equatable {
     /// 0 is a hard edge, 1 fades the whole radius out. Anything in between fades the
     /// outer part and leaves a solid core.
     public var softness: CGFloat
+    /// A rectangular patch instead of a brush path — the marquee erase. When set,
+    /// points and radius are ignored.
+    public var rect: CGRect?
 
     public init(points: [CGPoint], radius: CGFloat, softness: CGFloat = 0.5) {
         self.points = points
         self.radius = max(0.5, radius)
         self.softness = min(1, max(0, softness))
+    }
+
+    /// A marquee erase: one hard-edged rectangle.
+    public init(rect: CGRect) {
+        self.points = []
+        self.radius = 1
+        self.softness = 0
+        self.rect = rect
     }
 
     /// How far the stroke reaches, for invalidation and for sizing the mask.
@@ -70,6 +81,12 @@ public enum EraseMask {
     /// which is close enough that the dabs read as a line rather than a string of
     /// beads, without costing a stamp per pixel.
     private static func stamp(_ stroke: EraseStroke, in ctx: CGContext) {
+        // A marquee patch is one hard-edged rectangle, not a run of dabs.
+        if let r = stroke.rect {
+            ctx.setFillColor(gray: 0, alpha: 1)
+            ctx.fill(r)
+            return
+        }
         let spacing = max(0.5, stroke.radius / 4)
         var dabs: [CGPoint] = []
         if stroke.points.count == 1 {

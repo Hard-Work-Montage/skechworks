@@ -62,6 +62,34 @@ final class PageCanvas: NSView {
     var onRenameLayer: ((String, String) -> Void)?
     /// Inline content edit, from double-clicking a text layer. (id, new string)
     var onEditTextContent: ((String, String) -> Void)?
+    /// Crop mode, entered from the inspector. (id, kept region in unit coords)
+    var onCommitCrop: ((String, CGRect) -> Void)?
+    var onCancelCrop: (() -> Void)?
+    /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
+    var onEraseRect: ((String, CGRect) -> Void)?
+
+    /// The bitmap being cropped; the inspector drives it through the store.
+    var croppingID: String? {
+        didSet {
+            guard croppingID != oldValue else { return }
+            beginCropDraft()
+            needsDisplay = true
+        }
+    }
+    /// The kept region while cropping, and the layer's frame, both in page coords.
+    private var cropDraft: CGRect = .zero
+    private var cropFrame: CGRect = .zero
+    private var cropDrag: (handle: Handle?, start: CGPoint, rect: CGRect)?
+    /// A marquee erase in flight: layer, its transform, and the drag in page coords.
+    private var eraseRectDrag: (id: String, t: CGAffineTransform, start: CGPoint, current: CGPoint)?
+
+    private func beginCropDraft() {
+        guard let id = croppingID, let page,
+              let f = frameOf(id, in: page.layers, base: .identity) else { return }
+        cropFrame = f
+        cropDraft = f
+        window?.makeFirstResponder(self)
+    }
 
     var tool: DocumentStore.Tool = .select {
         didSet {
@@ -651,6 +679,16 @@ final class PageCanvas: NSView {
         drawPointOverlay(ctx)
         drawPenPreview(ctx)
         drawArtboardLabels()
+        drawCropOverlay(ctx)
+        if let er = eraseRectDrag {
+            let r = CGRect(x: min(er.start.x, er.current.x), y: min(er.start.y, er.current.y),
+                           width: abs(er.current.x - er.start.x), height: abs(er.current.y - er.start.y))
+            ctx.setStrokeColor(NSColor.systemRed.cgColor)
+            ctx.setLineWidth(1 / sc)
+            ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
+            ctx.stroke(r)
+            ctx.setLineDash(phase: 0, lengths: [])
+        }
         ctx.restoreGState()
         drawBrush(ctx)
         drawMinimap(ctx)
@@ -809,6 +847,35 @@ final class PageCanvas: NSView {
 
     /// Labels stay a constant size on screen, so they read the same at any zoom —
     /// which means sizing them in page units as 11 / magnification.
+    /// Everything outside the crop dims; the window gets a bright edge and the
+    /// eight handles selection boxes taught everyone to expect.
+    private func drawCropOverlay(_ ctx: CGContext) {
+        guard croppingID != nil else { return }
+        let visible = CGRect(origin: origin,
+                             size: CGSize(width: bounds.width / scale, height: bounds.height / scale))
+        ctx.saveGState()
+        let outside = CGMutablePath()
+        outside.addRect(visible)
+        outside.addRect(cropDraft)
+        ctx.addPath(outside)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
+        ctx.fillPath(using: .evenOdd)
+        ctx.setStrokeColor(NSColor.white.cgColor)
+        ctx.setLineWidth(1.5 / scale)
+        ctx.stroke(cropDraft)
+        let s: CGFloat = 7 / scale
+        for h in [Handle.nw, .n, .ne, .e, .se, .s, .sw, .w] {
+            let c = handlePoint(h, in: cropDraft)
+            let box = CGRect(x: c.x - s / 2, y: c.y - s / 2, width: s, height: s)
+            ctx.setFillColor(NSColor.white.cgColor)
+            ctx.fill(box)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1 / scale)
+            ctx.stroke(box)
+        }
+        ctx.restoreGState()
+    }
+
     private func drawArtboardLabels() {
         guard !artboards.isEmpty else { return }
         let scale = max(0.01, currentScale)
@@ -1309,8 +1376,23 @@ final class PageCanvas: NSView {
 
         let p = pagePoint(convert(event.locationInWindow, from: nil))
 
+        // --- Crop mode swallows the mouse: handles, or move the window ---
+        if croppingID != nil {
+            if let h = cropHandleHit(p) { cropDrag = (h, p, cropDraft); return }
+            if cropDraft.contains(p) { cropDrag = (nil, p, cropDraft); return }
+            return   // outside: stay in the mode; Enter and Escape are the exits
+        }
+
         // --- Erase: paint on the bitmap under the pointer ---
         if tool == .erase {
+            // ⌥-drag cuts a straight-edged rectangle instead of painting.
+            if event.modifierFlags.contains(.option),
+               let target = bitmapHit(p),
+               let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
+                eraseRectDrag = (target.id, t, p, p)
+                needsDisplay = true
+                return
+            }
             if let target = bitmapHit(p), let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
                 erasing = (target.id, [p.applying(t.inverted())], t)
                 needsDisplay = true
@@ -1700,6 +1782,19 @@ final class PageCanvas: NSView {
     override func mouseDragged(with event: NSEvent) {
         let p = pagePoint(convert(event.locationInWindow, from: nil))
 
+        if let cd = cropDrag {
+            let d = CGSize(width: p.x - cd.start.x, height: p.y - cd.start.y)
+            cropDraft = Self.cropAdjusted(cd.rect, handle: cd.handle, by: d,
+                                          within: cropFrame, minSide: 8 / scale)
+            needsDisplay = true
+            return
+        }
+        if eraseRectDrag != nil {
+            eraseRectDrag!.current = p
+            needsDisplay = true
+            return
+        }
+
         if draggingPoint != nil {
             let dx = p.x - dragAnchor.x, dy = p.y - dragAnchor.y
             for (i, start) in dragPointStart {
@@ -1787,7 +1882,57 @@ final class PageCanvas: NSView {
         needsDisplay = true
     }
 
+    /// Moves or resizes the crop window, clamped inside the layer.
+    private static func cropAdjusted(_ r0: CGRect, handle: Handle?, by d: CGSize,
+                                     within bounds: CGRect, minSide: CGFloat) -> CGRect {
+        var r = r0
+        switch handle {
+        case nil:
+            r.origin.x += d.width
+            r.origin.y += d.height
+            r.origin.x = min(max(r.origin.x, bounds.minX), bounds.maxX - r.width)
+            r.origin.y = min(max(r.origin.y, bounds.minY), bounds.maxY - r.height)
+            return r
+        case .nw: r.origin.x += d.width; r.size.width -= d.width
+                  r.origin.y += d.height; r.size.height -= d.height
+        case .n:  r.origin.y += d.height; r.size.height -= d.height
+        case .ne: r.size.width += d.width
+                  r.origin.y += d.height; r.size.height -= d.height
+        case .e:  r.size.width += d.width
+        case .se: r.size.width += d.width; r.size.height += d.height
+        case .s:  r.size.height += d.height
+        case .sw: r.origin.x += d.width; r.size.width -= d.width
+                  r.size.height += d.height
+        case .w:  r.origin.x += d.width; r.size.width -= d.width
+        }
+        // A dragged-through edge flips; clamp instead, then keep it in the layer.
+        if r.width < minSide { if handle == .nw || handle == .sw || handle == .w { r.origin.x = r.maxX - minSide }; r.size.width = minSide }
+        if r.height < minSide { if handle == .nw || handle == .ne || handle == .n { r.origin.y = r.maxY - minSide }; r.size.height = minSide }
+        return r.intersection(bounds)
+    }
+
+    private func cropHandleHit(_ p: CGPoint) -> Handle? {
+        let grab = 8 / scale
+        for h in [Handle.nw, .n, .ne, .e, .se, .s, .sw, .w] {
+            let c = handlePoint(h, in: cropDraft)
+            if abs(p.x - c.x) <= grab, abs(p.y - c.y) <= grab { return h }
+        }
+        return nil
+    }
+
     override func mouseUp(with event: NSEvent) {
+        if cropDrag != nil { cropDrag = nil; return }
+        if let er = eraseRectDrag {
+            eraseRectDrag = nil
+            let pageRect = CGRect(x: min(er.start.x, er.current.x),
+                                  y: min(er.start.y, er.current.y),
+                                  width: abs(er.current.x - er.start.x),
+                                  height: abs(er.current.y - er.start.y))
+            let local = pageRect.applying(er.t.inverted())
+            if local.width > 1, local.height > 1 { onEraseRect?(er.id, local) }
+            needsDisplay = true
+            return
+        }
         defer { needsDisplay = true }   // a click that commits nothing still changes what's drawn
         // A press that never went anywhere is a click, not an edit. Committing it anyway
         // put an empty step on the undo stack — and the first half of every double-click
@@ -1863,6 +2008,15 @@ final class PageCanvas: NSView {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 36:   // return — finish an open path, or step into the selected path
+            if let id = croppingID {
+                // Commit the crop as a unit rect of the layer's frame.
+                let u = CGRect(x: (cropDraft.minX - cropFrame.minX) / cropFrame.width,
+                               y: (cropDraft.minY - cropFrame.minY) / cropFrame.height,
+                               width: cropDraft.width / cropFrame.width,
+                               height: cropDraft.height / cropFrame.height)
+                onCommitCrop?(id, u)
+                return
+            }
             if tool == .pen { finishPen(close: false); onExitTool?(); return }
             // Sketch's Enter: point editing on whatever is selected. This is also the
             // reliable way into a combined shape's member picked from the layer list —
@@ -1879,6 +2033,7 @@ final class PageCanvas: NSView {
             // Escape drops whatever is half-drawn *and* hands the cursor back. Staying
             // in the pen after cancelling was the trap: nothing on screen changed, so
             // the tool read as stuck.
+            if croppingID != nil { onCancelCrop?(); return }
             if tool == .pen {
                 penPoints = []; penCursor = nil; needsDisplay = true
                 onExitTool?()
@@ -1956,6 +2111,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     let revision: Int
     let tool: DocumentStore.Tool
     let pageToken: Int
+    let cropping: String?
 
     func makeNSView(context: Context) -> PageCanvas {
         let canvas = PageCanvas()
@@ -1972,6 +2128,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.pageToken = pageToken
         canvas.revision = revision
         canvas.tool = tool
+        canvas.croppingID = cropping
         wire(canvas)
         if let req = pointMode, context.coordinator.lastPointModeSerial != req.serial {
             context.coordinator.lastPointModeSerial = req.serial
@@ -2020,6 +2177,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         }
         canvas.onToggleLock = { store.toggleLock() }
         canvas.onToggleHide = { store.toggleLockOrHide(hide: true) }
+        canvas.onCommitCrop = { id, unit in store.applyCrop(id, unit: unit) }
+        canvas.onCancelCrop = { store.croppingID = nil }
+        canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

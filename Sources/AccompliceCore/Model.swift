@@ -202,6 +202,21 @@ public struct Layer: @unchecked Sendable {
     /// to make.
     public var erased: [EraseStroke] = []
 
+    /// Photo adjustments for a bitmap layer, applied at draw time — stored, like
+    /// erases, so the pixels underneath are never touched.
+    public var brightness: CGFloat = 0      // -1 … 1, 0 = untouched
+    public var contrast: CGFloat = 1        // 0.25 … 4, 1 = untouched
+    public var saturation: CGFloat = 1      // 0 … 2, 1 = untouched
+
+    /// The visible region of a bitmap, in unit coordinates of the displayed image.
+    /// Nil shows everything. Cropping is a window, not a knife.
+    public var cropRect: CGRect?
+
+    /// True when any bitmap adjustment departs from neutral.
+    public var hasBitmapAdjustments: Bool {
+        brightness != 0 || contrast != 1 || saturation != 1 || cropRect != nil
+    }
+
     /// The parameters a star or polygon was drawn from — Fireworks' Auto Shapes.
     ///
     /// The path is baked (so everything downstream just sees a path), but the recipe

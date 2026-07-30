@@ -308,7 +308,8 @@ struct ContentView: View {
                                 selection: $store.selection, zoom: store.zoomRequest,
                                 pointMode: store.pointModeRequest,
                                 revision: store.revision, tool: store.tool,
-                                pageToken: store.pageToken)
+                                pageToken: store.pageToken,
+                                cropping: store.croppingID)
             Color.clear.accessibilityIdentifier("canvas").allowsHitTesting(false)
             if store.isLoading || store.isPageLoading {
                 ProgressView().controlSize(.large).padding(24)

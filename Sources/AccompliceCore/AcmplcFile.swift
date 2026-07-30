@@ -240,6 +240,11 @@ public struct AcmplcFile {
         case "bitmap":
             if let strokes = j["erased"] as? [[String: Any]] {
                 erased = strokes.compactMap { e in
+                    if let rc = e["rect"] as? [Any], rc.count == 4,
+                       let x = dbl(rc[0]), let y = dbl(rc[1]),
+                       let w = dbl(rc[2]), let h = dbl(rc[3]) {
+                        return EraseStroke(rect: CGRect(x: x, y: y, width: w, height: h))
+                    }
                     guard let pts = e["points"] as? [[Double]], let r = dbl(e["radius"]) else { return nil }
                     return EraseStroke(points: pts.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil },
                                        radius: r, softness: dbl(e["softness"]) ?? 0.5)
@@ -255,6 +260,13 @@ public struct AcmplcFile {
         l.curveModes = modes
         l.cornerRadius = dbl(j["cornerRadius"]) ?? 0
         l.isLocked = j["locked"] as? Bool ?? false
+        l.brightness = dbl(j["brightness"]) ?? 0
+        l.contrast = dbl(j["contrast"]) ?? 1
+        l.saturation = dbl(j["saturation"]) ?? 1
+        if let c = j["crop"] as? [Any], c.count == 4,
+           let x = dbl(c[0]), let y = dbl(c[1]), let w = dbl(c[2]), let h = dbl(c[3]) {
+            l.cropRect = CGRect(x: x, y: y, width: w, height: h)
+        }
         if let a = j["autoShape"] as? [String: Any],
            let kindName = a["kind"] as? String,
            let kind = AutoShape.Kind(rawValue: kindName),
@@ -389,7 +401,6 @@ public struct AcmplcFile {
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
             if !l.curveModes.isEmpty { d["pointTypes"] = l.curveModes.map(\.rawValue) }
-            if l.isLocked { d["locked"] = true }
             if let a = l.autoShape {
                 d["autoShape"] = ["kind": a.kind.rawValue, "sides": a.sides,
                                   "innerRatio": a.innerRatio] as [String: Any]
@@ -418,12 +429,21 @@ public struct AcmplcFile {
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
             if !l.erased.isEmpty {
-                d["erased"] = l.erased.map { e in
-                    ["points": e.points.map { [$0.x, $0.y] },
-                     "radius": e.radius, "softness": e.softness] as [String: Any]
+                d["erased"] = l.erased.map { e -> [String: Any] in
+                    if let r = e.rect {
+                        return ["rect": [r.minX, r.minY, r.width, r.height]]
+                    }
+                    return ["points": e.points.map { [$0.x, $0.y] },
+                            "radius": e.radius, "softness": e.softness]
                 }
             }
         }
+        // Every kind of layer can carry these.
+        if l.isLocked { d["locked"] = true }
+        if l.brightness != 0 { d["brightness"] = l.brightness }
+        if l.contrast != 1 { d["contrast"] = l.contrast }
+        if l.saturation != 1 { d["saturation"] = l.saturation }
+        if let c = l.cropRect { d["crop"] = [c.minX, c.minY, c.width, c.height] }
         return d
     }
 

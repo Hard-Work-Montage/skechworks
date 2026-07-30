@@ -905,6 +905,50 @@ final class DocumentStore: ObservableObject {
         edit(id, actionName: "Change Boolean") { $0.booleanOp = op }
     }
 
+    /// The bitmap being cropped on canvas, if any. Entered from the inspector,
+    /// left by Enter (commit) or Escape (never mind).
+    @Published var croppingID: String?
+
+    /// Applies a crop chosen on canvas. `unit` is the kept region in the CURRENT
+    /// visible image's coordinates, so successive crops compose; the frame shrinks
+    /// to the kept region so nothing moves on screen.
+    func applyCrop(_ id: String, unit u: CGRect) {
+        edit(id, actionName: "Crop Image") { l in
+            let old = l.cropRect ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+            l.cropRect = CGRect(x: old.minX + u.minX * old.width,
+                                y: old.minY + u.minY * old.height,
+                                width: max(0.01, u.width * old.width),
+                                height: max(0.01, u.height * old.height))
+            l.frame = CGRect(x: l.frame.minX + u.minX * l.frame.width,
+                             y: l.frame.minY + u.minY * l.frame.height,
+                             width: max(1, u.width * l.frame.width),
+                             height: max(1, u.height * l.frame.height))
+        }
+        croppingID = nil
+    }
+
+    /// Uncrops: the full image returns, growing the frame back around the kept
+    /// region so the visible part stays where it was.
+    func removeCrop(_ id: String) {
+        edit(id, actionName: "Remove Crop") { l in
+            guard let c = l.cropRect, c.width > 0, c.height > 0 else { return }
+            l.frame = CGRect(x: l.frame.minX - c.minX * (l.frame.width / c.width),
+                             y: l.frame.minY - c.minY * (l.frame.height / c.height),
+                             width: l.frame.width / c.width,
+                             height: l.frame.height / c.height)
+            l.cropRect = nil
+        }
+    }
+
+    /// A rectangular erase patch — the marquee, for straight-edged cuts.
+    func eraseRect(_ id: String, rect: CGRect) {
+        guard rect.width > 1, rect.height > 1 else { return }
+        edit(id, actionName: "Erase Area") { l in
+            guard case .bitmap = l.kind else { return }
+            l.erased.append(EraseStroke(rect: rect))
+        }
+    }
+
     /// Records an erase stroke against a bitmap layer.
     func erase(_ id: String, points: [CGPoint]) {
         guard points.count >= 1 else { return }

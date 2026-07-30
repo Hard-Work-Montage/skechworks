@@ -22,7 +22,10 @@ struct PropertiesPanel: View {
                         if layer.autoShape != nil { Divider(); autoShapeSection(layer) }
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
-                        if case .bitmap = layer.kind { Divider(); eraser(layer) }
+                        if case .bitmap = layer.kind {
+                            Divider(); imageSection(layer)
+                            Divider(); eraser(layer)
+                        }
                         // Always, since adding one starts here — except artboards,
                         // which don't cast shadows.
                         if !layer.isArtboard { Divider(); shadows(layer) }
@@ -762,6 +765,47 @@ struct PropertiesPanel: View {
     /// Brush settings, and the way back.
     ///
     /// Only on a bitmap, because there is nothing to rub out of a vector shape.
+    /// The photo half of "quick photo work": crop and correct, without ever
+    /// touching the pixels underneath.
+    private func imageSection(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Image")
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    editable("Bright", l.brightness * 100, l) { layer, v in
+                        layer.brightness = min(1, max(-1, v / 100))
+                    }
+                    editable("Contrast", l.contrast * 100, l, suffix: "%") { layer, v in
+                        layer.contrast = min(4, max(0.25, v / 100))
+                    }
+                }
+                GridRow {
+                    editable("Sat", l.saturation * 100, l, suffix: "%") { layer, v in
+                        layer.saturation = min(2, max(0, v / 100))
+                    }
+                    Button(store.croppingID == l.id ? "Cropping… (⏎ / esc)" : "Crop") {
+                        store.croppingID = store.croppingID == l.id ? nil : l.id
+                    }
+                    .font(.callout)
+                }
+            }
+            HStack {
+                if l.brightness != 0 || l.contrast != 1 || l.saturation != 1 {
+                    Button("Reset colour") {
+                        store.edit(l.id, actionName: "Reset Adjustments") {
+                            $0.brightness = 0; $0.contrast = 1; $0.saturation = 1
+                        }
+                    }
+                    .font(.caption)
+                }
+                if l.cropRect != nil {
+                    Button("Remove crop") { store.removeCrop(l.id) }
+                        .font(.caption)
+                }
+            }
+        }
+    }
+
     private func eraser(_ l: Layer) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Eraser")

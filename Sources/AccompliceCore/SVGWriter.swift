@@ -79,6 +79,20 @@ public struct SVGWriter {
 
             if let ref = d.imageRef, let data = images[ref] {
                 let r = d.layer.frame
+                // Adjustments and crops can't be expressed portably in SVG, so a
+                // touched bitmap is baked and embedded — the untouched path below
+                // keeps original bytes exactly as they were.
+                if d.layer.hasBitmapAdjustments,
+                   let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer),
+                   let png = BitmapAdjust.pngData(data: data, ref: ref, layer: d.layer) {
+                    var m = CGAffineTransform(scaleX: r.width / max(1, CGFloat(baked.width)),
+                                              y: r.height / max(1, CGFloat(baked.height)))
+                    m = m.concatenating(d.transform)
+                    let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
+                    body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(baked.width)\" height=\"\(baked.height)\" "
+                    body += "xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/>\n"
+                    continue
+                }
                 // SVG renderers don't reliably honour EXIF orientation, so bake it into
                 // the element transform instead of re-encoding the image. Original bytes
                 // stay exactly as they were.

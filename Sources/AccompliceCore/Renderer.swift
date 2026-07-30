@@ -140,6 +140,19 @@ public struct Renderer {
                 ctx.clip(to: r, mask: mask)
             }
 
+            // Adjusted or cropped: the baked image arrives already in display
+            // orientation, so it draws with a plain flip.
+            if d.layer.hasBitmapAdjustments,
+               let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer) {
+                ctx.scaleBy(x: r.width / max(1, CGFloat(baked.width)),
+                            y: r.height / max(1, CGFloat(baked.height)))
+                ctx.translateBy(x: 0, y: CGFloat(baked.height))
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(baked, in: CGRect(x: 0, y: 0, width: baked.width, height: baked.height))
+                ctx.restoreGState()
+                return
+            }
+
             // Order is load-bearing. The EXIF transform is defined in y-DOWN display
             // space, so it has to be applied while we're still in that space. Flipping
             // first (for CGImage's y-up drawing) and rotating after mirrors the result.
