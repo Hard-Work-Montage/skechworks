@@ -125,7 +125,10 @@ public enum Compose {
                 if l.style.opacity != 1 {
                     inner = inner.map { var d = $0; d.opacity *= l.style.opacity; return d }
                 }
-                if !l.style.shadows.isEmpty, !inner.isEmpty {
+                // Artboards don't cast shadows: a board is the page, not a thing on
+                // it. Files can still carry one (Sketch allowed it) — ignoring it
+                // here removes it from the canvas, PNG and SVG alike.
+                if !l.style.shadows.isEmpty, !inner.isEmpty, !l.isArtboard {
                     var open = Drawable(path: nil, style: l.style, layer: l, transform: t)
                     open.groupShadows = l.style.shadows
                     var close = Drawable(path: nil, style: Style(), layer: l, transform: t)

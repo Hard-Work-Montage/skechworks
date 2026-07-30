@@ -22,7 +22,9 @@ struct PropertiesPanel: View {
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
                         if case .bitmap = layer.kind { Divider(); eraser(layer) }
-                        Divider(); shadows(layer)   // always: you add one from here
+                        // Always, since adding one starts here — except artboards,
+                        // which don't cast shadows.
+                        if !layer.isArtboard { Divider(); shadows(layer) }
                         if case .text(let t) = layer.kind { Divider(); text(t, layer) }
                         if let pt = store.editingPoint { Divider(); pointType(pt) }
                         if case .shapeGroup(let kids, let rule) = layer.kind {
