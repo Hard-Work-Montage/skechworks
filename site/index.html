@@ -10,31 +10,37 @@
 
   html, body { min-height: 100%; }
 
-  /* The Tahoe wallpaper itself. The gradient underneath is the stand-in while
-     the photo loads, and the fallback if it never does. */
+  /* The photo belongs to the hero; the rest of the page carries on in the
+     colour the image fades to at its bottom edge, so the seam is invisible. */
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
     color: #fff;
-    background-color: #2c4a72;
-    background-image:
-      url("tahoe.jpg"),
-      linear-gradient(180deg, #4a7ab8 0%, #2c4a72 60%, #1d3350 100%);
-    background-size: cover, cover;
-    background-position: center top;
-    background-attachment: fixed;
+    background-color: #222b3b;
   }
 
-  /* A quiet scrim so type stays readable over sky and water alike. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background: linear-gradient(180deg,
-      rgba(8, 20, 45, 0.50) 0%,
-      rgba(8, 20, 45, 0.18) 38%,
-      rgba(8, 20, 45, 0.35) 100%);
+  .hero-zone {
+    position: relative;
+    background-image:
+      linear-gradient(180deg,
+        rgba(8, 20, 45, 0.50) 0%,
+        rgba(8, 20, 45, 0.18) 38%,
+        rgba(8, 20, 45, 0.35) 100%),
+      url("tahoe.jpg");
+    background-size: cover;
+    background-position: center top;
+    padding-bottom: 40px;
   }
+
+  /* The photo dissolves into the page colour right where the hero ends. */
+  .hero-zone::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 260px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(34, 43, 59, 0) 0%, #222b3b 100%);
+  }
+  .hero-zone .page { position: relative; z-index: 1; padding-bottom: 0; }
 
   .page {
     position: relative;
@@ -114,6 +120,8 @@
   section {
     margin-top: 110px;
   }
+  .page > section:first-child { margin-top: 70px; }
+  footer { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; letter-spacing: 0.06em; }
   section h2 {
     font-size: clamp(28px, 4vw, 44px);
     line-height: 1.1;
@@ -206,6 +214,7 @@
 </style>
 </head>
 <body>
+<div class="hero-zone">
 <div class="page">
   <nav>
     <img src="logo.png" alt="" width="36" height="36">
@@ -219,14 +228,17 @@
     Accomplice picks up where <b>Fireworks</b> and early <b>Sketch</b> left off —
     pixels and paths side by side, files that stay yours, and nothing between
     you and the work.</p>
-    <p class="spec">local&nbsp;&nbsp;·&nbsp;&nbsp;no account&nbsp;&nbsp;·&nbsp;&nbsp;works offline&nbsp;&nbsp;·&nbsp;&nbsp;no telemetry</p>
+    <p class="spec">Local, fast, and yours. Made for the Mac.</p>
   </header>
 
   <div class="hero-wrap">
     <img class="hero" src="hero.png" width="1820" height="1084"
          alt="Accomplice on a Mac: four artboards of a beanie-wearing robot logo in different colours, with the layer list, properties panel and built-in chat.">
   </div>
+</div>
+</div>
 
+<div class="page">
   <section>
     <h2>Fireworks wasn&rsquo;t killed for being&nbsp;bad.</h2>
     <p class="deck">It was discontinued in 2013 because it belonged to a company whose
@@ -304,7 +316,7 @@
     </div>
   </section>
 
-  <footer>Local, fast, and yours. Made for the Mac.</footer>
+  <footer>local&nbsp;&nbsp;·&nbsp;&nbsp;no account&nbsp;&nbsp;·&nbsp;&nbsp;works offline&nbsp;&nbsp;·&nbsp;&nbsp;no telemetry</footer>
 </div>
 <script>
   // The window leans toward the pointer — mostly side to side, a hint of pitch.
