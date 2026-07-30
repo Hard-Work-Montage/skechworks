@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accomplice — bitmap and vector, back together</title>
+<meta name="description" content="A fast, local design tool for Mac in the lineage of Fireworks and early Sketch. Pixels and paths in one canvas, files that stay yours.">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body { min-height: 100%; }
+
+  /* The Tahoe look: a light sky of soft blue and lavender ribbons. Layered
+     radial gradients stand in for the wallpaper's flowing bands. */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    color: #1c2333;
+    background-color: #b9d4f2;
+    background-image:
+      radial-gradient(120% 80% at 15% -10%, #eaf3fe 0%, rgba(234, 243, 254, 0) 55%),
+      radial-gradient(90% 70% at 85% 5%,  #cfe0fa 0%, rgba(207, 224, 250, 0) 60%),
+      radial-gradient(70% 60% at 70% 45%, #b7c9f4 0%, rgba(183, 201, 244, 0) 65%),
+      radial-gradient(80% 70% at 20% 60%, #c4b8ef 0%, rgba(196, 184, 239, 0) 60%),
+      radial-gradient(100% 80% at 50% 105%, #8fb2e9 0%, rgba(143, 178, 233, 0) 70%),
+      linear-gradient(180deg, #dcebfd 0%, #b9d4f2 45%, #a8bcee 100%);
+    background-attachment: fixed;
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 32px 96px;
+  }
+
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 72px;
+  }
+  nav img { width: 28px; height: 28px; border-radius: 7px; }
+  nav .name { font-weight: 650; font-size: 17px; letter-spacing: -0.01em; }
+  nav .mac {
+    font-size: 12px; font-weight: 600;
+    color: #4a5878;
+    background: rgba(255,255,255,0.55);
+    border: 1px solid rgba(255,255,255,0.8);
+    padding: 3px 9px; border-radius: 99px;
+  }
+
+  header { text-align: center; margin-bottom: 56px; }
+
+  h1 {
+    font-size: clamp(40px, 6.5vw, 74px);
+    line-height: 1.03;
+    letter-spacing: -0.03em;
+    font-weight: 750;
+    max-width: 14ch;
+    margin: 0 auto 22px;
+  }
+
+  .sub {
+    font-size: clamp(17px, 2vw, 21px);
+    line-height: 1.5;
+    color: #3a465f;
+    max-width: 56ch;
+    margin: 0 auto;
+  }
+  .sub b { color: #1c2333; font-weight: 650; }
+
+  .hero {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow:
+      0 40px 90px -20px rgba(28, 42, 80, 0.45),
+      0 12px 30px -12px rgba(28, 42, 80, 0.35);
+  }
+
+  footer {
+    text-align: center;
+    padding-top: 64px;
+    font-size: 14px;
+    color: #4a5878;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    /* The wallpaper's dusk variant, not a different design. */
+    body {
+      color: #eef1f8;
+      background-color: #232a4d;
+      background-image:
+        radial-gradient(120% 80% at 15% -10%, #3d4a8a 0%, rgba(61, 74, 138, 0) 55%),
+        radial-gradient(90% 70% at 85% 5%,  #2e3a72 0%, rgba(46, 58, 114, 0) 60%),
+        radial-gradient(80% 70% at 20% 60%, #45336e 0%, rgba(69, 51, 110, 0) 60%),
+        radial-gradient(100% 80% at 50% 105%, #1b2344 0%, rgba(27, 35, 68, 0) 70%),
+        linear-gradient(180deg, #2c3563 0%, #232a4d 50%, #1b2140 100%);
+    }
+    .sub { color: #b9c2dd; }
+    .sub b { color: #eef1f8; }
+    nav .mac { color: #b9c2dd; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+    footer { color: #8f9ac0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <img src="logo.png" alt="" width="28" height="28">
+    <span class="name">Accomplice</span>
+    <span class="mac">for&nbsp;Mac</span>
+  </nav>
+
+  <header>
+    <h1>Bitmap and vector, back&nbsp;together.</h1>
+    <p class="sub">Design tools used to do both, in one canvas, on your machine.
+    Accomplice picks up where <b>Fireworks</b> and early <b>Sketch</b> left off —
+    pixels and paths side by side, files that stay yours, and nothing between
+    you and the work.</p>
+  </header>
+
+  <img class="hero" src="hero.png" width="1820" height="1084"
+       alt="Accomplice on a Mac: four artboards of a beanie-wearing robot logo in different colours, with the layer list, properties panel and built-in chat.">
+
+  <footer>Local, fast, and yours. Made for the Mac.</footer>
+</div>
+</body>
+</html>
