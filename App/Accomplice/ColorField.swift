@@ -5,13 +5,12 @@ import SwiftUI
 /// A colour swatch, its hex, and its alpha — the row that appears anywhere a colour
 /// can be changed.
 ///
-/// The swatch is a `ColorPicker`, so it opens the system colour panel and comes with
-/// the eyedropper, the palettes and the recent colours for free. The hex is a real
-/// field because typing `#a9a9a9` is how a brand colour actually arrives — off a
-/// style guide, out of a Slack message — and hunting for it in a colour wheel is a
-/// worse version of a solved problem.
+/// The swatch opens the custom popover picker. The hex is a real field because
+/// typing `#a9a9a9` is how a brand colour actually arrives — off a style guide, out
+/// of a Slack message — and hunting for it in a colour wheel is a worse version of
+/// a solved problem.
 ///
-/// Both edges report continuously while the panel is being dragged; `DocumentStore`
+/// Both edges report continuously while the picker is being dragged; `DocumentStore`
 /// coalesces those into one undo step.
 struct ColorField: View {
     let color: AccompliceCore.Color
@@ -22,28 +21,25 @@ struct ColorField: View {
     /// never get past `#a` before it was rewritten under you.
     @State private var typed = ""
     @State private var editing = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
-            ColorPicker("", selection: Binding(
-                get: { SwiftUI.Color(nsColor: color.nsColor) },
-                set: { picked in
-                    let c = AccompliceCore.Color(picked)
-                    // The panel re-reports the colour it was handed when it opens.
-                    // Without this, opening it registers an undo step for nothing.
-                    guard !c.matches(color) else { return }
-                    onChange(c)
-                }
-            ), supportsOpacity: supportsOpacity)
-                .labelsHidden()
-                .frame(width: 44)
+            ColorPopoverButton(color: color, supportsOpacity: supportsOpacity,
+                               onChange: onChange)
 
             TextField("", text: $typed)
                 .textFieldStyle(.plain)
                 .font(.system(.body, design: .monospaced))
                 .frame(width: 74)
+                .focused($focused)
                 .onSubmit(commit)
-                .onChange(of: typed) { _, _ in editing = true }
+                // Only keystrokes count as editing. A programmatic set fires this
+                // too, and treating it as typing froze the field on its first value
+                // — then a selection change committed that stale hex onto whatever
+                // got selected next.
+                .onChange(of: typed) { _, _ in if focused { editing = true } }
+                .onChange(of: focused) { _, f in if !f { commit() } }
 
             Spacer(minLength: 0)
 
@@ -54,11 +50,11 @@ struct ColorField: View {
             }
         }
         .task(id: signature) {
-            // Don't clobber what's being typed. Anything else — the panel, an undo,
+            // Don't clobber what's being typed. Anything else — the picker, an undo,
             // chat recolouring this layer — should show through immediately.
             if !editing { typed = color.hex.uppercased() }
         }
-        .onDisappear(perform: commit)
+        .onDisappear { if editing { commit() } }
     }
 
     /// Alpha included: two colours that differ only in transparency must not compare
@@ -67,6 +63,7 @@ struct ColorField: View {
 
     private func commit() {
         defer { editing = false }
+        guard editing else { return }
         guard let c = AccompliceCore.Color(hex: typed, alpha: color.a) else {
             typed = color.hex.uppercased()      // nonsense in, previous value back
             return

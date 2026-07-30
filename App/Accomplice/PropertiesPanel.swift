@@ -35,6 +35,11 @@ struct PropertiesPanel: View {
                         Divider(); exportSection(layer)
                     }
                     .padding(14)
+                    // Fields are freshly built per layer. Reused ones carry @State
+                    // (a half-typed hex, an editing flag) from the layer before,
+                    // and that state leaking across a selection change is how one
+                    // shape ended up wearing another's colour.
+                    .id(layer.id)
                 }
             } else {
                 VStack(spacing: 6) {
