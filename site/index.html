@@ -162,6 +162,14 @@
     box-shadow: 0 10px 30px -8px rgba(0, 10, 30, 0.55);
   }
   .btn:hover { transform: translateY(-1px); }
+  .btn.ghost {
+    background: rgba(255,255,255,0.14);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+    backdrop-filter: blur(6px);
+    margin-left: 10px;
+    box-shadow: none;
+  }
 
   .spec {
     margin-top: 26px;
@@ -176,6 +184,7 @@
     margin-top: 110px;
   }
   .page > section:first-child { margin-top: 70px; }
+  a.plain { color: #9db8e8; }
   footer { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; letter-spacing: 0.06em; }
   section h2 {
     font-size: clamp(28px, 4vw, 44px);
@@ -288,6 +297,7 @@
     nothing between you and the work.</p>
     <div class="cta">
       <a class="btn" href="/download">Download for Mac</a>
+      <a class="btn ghost" href="https://github.com/adamhowell/accomplice">Read the source</a>
     </div>
   </header>
 
@@ -313,6 +323,10 @@
     preview, and every page ships as plain SVG in the archive. If the app vanished
     tomorrow, your artwork doesn&rsquo;t: unzip it. No app required, ten years from
     now.</p>
+    <p class="deck">And the app itself can&rsquo;t be taken away either. It&rsquo;s
+    <a class="plain" href="https://github.com/adamhowell/accomplice">MIT licensed and
+    open source</a> &mdash; if this project ever stops, fork it. The build
+    instructions are in the README, and they work.</p>
   </section>
 
   <section>
@@ -376,7 +390,7 @@
     </div>
   </section>
 
-  <footer>local&nbsp;&nbsp;·&nbsp;&nbsp;no account&nbsp;&nbsp;·&nbsp;&nbsp;works offline&nbsp;&nbsp;·&nbsp;&nbsp;no telemetry</footer>
+  <footer>local&nbsp;&nbsp;·&nbsp;&nbsp;no account&nbsp;&nbsp;·&nbsp;&nbsp;works offline&nbsp;&nbsp;·&nbsp;&nbsp;no telemetry&nbsp;&nbsp;&middot;&nbsp;&nbsp;<a class="plain" href="https://github.com/adamhowell/accomplice">MIT</a></footer>
 </div>
 <script>
   // The window leans toward the pointer — mostly side to side, a hint of pitch.
