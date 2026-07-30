@@ -75,3 +75,13 @@ swift test
 ```
 
 Requires macOS 13+ (that's where the `CGPath` booleans land).
+
+
+## Local-first constraints
+
+The homepage promises local-first behaviour. The app must keep these true:
+
+- No license check or account ping on launch.
+- The credit balance is only touched when a credit-backed AI call actually runs.
+- Acceptance test: with a funded account, pull the network and confirm the app is
+  identical minus AI menu items.
