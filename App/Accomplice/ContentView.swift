@@ -77,18 +77,18 @@ struct ContentView: View {
                     Button("Artboard") { store.insertArtboard() }
                         .shortcut("insertArtboard")
                     Divider()
+                    Button("Vector") { store.tool = .pen }
+                        .shortcut("vector")
+                    Button("Text") { store.insertText() }
+                        .shortcut("insertText")
+                    Button("Image…") { store.insertImage() }
+                    Divider()
                     Button("Rectangle") { store.insertRectangle() }
                         .shortcut("insertRect")
                     Button("Oval") { store.insertOval() }
                         .shortcut("insertOval")
                     Button("Star") { store.insertStar() }
                     Button("Polygon") { store.insertPolygon() }
-                    Button("Vector") { store.tool = .pen }
-                        .shortcut("vector")
-                    Divider()
-                    Button("Text") { store.insertText() }
-                        .shortcut("insertText")
-                    Button("Image…") { store.insertImage() }
                 } label: {
                     Label("Insert", systemImage: "plus")
                 }
