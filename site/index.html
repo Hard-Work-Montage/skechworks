@@ -10,23 +10,34 @@
 
   html, body { min-height: 100%; }
 
-  /* The Tahoe look: a light sky of soft blue and lavender ribbons. Layered
-     radial gradients stand in for the wallpaper's flowing bands. */
+  /* The Tahoe wallpaper itself. The gradient underneath is the stand-in while
+     the photo loads, and the fallback if it never does. */
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
-    color: #1c2333;
-    background-color: #b9d4f2;
+    color: #fff;
+    background-color: #2c4a72;
     background-image:
-      radial-gradient(120% 80% at 15% -10%, #eaf3fe 0%, rgba(234, 243, 254, 0) 55%),
-      radial-gradient(90% 70% at 85% 5%,  #cfe0fa 0%, rgba(207, 224, 250, 0) 60%),
-      radial-gradient(70% 60% at 70% 45%, #b7c9f4 0%, rgba(183, 201, 244, 0) 65%),
-      radial-gradient(80% 70% at 20% 60%, #c4b8ef 0%, rgba(196, 184, 239, 0) 60%),
-      radial-gradient(100% 80% at 50% 105%, #8fb2e9 0%, rgba(143, 178, 233, 0) 70%),
-      linear-gradient(180deg, #dcebfd 0%, #b9d4f2 45%, #a8bcee 100%);
+      url("tahoe.jpg"),
+      linear-gradient(180deg, #4a7ab8 0%, #2c4a72 60%, #1d3350 100%);
+    background-size: cover, cover;
+    background-position: center top;
     background-attachment: fixed;
   }
 
+  /* A quiet scrim so type stays readable over sky and water alike. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+      rgba(8, 20, 45, 0.50) 0%,
+      rgba(8, 20, 45, 0.18) 38%,
+      rgba(8, 20, 45, 0.35) 100%);
+  }
+
   .page {
+    position: relative;
     max-width: 1180px;
     margin: 0 auto;
     padding: 28px 32px 96px;
@@ -38,13 +49,14 @@
     gap: 10px;
     padding-bottom: 72px;
   }
-  nav img { width: 28px; height: 28px; border-radius: 7px; }
-  nav .name { font-weight: 650; font-size: 17px; letter-spacing: -0.01em; }
+  nav img { width: 28px; height: 28px; border-radius: 7px; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+  nav .name { font-weight: 650; font-size: 17px; letter-spacing: -0.01em; text-shadow: 0 1px 6px rgba(0,0,0,0.35); }
   nav .mac {
     font-size: 12px; font-weight: 600;
-    color: #4a5878;
-    background: rgba(255,255,255,0.55);
-    border: 1px solid rgba(255,255,255,0.8);
+    color: #fff;
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.28);
+    backdrop-filter: blur(6px);
     padding: 3px 9px; border-radius: 99px;
   }
 
@@ -57,16 +69,18 @@
     font-weight: 750;
     max-width: 14ch;
     margin: 0 auto 22px;
+    text-shadow: 0 2px 18px rgba(0, 10, 30, 0.45);
   }
 
   .sub {
     font-size: clamp(17px, 2vw, 21px);
     line-height: 1.5;
-    color: #3a465f;
+    color: rgba(255,255,255,0.92);
     max-width: 56ch;
     margin: 0 auto;
+    text-shadow: 0 1px 10px rgba(0, 10, 30, 0.45);
   }
-  .sub b { color: #1c2333; font-weight: 650; }
+  .sub b { color: #fff; font-weight: 650; }
 
   .hero {
     display: block;
@@ -74,33 +88,16 @@
     height: auto;
     border-radius: 12px;
     box-shadow:
-      0 40px 90px -20px rgba(28, 42, 80, 0.45),
-      0 12px 30px -12px rgba(28, 42, 80, 0.35);
+      0 50px 100px -20px rgba(0, 10, 30, 0.65),
+      0 16px 36px -12px rgba(0, 10, 30, 0.5);
   }
 
   footer {
     text-align: center;
     padding-top: 64px;
     font-size: 14px;
-    color: #4a5878;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    /* The wallpaper's dusk variant, not a different design. */
-    body {
-      color: #eef1f8;
-      background-color: #232a4d;
-      background-image:
-        radial-gradient(120% 80% at 15% -10%, #3d4a8a 0%, rgba(61, 74, 138, 0) 55%),
-        radial-gradient(90% 70% at 85% 5%,  #2e3a72 0%, rgba(46, 58, 114, 0) 60%),
-        radial-gradient(80% 70% at 20% 60%, #45336e 0%, rgba(69, 51, 110, 0) 60%),
-        radial-gradient(100% 80% at 50% 105%, #1b2344 0%, rgba(27, 35, 68, 0) 70%),
-        linear-gradient(180deg, #2c3563 0%, #232a4d 50%, #1b2140 100%);
-    }
-    .sub { color: #b9c2dd; }
-    .sub b { color: #eef1f8; }
-    nav .mac { color: #b9c2dd; background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
-    footer { color: #8f9ac0; }
+    color: rgba(255,255,255,0.85);
+    text-shadow: 0 1px 8px rgba(0, 10, 30, 0.45);
   }
 </style>
 </head>
