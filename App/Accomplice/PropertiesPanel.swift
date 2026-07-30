@@ -19,6 +19,7 @@ struct PropertiesPanel: View {
                         Divider()
                         geometry(layer)
                         if roundableCorners(layer) > 0 { Divider(); corners(layer) }
+                        if layer.autoShape != nil { Divider(); autoShapeSection(layer) }
                         if !layer.style.fills.isEmpty { Divider(); fills(layer) }
                         if !layer.style.borders.isEmpty { Divider(); borders(layer) }
                         if case .bitmap = layer.kind { Divider(); eraser(layer) }
@@ -301,6 +302,32 @@ struct PropertiesPanel: View {
             Text(exportFormat == .svg
                  ? "Vectors have no pixels — scale doesn't apply."
                  : "Sized to this \(l.isArtboard ? "artboard" : "layer"), at \(Int(exportScale))x.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// A star or polygon stays a recipe: change the numbers, the shape re-draws.
+    /// Fireworks called these Auto Shapes, and they were the point.
+    private func autoShapeSection(_ l: Layer) -> some View {
+        let a = l.autoShape!
+        return VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(a.kind == .star ? "Star" : "Polygon")
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    NumberField(label: a.kind == .star ? "Points" : "Sides",
+                                value: CGFloat(a.sides)) { v in
+                        store.setAutoShape(l.id, sides: Int(v))
+                    }
+                    if a.kind == .star {
+                        NumberField(label: "Inner", value: a.innerRatio * 100, suffix: "%") { v in
+                            store.setAutoShape(l.id, innerRatio: v / 100)
+                        }
+                    }
+                }
+            }
+            Text(a.kind == .star
+                 ? "How many spikes, and how deep they cut."
+                 : "How many sides.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

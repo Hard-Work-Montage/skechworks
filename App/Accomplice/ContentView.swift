@@ -81,6 +81,8 @@ struct ContentView: View {
                         .shortcut("insertRect")
                     Button("Oval") { store.insertOval() }
                         .shortcut("insertOval")
+                    Button("Star") { store.insertStar() }
+                    Button("Polygon") { store.insertPolygon() }
                     Button("Vector") { store.tool = .pen }
                         .shortcut("vector")
                     Divider()

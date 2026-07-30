@@ -325,6 +325,8 @@ extension DocumentCommand {
             spec.x = n("x", "left"); spec.y = n("y", "top")
             spec.width = n("width", "w"); spec.height = n("height", "h")
             spec.fontSize = n("fontSize", "size")
+            spec.sides = n("sides", "points").map(Int.init)
+            spec.innerRatio = n("innerRatio", "inner")
             return .add(spec)
         case "addartboard", "newartboard", "createartboard":
             var spec = AddSpec()
@@ -460,7 +462,9 @@ extension DocumentCommand {
                        selects and moves.
           group        name (optional)
           ungroup
-          add          kind: artboard|rect|ellipse|text|line, plus any of
+          add          kind: artboard|rect|ellipse|text|line|star|polygon,
+                       star/polygon take sides (star points) and innerRatio
+                       (star spike depth, 0-1); plus any of
                        name, x, y, width, height, fill, text, font, fontSize,
                        and parent (the name of an artboard to put it inside).
                        Everything is optional — omit what you don't care about and

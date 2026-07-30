@@ -2771,3 +2771,37 @@ private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) ->
     // List reads apple, banana, cherry from the top — array end is the top.
     #expect(page.layers.map(\.name) == ["cherry", "banana", "apple"])
 }
+
+@Test func autoShapesKeepTheirRecipe() throws {
+    var page = Page(name: "P")
+    var spec = AddSpec()
+    spec.kind = "star"; spec.sides = 5
+    let id = try #require(page.add(spec) as String?)
+    let star = try #require(page.layer(id))
+    #expect(star.autoShape?.kind == .star)
+    #expect(star.pointCount == 10)                 // five spikes = ten vertices
+
+    // Re-cook to seven points and the path follows the recipe.
+    var l = star
+    l.autoShape?.sides = 7
+    l.regenerateAutoShape()
+    #expect(l.pointCount == 14)
+
+    var pspec = AddSpec()
+    pspec.kind = "polygon"; pspec.sides = 6
+    let hexID = try #require(page.add(pspec) as String?)
+    #expect(page.layer(hexID)?.pointCount == 6)
+}
+
+@Test func autoShapeSurvivesTheDocumentFormat() throws {
+    var page = Page(name: "P")
+    var spec = AddSpec()
+    spec.kind = "star"; spec.sides = 8; spec.innerRatio = 0.3
+    _ = page.add(spec)
+    var doc = Document()
+    doc.pages = [page]
+    let data = try AcmplcFile.write(document: doc, images: [:])
+    let back = try AcmplcFile.read(data)
+    let star = try #require(back.document.pages.first?.layers.first)
+    #expect(star.autoShape == AutoShape(kind: .star, sides: 8, innerRatio: 0.3))
+}

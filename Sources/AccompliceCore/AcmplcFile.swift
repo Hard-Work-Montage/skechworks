@@ -254,6 +254,13 @@ public struct AcmplcFile {
         var l = Layer(kind: kind)
         l.curveModes = modes
         l.cornerRadius = dbl(j["cornerRadius"]) ?? 0
+        if let a = j["autoShape"] as? [String: Any],
+           let kindName = a["kind"] as? String,
+           let kind = AutoShape.Kind(rawValue: kindName),
+           let sides = a["sides"] as? Int {
+            l.autoShape = AutoShape(kind: kind, sides: sides,
+                                    innerRatio: dbl(a["innerRatio"]) ?? 0.45)
+        }
         l.cornerStyle = (j["cornerStyle"] as? String) == "smooth" ? .smooth : .rounded
         l.erased = erased
         l.id = j["id"] as? String ?? UUID().uuidString
@@ -381,6 +388,10 @@ public struct AcmplcFile {
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
             if !l.curveModes.isEmpty { d["pointTypes"] = l.curveModes.map(\.rawValue) }
+            if let a = l.autoShape {
+                d["autoShape"] = ["kind": a.kind.rawValue, "sides": a.sides,
+                                  "innerRatio": a.innerRatio] as [String: Any]
+            }
             if l.cornerRadius > 0 {
                 d["cornerRadius"] = l.cornerRadius
                 d["cornerStyle"] = l.cornerStyle == .smooth ? "smooth" : "rounded"

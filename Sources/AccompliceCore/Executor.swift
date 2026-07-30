@@ -302,6 +302,10 @@ public struct AddSpec: Sendable, Equatable {
     public var fontSize: Double?
     /// Name of an artboard or group to put it inside. Nil means the page itself.
     public var parent: String?
+    /// Star points or polygon sides.
+    public var sides: Int?
+    /// Star only: inner radius as a fraction of the outer.
+    public var innerRatio: Double?
     public init() {}
 }
 
@@ -398,6 +402,16 @@ extension Page {
             p.move(to: .zero)
             p.addLine(to: CGPoint(x: size.width, y: 0))
             l = Layer(kind: .path(p, closed: false))
+        case "star":
+            let shape = AutoShape(kind: .star, sides: spec.sides ?? 5,
+                                  innerRatio: CGFloat(spec.innerRatio ?? 0.45))
+            l = Layer(kind: .path(shape.path(in: local), closed: true))
+            l.autoShape = shape
+        case "polygon", "hexagon", "triangle":
+            let sides = spec.sides ?? (kind == "hexagon" ? 6 : kind == "triangle" ? 3 : 6)
+            let shape = AutoShape(kind: .polygon, sides: sides)
+            l = Layer(kind: .path(shape.path(in: local), closed: true))
+            l.autoShape = shape
         default:
             l = Layer(kind: .path(CGPath(rect: local, transform: nil), closed: true))
         }

@@ -198,7 +198,20 @@ public struct Layer: @unchecked Sendable {
     /// to make.
     public var erased: [EraseStroke] = []
 
+    /// The parameters a star or polygon was drawn from — Fireworks' Auto Shapes.
+    ///
+    /// The path is baked (so everything downstream just sees a path), but the recipe
+    /// is kept so "make it a 7-point star" stays a number you can go back and change
+    /// instead of a redraw.
+    public var autoShape: AutoShape?
+
     public init(kind: LayerKind) { self.kind = kind }
+
+    /// Regenerates a star or polygon path from its parameters, at the layer's size.
+    public mutating func regenerateAutoShape() {
+        guard let a = autoShape else { return }
+        kind = .path(a.path(in: CGRect(origin: .zero, size: frame.size)), closed: true)
+    }
 
     public var bounds: CGRect { frame }
 
@@ -433,6 +446,50 @@ public struct TextArc: Sendable, Equatable, Codable {
         self.radius = radius
         self.angle = angle
         self.flipped = flipped
+    }
+}
+
+/// A shape that remembers its recipe: star or polygon, ready to re-cook at a new
+/// point count. Sides means points on a star.
+public struct AutoShape: Sendable, Equatable {
+    public var kind: Kind
+    public var sides: Int
+    /// Star only: inner radius as a fraction of the outer.
+    public var innerRatio: CGFloat
+
+    public enum Kind: String, Sendable { case star, polygon }
+
+    public init(kind: Kind, sides: Int, innerRatio: CGFloat = 0.45) {
+        self.kind = kind
+        self.sides = max(3, sides)
+        self.innerRatio = min(0.95, max(0.05, innerRatio))
+    }
+
+    /// Vertices around an ellipse inscribed in the rect, first point at 12 o'clock —
+    /// which is how every star anyone draws is oriented.
+    public func path(in rect: CGRect) -> CGPath {
+        let cx = rect.midX, cy = rect.midY
+        let rx = rect.width / 2, ry = rect.height / 2
+        let p = CGMutablePath()
+        let outer = sides
+        func vertex(_ angle: CGFloat, _ scale: CGFloat) -> CGPoint {
+            CGPoint(x: cx + cos(angle) * rx * scale, y: cy + sin(angle) * ry * scale)
+        }
+        switch kind {
+        case .polygon:
+            for i in 0..<outer {
+                let a = -CGFloat.pi / 2 + CGFloat(i) / CGFloat(outer) * 2 * .pi
+                i == 0 ? p.move(to: vertex(a, 1)) : p.addLine(to: vertex(a, 1))
+            }
+        case .star:
+            for i in 0..<(outer * 2) {
+                let a = -CGFloat.pi / 2 + CGFloat(i) / CGFloat(outer * 2) * 2 * .pi
+                let s: CGFloat = i.isMultiple(of: 2) ? 1 : innerRatio
+                i == 0 ? p.move(to: vertex(a, s)) : p.addLine(to: vertex(a, s))
+            }
+        }
+        p.closeSubpath()
+        return p
     }
 }
 

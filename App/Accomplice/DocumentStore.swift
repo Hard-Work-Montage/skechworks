@@ -1090,6 +1090,19 @@ final class DocumentStore: ObservableObject {
     func insertArtboard()  { insert("artboard", "Insert Artboard") }
     func insertRectangle() { insert("rect", "Insert Rectangle") }
     func insertOval()      { insert("ellipse", "Insert Oval") }
+    func insertStar()      { insert("star", "Insert Star") }
+    func insertPolygon()   { insert("polygon", "Insert Polygon") }
+
+    /// Re-cooks a star or polygon from new parameters, in place.
+    func setAutoShape(_ id: String, sides: Int? = nil, innerRatio: CGFloat? = nil) {
+        edit(id, actionName: "Change Shape") { l in
+            guard var a = l.autoShape else { return }
+            if let sides { a.sides = max(3, min(60, sides)) }
+            if let innerRatio { a.innerRatio = min(0.95, max(0.05, innerRatio)) }
+            l.autoShape = a
+            l.regenerateAutoShape()
+        }
+    }
     func insertText()      { insert("text", "Insert Text") }
 
     func insertImage() {
