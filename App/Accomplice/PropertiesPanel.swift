@@ -28,6 +28,9 @@ struct PropertiesPanel: View {
                         if case .shapeGroup(let kids, let rule) = layer.kind {
                             Divider(); combined(kids.count, rule, layer)
                         }
+                        // Last, where Sketch keeps it — the inspector is where people
+                        // look for export, not the File menu.
+                        Divider(); exportSection(layer)
                     }
                     .padding(14)
                 }
@@ -146,6 +149,43 @@ struct PropertiesPanel: View {
                 .toggleStyle(.checkbox).font(.callout)
                 .disabled(l.backgroundColor == nil)
             }
+        }
+    }
+
+    /// One format, one scale, one button — the panel version of File ▸ Export
+    /// Selected. The full per-preset list Sketch grew can come later if it earns it.
+    @State private var exportFormat: DocumentStore.ExportFormat = .svg
+    @State private var exportScale: CGFloat = 1
+
+    private func exportSection(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Export")
+            HStack(spacing: 8) {
+                Picker("", selection: $exportFormat) {
+                    ForEach(DocumentStore.ExportFormat.allCases) { f in
+                        Text(f.title).tag(f)
+                    }
+                }
+                .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 150)
+                Picker("", selection: $exportScale) {
+                    ForEach([1, 2, 3], id: \.self) { s in
+                        Text("\(s)x").tag(CGFloat(s))
+                    }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+                .disabled(exportFormat == .svg)
+                Spacer()
+            }
+            Button {
+                store.exportSelected(format: exportFormat, scale: exportScale)
+            } label: {
+                Text("Export \(l.isArtboard ? "Artboard" : kind(l))…")
+                    .frame(maxWidth: .infinity)
+            }
+            Text(exportFormat == .svg
+                 ? "Vectors have no pixels — scale doesn't apply."
+                 : "Sized to this \(l.isArtboard ? "artboard" : "layer"), at \(Int(exportScale))x.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
