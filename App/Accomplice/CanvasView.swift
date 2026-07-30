@@ -997,6 +997,10 @@ final class PageCanvas: NSView {
         for l in layers {
             let t = Compose.transform(l).concatenating(base)
             if l.id == id {
+                // An artboard's edge IS its geometry — Sketch highlights the frame,
+                // not the artwork. Union-of-children here made a selected artboard
+                // wear its content's handles, which read as the child being selected.
+                if l.isArtboard { return CGRect(origin: .zero, size: l.frame.size).applying(t) }
                 if let p = Compose.resolvedPath(l) { return p.transformed(by: t).boundingBoxOfPath }
                 return CGRect(origin: .zero, size: l.frame.size).applying(t)
             }
