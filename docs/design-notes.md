@@ -63,9 +63,9 @@ Layout, resizing constraints. An audit of the corpus found zero usage of any of 
   `CGPath` (`union`, `subtracting`, `intersection`, `symmetricDifference`). Path
   booleans are the one genuinely difficult piece of a vector editor, and Apple ships it.
 - **One compositor.** `Compose` resolves geometry once; the rasterizer and the SVG
-  writer both consume it, so the preview and the engraving file cannot disagree.
-- **Text is always outlined.** The output goes to a laser cutter, where a live `<text>`
-  element is a liability.
+  writer both consume it, so the preview and the exported file cannot disagree.
+- **Text is always outlined.** An exported SVG should look identical on a machine
+  that has never heard of your fonts.
 
 ## Build
 

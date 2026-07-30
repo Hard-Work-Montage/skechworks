@@ -90,7 +90,8 @@ back. Details in [docs/format.md](docs/format.md).
 Zero dependencies — a tool whose job is outliving other software shouldn't inherit
 anyone's supply chain. CoreGraphics does the hard math (macOS ships curve-preserving
 path booleans). One compositor feeds both the canvas and the exporter. Text is
-always outlined, because laser cutters don't have fonts. More in
+always outlined, so an export never depends on the viewer having your fonts.
+More in
 [docs/design-notes.md](docs/design-notes.md).
 
 ## License
