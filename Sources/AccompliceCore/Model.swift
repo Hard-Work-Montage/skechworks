@@ -155,6 +155,10 @@ public struct Layer: @unchecked Sendable {
     public var flipH = false
     public var flipV = false
     public var isVisible = true
+    /// A locked layer ignores canvas clicks and drags — the layer list is the only
+    /// way to select it, which is the whole point: it stays put while you work on
+    /// top of it.
+    public var isLocked = false
     public var opacity: CGFloat = 1
     public var booleanOp: BooleanOp = .none
     public var hasClippingMask = false

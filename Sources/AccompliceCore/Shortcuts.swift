@@ -116,6 +116,7 @@ public enum Shortcuts {
         .init(id: "mask", title: "Use as Mask", key: "M", modifiers: [.control, .command], group: "Arrange"),
         .init(id: "ignoreMask", title: "Ignore Mask", key: "I", modifiers: [.control, .command], group: "Arrange"),
         .init(id: "hide", title: "Hide/Show Layer", key: "H", modifiers: [.command, .shift], group: "Arrange"),
+        .init(id: "lock", title: "Lock/Unlock Layer", key: "L", modifiers: [.command, .shift], group: "Arrange"),
 
         // Path
         .init(id: "union", title: "Union", key: "U", modifiers: [.command, .option], group: "Path"),

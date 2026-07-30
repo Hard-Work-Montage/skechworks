@@ -127,6 +127,7 @@ extension Page {
                 if let f = l.firstFillHex { bits.append("fill \(f)") }
                 if let b = l.style.borders.first { bits.append("stroke \(b.color.hex) \(Int(b.thickness))pt") }
                 if !l.isVisible { bits.append("hidden") }
+                if l.isLocked { bits.append("locked") }
                 if let t = l.apiText { bits.append("text: \(t.replacingOccurrences(of: "\n", with: " ").prefix(40))") }
                 // Only worth mentioning when it's enough to matter.
                 if let n = l.pointCount, n >= 24 { bits.append("\(n) points") }
@@ -154,6 +155,7 @@ public enum DocumentCommand: Sendable {
     case setStroke(LayerQuery, hex: String, width: Double?)
     case setOpacity(LayerQuery, value: Double)
     case setVisible(LayerQuery, value: Bool)
+    case setLocked(LayerQuery, value: Bool)
     case rename(LayerQuery, pattern: String)
     /// Change a text layer's words, face or size — whichever are given.
     case setText(LayerQuery, text: String?, font: String?, size: Double?)
@@ -180,6 +182,7 @@ public enum DocumentCommand: Sendable {
         switch self {
         case .select(let q), .delete(let q), .ungroup(let q): return q
         case .setFill(let q, _), .setOpacity(let q, _), .setVisible(let q, _): return q
+        case .setLocked(let q, _): return q
         case .setStroke(let q, _, _), .rename(let q, _), .align(let q, _): return q
         case .setText(let q, _, _, _): return q
         case .move(let q, _, _), .resize(let q, _, _): return q
@@ -202,6 +205,7 @@ public enum DocumentCommand: Sendable {
         case .setStroke(_, let hex, _): return "Set Stroke \(hex)"
         case .setOpacity(_, let v): return "Set Opacity \(Int(v * 100))%"
         case .setVisible(_, let v): return v ? "Show" : "Hide"
+        case .setLocked(_, let v): return v ? "Lock" : "Unlock"
         case .rename: return "Rename"
         case .setText: return "Edit Text"
         case .move: return "Move"
@@ -288,6 +292,9 @@ extension DocumentCommand {
         case "setvisible", "show", "hide":
             let v = (d["value"] as? Bool) ?? (op.lowercased() == "show")
             return .setVisible(q, value: v)
+        case "lock", "unlock", "setlocked":
+            let v = (d["value"] as? Bool) ?? (op.lowercased() != "unlock")
+            return .setLocked(q, value: v)
         case "rename": return s("pattern", "value", "to", "name").map { .rename(q, pattern: $0) }
         case "settext", "setstring", "changetext", "edittext":
             let text = s("text", "string", "value", "to", "content")

@@ -1179,14 +1179,23 @@ final class PageCanvas: NSView {
         return page.layer(chain[here + 1])
     }
 
+    /// A layer is untouchable when it, or anything above it, is locked.
+    private func lockedDeep(_ id: String) -> Bool {
+        guard let page else { return false }
+        if page.layer(id)?.isLocked == true { return true }
+        return page.ancestors(of: id).contains { page.layer($0)?.isLocked == true }
+    }
+
     func layerHit(_ point: CGPoint) -> Layer? {
         // Labels win over content: they sit outside the board, and they're the only
         // way to grab the artboard rather than the art sitting on it.
         if let ab = artboards.first(where: { $0.hit.contains(point) }),
-           let page, let l = page.layer(ab.id) {
+           let page, let l = page.layer(ab.id), !l.isLocked {
             return l
         }
         for d in composed.reversed() {
+            // Locked means the click sails through to whatever is underneath.
+            if lockedDeep(d.layer.id) { continue }
             if let p = d.path, p.contains(point) { return d.layer }
             if d.path == nil {
                 // The pathless rect test is for text and bitmaps, which have no
@@ -1199,6 +1208,81 @@ final class PageCanvas: NSView {
             }
         }
         return nil
+    }
+
+    // MARK: - Right-click
+
+    /// Closures for the current context menu, indexed by item tag. Rebuilt per
+    /// right-click; NSMenuItem can't hold a closure itself.
+    private var menuActions: [() -> Void] = []
+    var onToggleLock: (() -> Void)?
+    var onToggleHide: (() -> Void)?
+
+    @objc private func runMenuAction(_ sender: NSMenuItem) {
+        guard menuActions.indices.contains(sender.tag) else { return }
+        menuActions[sender.tag]()
+    }
+
+    private func menuItem(_ title: String, checked: Bool = false,
+                          _ block: @escaping () -> Void) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+        it.target = self
+        it.tag = menuActions.count
+        it.state = checked ? .on : .off
+        menuActions.append(block)
+        return it
+    }
+
+    /// Fireworks' right-click: every layer under the pointer, front to back —
+    /// Select Behind without a modifier to memorise — then the verbs.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard tool == .select else { return nil }
+        let p = pagePoint(convert(event.locationInWindow, from: nil))
+        menuActions = []
+        let menu = NSMenu()
+
+        // Everything under the point, front-most first, resolved the way a click
+        // would resolve it (group over member), deduplicated.
+        var targets: [Layer] = []
+        var seen: Set<String> = []
+        for d in composed.reversed() {
+            let contains: Bool
+            if let path = d.path { contains = path.contains(p) }
+            else if d.text != nil || d.imageRef != nil {
+                contains = CGRect(origin: .zero, size: d.layer.frame.size)
+                    .applying(d.transform).contains(p)
+            } else { contains = false }
+            guard contains, !d.isArtboardBackground else { continue }
+            let t = selectionTarget(d.layer, drill: false)
+            if seen.insert(t.id).inserted { targets.append(t) }
+        }
+        if !targets.isEmpty {
+            menu.addItem(.sectionHeader(title: "Layers Here"))
+            for t in targets {
+                let name = t.name.isEmpty ? "Layer" : t.name
+                let locked = lockedDeep(t.id)
+                let item = menuItem(locked ? "\(name) 🔒" : name,
+                                    checked: selected.contains(t.id)) { [weak self] in
+                    self?.onSelect?(t.id, false)
+                }
+                item.indentationLevel = 1
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+        }
+
+        let hasSelection = !selected.isEmpty
+        if hasSelection {
+            let page = self.page
+            let allLocked = selected.allSatisfy { page?.layer($0)?.isLocked == true }
+            menu.addItem(menuItem(allLocked ? "Unlock" : "Lock") { [weak self] in
+                self?.onToggleLock?()
+            })
+            menu.addItem(menuItem("Hide") { [weak self] in self?.onToggleHide?() })
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Delete") { [weak self] in self?.onDelete?() })
+        }
+        return menu.items.isEmpty ? nil : menu
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -1934,6 +2018,8 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onEditTextContent = { id, s in
             store.editText(id, "Edit Text") { $0.string = s }
         }
+        canvas.onToggleLock = { store.toggleLock() }
+        canvas.onToggleHide = { store.toggleLockOrHide(hide: true) }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

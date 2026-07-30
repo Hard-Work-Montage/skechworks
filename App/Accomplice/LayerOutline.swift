@@ -44,6 +44,7 @@ final class LayerItem: NSObject {
     var name: String
     var symbol: String
     var isVisible: Bool
+    var isLocked: Bool
     var isContainer: Bool
     var children: [LayerItem]
 
@@ -52,6 +53,7 @@ final class LayerItem: NSObject {
         name = node.name
         symbol = node.systemImage
         isVisible = node.isVisible
+        isLocked = node.isLocked
         children = (node.children ?? []).map(LayerItem.init)
         isContainer = node.children != nil
     }
@@ -62,6 +64,7 @@ final class LayerItem: NSObject {
         name = other.name
         symbol = other.symbol
         isVisible = other.isVisible
+        isLocked = other.isLocked
         isContainer = other.isContainer
         var byID = [String: LayerItem](uniqueKeysWithValues: children.map { ($0.id, $0) })
         children = other.children.map { incoming in
@@ -206,7 +209,8 @@ struct LayerOutline: NSViewRepresentable {
             let id = NSUserInterfaceItemIdentifier("row")
             let cell = (v.makeView(withIdentifier: id, owner: self) as? NSTableCellView)
                 ?? Self.makeCell(id)
-            cell.imageView?.image = NSImage(systemSymbolName: node.symbol, accessibilityDescription: nil)
+            cell.imageView?.image = NSImage(systemSymbolName: node.isLocked ? "lock.fill" : node.symbol,
+                                            accessibilityDescription: nil)
             cell.textField?.stringValue = node.name
             cell.textField?.textColor = node.isVisible ? .labelColor : .tertiaryLabelColor
             cell.imageView?.contentTintColor = node.isVisible ? .secondaryLabelColor : .tertiaryLabelColor
@@ -426,6 +430,7 @@ extension LayerOutline.Coordinator: NSMenuDelegate {
             menu.addItem(entry)
         }
         add("Rename…") { [weak self] in self?.beginRename(item) }
+        add(item.isLocked ? "Unlock" : "Lock") { self.parent.store.toggleLock() }
         menu.addItem(.separator())
         add("Cut") { self.parent.store.cutSelection() }
         add("Copy") { self.parent.store.copySelection() }

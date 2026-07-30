@@ -191,6 +191,8 @@ struct AccompliceApp: App {
                 Divider()
                 Button("Hide/Show Layer") { AppDelegate.shared?.active?.toggleLockOrHide(hide: true) }
                     .shortcut("hide")
+                Button("Lock/Unlock Layer") { AppDelegate.shared?.active?.toggleLock() }
+                    .shortcut("lock")
             }
             CommandMenu("Tools") {
                 Button("Ask…") { NotificationCenter.default.post(name: .showCommandBar, object: nil) }

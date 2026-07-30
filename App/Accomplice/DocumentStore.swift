@@ -932,6 +932,16 @@ final class DocumentStore: ObservableObject {
         edit(id, actionName: "Rename Layer") { $0.name = trimmed }
     }
 
+    /// Locks when any of the selection is loose, unlocks when all are locked —
+    /// the same one-button logic hide uses.
+    func toggleLock() {
+        guard !selection.isEmpty, let page else { return }
+        let anyUnlocked = selection.compactMap { page.layer($0) }.contains { !$0.isLocked }
+        edit(Array(selection), actionName: anyUnlocked ? "Lock" : "Unlock") {
+            $0.isLocked = anyUnlocked
+        }
+    }
+
     func toggleLockOrHide(hide: Bool) {
         guard !selection.isEmpty, let page else { return }
         let anyVisible = selection.compactMap { page.layer($0) }.contains { $0.isVisible }
@@ -1200,7 +1210,7 @@ final class DocumentStore: ObservableObject {
     /// Everything the marquee touched.
     func selectAll(in rect: CGRect, on page: Page, extend: Bool) {
         var hits: Set<String> = []
-        for l in page.layers where l.isVisible {
+        for l in page.layers where l.isVisible && !l.isLocked {
             let t = Compose.transform(l)
             let box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
                 ?? CGRect(origin: .zero, size: l.frame.size).applying(t)
@@ -1471,11 +1481,13 @@ struct LayerNode: Identifiable {
     let kindLabel: String
     let systemImage: String
     let isVisible: Bool
+    let isLocked: Bool
     let children: [LayerNode]?
 
     init(_ l: Layer) {
         id = l.id
         isVisible = l.isVisible
+        isLocked = l.isLocked
         switch l.kind {
         // An empty container is still a container. `nil` here means "a leaf, nothing can
         // go inside it", and collapsing empty to nil made an empty artboard refuse every

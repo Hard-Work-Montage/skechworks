@@ -120,6 +120,9 @@ extension Page {
         case .setVisible(_, let v):
             for id in ids { p.updateLayer(id) { $0.isVisible = v } }
 
+        case .setLocked(_, let v):
+            for id in ids { p.updateLayer(id) { $0.isLocked = v } }
+
         case .setText(_, let text, let font, let size):
             var changed = 0
             for id in ids {
