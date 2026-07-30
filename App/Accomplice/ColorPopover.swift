@@ -97,15 +97,21 @@ private struct ColorPickerPane: View {
                 .padding(.horizontal, 6).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(.quaternary.opacity(0.5)))
                 if supportsOpacity {
+                    let boundAlpha = Binding(
+                        get: { Int((alpha * 100).rounded()) },
+                        set: { alpha = CGFloat(min(100, max(0, $0))) / 100; push() }
+                    )
                     HStack(spacing: 2) {
-                        TextField("", value: Binding(
-                            get: { Int((alpha * 100).rounded()) },
-                            set: { alpha = CGFloat(min(100, max(0, $0))) / 100; push() }
-                        ), format: .number)
+                        TextField("", value: boundAlpha, format: .number)
                             .textFieldStyle(.plain)
                             .font(.callout.monospacedDigit())
                             .multilineTextAlignment(.trailing)
                             .frame(width: 30)
+                            .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                                let step = press.modifiers.contains(.shift) ? 10 : 1
+                                boundAlpha.wrappedValue += press.key == .upArrow ? step : -step
+                                return .handled
+                            }
                         Text("%").foregroundStyle(.tertiary).font(.callout)
                     }
                     .padding(.horizontal, 6).padding(.vertical, 4)
@@ -195,15 +201,18 @@ private struct ColorPickerPane: View {
     // MARK: - Channels
 
     private func channel(_ label: String, _ idx: Int) -> some View {
-        HStack(spacing: 3) {
+        let bound = Binding(get: { rgb255[idx] }, set: { setChannel(idx, to: $0) })
+        return HStack(spacing: 3) {
             Text(label).foregroundStyle(.tertiary).font(.callout)
-            TextField("", value: Binding(
-                get: { rgb255[idx] },
-                set: { setChannel(idx, to: $0) }
-            ), format: .number)
+            TextField("", value: bound, format: .number)
                 .textFieldStyle(.plain)
                 .font(.callout.monospacedDigit())
                 .multilineTextAlignment(.trailing)
+                .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                    let step = press.modifiers.contains(.shift) ? 10 : 1
+                    bound.wrappedValue += press.key == .upArrow ? step : -step
+                    return .handled
+                }
         }
         .padding(.horizontal, 6).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 5).fill(.quaternary.opacity(0.5)))

@@ -853,6 +853,20 @@ private struct NumberField: View {
                 .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
                 .onChange(of: value) { _, _ in if !focused { text = format(value) } }
                 .onAppear { text = format(value) }
+                // Arrow keys nudge the number the way they nudge a layer: 1 at a
+                // time, 10 with shift. Committed immediately, so the canvas moves
+                // with each press instead of waiting for Return.
+                .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                    let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
+                    let direction: CGFloat = press.key == .upArrow ? 1 : -1
+                    let typed = Double(text.replacingOccurrences(of: suffix, with: "")
+                        .trimmingCharacters(in: .whitespaces))
+                    let base: CGFloat = typed.map { CGFloat($0) } ?? value ?? 0
+                    let v = base + direction * step
+                    text = format(v)
+                    onCommit(v)
+                    return .handled
+                }
         }
     }
 

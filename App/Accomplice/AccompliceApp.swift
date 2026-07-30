@@ -78,19 +78,39 @@ struct AccompliceApp: App {
                 Button("Redo") { AppDelegate.shared?.active?.redo() }
                     .shortcut("redo")
             }
+            // Replacing the pasteboard group takes these shortcuts away from text
+            // fields too — the menu fires before the field ever sees the key. So
+            // each action asks first: is someone typing? A focused field gets the
+            // text behaviour; otherwise the canvas gets the layer behaviour.
             CommandGroup(replacing: .pasteboard) {
-                Button("Cut") { AppDelegate.shared?.active?.cutSelection() }
-                    .shortcut("cut")
-                Button("Copy") { AppDelegate.shared?.active?.copySelection() }
-                    .shortcut("copy")
-                Button("Paste") { AppDelegate.shared?.active?.paste() }
-                    .shortcut("paste")
+                Button("Cut") {
+                    if !Self.fieldEditorHandled(#selector(NSText.cut(_:))) {
+                        AppDelegate.shared?.active?.cutSelection()
+                    }
+                }
+                .shortcut("cut")
+                Button("Copy") {
+                    if !Self.fieldEditorHandled(#selector(NSText.copy(_:))) {
+                        AppDelegate.shared?.active?.copySelection()
+                    }
+                }
+                .shortcut("copy")
+                Button("Paste") {
+                    if !Self.fieldEditorHandled(#selector(NSText.paste(_:))) {
+                        AppDelegate.shared?.active?.paste()
+                    }
+                }
+                .shortcut("paste")
                 Button("Duplicate") { AppDelegate.shared?.active?.duplicateSelection() }
                     .shortcut("duplicate")
                 Divider()
                 Button("Delete") { AppDelegate.shared?.active?.deleteSelection() }
-                Button("Select All") { AppDelegate.shared?.active?.selectAll() }
-                    .shortcut("selectAll")
+                Button("Select All") {
+                    if !Self.fieldEditorHandled(#selector(NSText.selectAll(_:))) {
+                        AppDelegate.shared?.active?.selectAll()
+                    }
+                }
+                .shortcut("selectAll")
             }
             // Sketch's zoom shortcuts, since that's the muscle memory coming in.
             CommandGroup(before: .sidebar) {
@@ -237,6 +257,17 @@ struct AccompliceApp: App {
 
 extension Notification.Name {
     static let showCommandBar = Notification.Name("accomplice.showCommandBar")
+}
+
+extension AccompliceApp {
+    /// Performs a text-editing selector on the focused field editor, if someone
+    /// is typing. False means nothing was focused and the layer action should run.
+    @MainActor
+    static func fieldEditorHandled(_ selector: Selector) -> Bool {
+        guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
+        editor.perform(selector, with: nil)
+        return true
+    }
 }
 
 @MainActor
