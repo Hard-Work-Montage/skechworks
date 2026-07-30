@@ -41,11 +41,19 @@ struct PropertiesPanel: View {
                     // shape ended up wearing another's colour.
                     .id(layer.id)
                 }
+            } else if selectionCount > 1 {
+                ScrollView {
+                    multi(selectedLayers)
+                        .padding(14)
+                        // Same reasoning as the single-layer id: fields must not
+                        // carry state from one selection to the next.
+                        .id(store.selection.sorted().joined(separator: "·"))
+                }
             } else {
                 VStack(spacing: 6) {
-                    Image(systemName: selectionCount > 1 ? "square.on.square" : "sidebar.right")
+                    Image(systemName: "sidebar.right")
                         .font(.system(size: 26)).foregroundStyle(.tertiary)
-                    Text(selectionCount > 1 ? "\(selectionCount) layers selected" : "No selection")
+                    Text("No selection")
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("selection-summary")
                     Text(pageName.map { "on \($0)" } ?? "")
@@ -53,6 +61,107 @@ struct PropertiesPanel: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    // MARK: - Multi-selection
+
+    private var selectedLayers: [Layer] {
+        store.selection.compactMap { store.page?.layer($0) }
+    }
+
+    /// The value the whole selection agrees on, or nil — which the fields render
+    /// as "Mixed", the way Sketch does.
+    private func common<T: Equatable>(_ read: (Layer) -> T) -> T? {
+        let values = selectedLayers.map(read)
+        guard let first = values.first, values.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
+
+    /// Like `editable`, but writing puts every selected layer on the typed value —
+    /// so X aligns them, W sizes them, Opacity fades them together.
+    private func multiEditable(_ label: String, _ value: CGFloat?, suffix: String = "",
+                               apply: @escaping (inout Layer, CGFloat) -> Void) -> some View {
+        NumberField(label: label, value: value, suffix: suffix) { [ids = Array(store.selection)] v in
+            store.edit(ids, actionName: "Change \(label)") { apply(&$0, v) }
+        }
+    }
+
+    private func multi(_ layers: [Layer]) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.on.square").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(layers.count) layers")
+                        .font(.headline)
+                        .accessibilityIdentifier("selected-layer")
+                    Text(pageName.map { "on \($0)" } ?? "")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                sectionTitle("Position & Size")
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                    GridRow {
+                        multiEditable("X", common { $0.frame.minX }) { l, v in l.frame.origin.x = v }
+                        multiEditable("Y", common { $0.frame.minY }) { l, v in l.frame.origin.y = v }
+                    }
+                    GridRow {
+                        multiEditable("W", common { $0.frame.width }) { l, v in
+                            l.resize(to: CGSize(width: max(1, v), height: l.frame.height))
+                        }
+                        multiEditable("H", common { $0.frame.height }) { l, v in
+                            l.resize(to: CGSize(width: l.frame.width, height: max(1, v)))
+                        }
+                    }
+                    GridRow {
+                        multiEditable("Opacity", common { $0.style.opacity * 100 }, suffix: "%") { l, v in
+                            l.style.opacity = max(0, min(1, v / 100))
+                        }
+                        multiEditable("Angle", common { $0.rotation }, suffix: "°") { l, v in
+                            l.rotation = v.truncatingRemainder(dividingBy: 360)
+                        }
+                    }
+                }
+            }
+            // Only when the whole selection can wear one: a photo has no fill row
+            // to change, and quietly skipping it would make "set them all" a lie.
+            if layers.allSatisfy({ solidFill($0) != nil }) {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionTitle("Fill")
+                    if common({ solidFill($0).map { "\($0.hex)/\($0.a)" } }) != nil,
+                       let c = layers.first.flatMap(solidFill) {
+                        ColorField(color: c) { applyFill($0) }
+                    } else {
+                        // Sketch's "Mixed": the swatch opens on the front-most
+                        // layer's colour, and picking one brings the rest to it.
+                        HStack(spacing: 8) {
+                            ColorPopoverButton(color: layers.first.flatMap(solidFill)
+                                                ?? Color(r: 0, g: 0, b: 0, a: 1)) { applyFill($0) }
+                            Text("Mixed")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func solidFill(_ l: Layer) -> AccompliceCore.Color? {
+        guard let f = l.style.fills.first, case .color(let c) = f.paint else { return nil }
+        return c
+    }
+
+    private func applyFill(_ c: AccompliceCore.Color) {
+        store.edit(Array(store.selection), actionName: "Change Fill",
+                   coalescingAs: "multiFill:\(store.selection.sorted().joined())") { l in
+            guard !l.style.fills.isEmpty, case .color = l.style.fills[0].paint else { return }
+            l.style.fills[0].paint = .color(c)
         }
     }
 
@@ -710,12 +819,22 @@ enum FieldMetrics {
 
 private struct NumberField: View {
     let label: String
-    let value: CGFloat
+    /// nil means the selection doesn't agree — the field shows "Mixed" and typing
+    /// a number brings every selected layer to it.
+    let value: CGFloat?
     var suffix: String = ""
     let onCommit: (CGFloat) -> Void
 
     @State private var text: String = ""
     @FocusState private var focused: Bool
+
+    init(label: String, value: CGFloat?, suffix: String = "",
+         onCommit: @escaping (CGFloat) -> Void) {
+        self.label = label
+        self.value = value
+        self.suffix = suffix
+        self.onCommit = onCommit
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -723,7 +842,7 @@ private struct NumberField: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(width: FieldMetrics.labelWidth, alignment: .leading)
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            TextField("", text: $text)
+            TextField(value == nil ? "Mixed" : "", text: $text)
                 // Named so UI tests can read a value back — "did the angle change?"
                 // is otherwise unanswerable from outside the app.
                 .accessibilityIdentifier("field-\(label)")
@@ -746,7 +865,8 @@ private struct NumberField: View {
         text = format(CGFloat(v))
     }
 
-    private func format(_ v: CGFloat) -> String {
-        v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
+    private func format(_ v: CGFloat?) -> String {
+        guard let v else { return "" }            // mixed: empty, the prompt says why
+        return v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
     }
 }
