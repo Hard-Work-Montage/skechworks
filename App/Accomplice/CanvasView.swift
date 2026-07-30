@@ -815,6 +815,9 @@ final class PageCanvas: NSView {
 
         for i in artboards.indices {
             let ab = artboards[i]
+            // The label being renamed shows only as the text field sitting on top —
+            // drawing it too left the old name peeking out from underneath.
+            if ab.id == labelEditingID { continue }
             let selected = self.selected.contains(ab.id)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: size, weight: selected ? .semibold : .regular),
@@ -859,6 +862,7 @@ final class PageCanvas: NSView {
         labelEditor = tf
         labelEditingID = ab.id
         labelNameBeforeEdit = ab.name
+        needsDisplay = true    // hide the drawn label while the field covers it
     }
 
     private func endLabelEdit(commit: Bool) {
@@ -868,6 +872,7 @@ final class PageCanvas: NSView {
         labelEditingID = nil
         tf.removeFromSuperview()
         window?.makeFirstResponder(self)
+        needsDisplay = true    // the drawn label comes back
         guard commit, let id else { return }
         let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty, name != labelNameBeforeEdit { onRenameLayer?(id, name) }
