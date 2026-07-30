@@ -1,135 +1,99 @@
-# Accomplice
+<p align="center">
+  <img src="site/logo.png" alt="Accomplice" width="96">
+</p>
 
-A bitmap + vector design tool for macOS, in the spirit of Fireworks. Local, no
-subscription, no cloud, no account.
+<p align="center">
+  Bitmap and vector, back together. A fast, local design tool for the Mac,<br>
+  in the lineage of Fireworks and early Sketch.
+</p>
 
-This repo currently contains **the liberator** — the piece that comes first, because
-insurance should not wait on an editor.
+<p align="center">
+  <a href="https://accomplice.ai">accomplice.ai</a>&nbsp; • &nbsp;
+  <a href="https://accomplice.ai/download">Download for Mac</a>&nbsp; • &nbsp;
+  3 MB&nbsp; • &nbsp;macOS 14+&nbsp; • &nbsp;MIT
+</p>
 
-## Why
+---
 
-240 of the 393 `.sketch` files on this machine are already unreadable by any modern
-tool: 209 in the old Sketch 2/3 bundle format, 31 in the SQLite format Sketch used
-before that. All dated 2013–2017. Design tools orphan their formats, and the work
-goes with them.
+<p align="center">
+  <img src="site/hero.png" alt="Accomplice: four artboards of a logo in different colours, with the layer list, inspector and built-in chat." width="840">
+</p>
 
-Sketch itself is alive and shipping, but its roadmap is Variants, Sections, Stacks
-and Slack integration — component-system features for product-design teams. There is
-nothing on it about vector editing, bitmap editing, or export. The risk was never
-that Sketch dies. It's that it keeps working for a decade while never again shipping
-anything this workflow needs.
+## Why I built Accomplice
 
-## The format: `.acmplc.png`
+One evening I checked my oldest design files. 240 of the 393 `.sketch` files on my
+machine no longer open — formats Sketch itself walked away from. The work didn't wear
+out. The software left.
 
-An Accomplice document is a PNG **and** a ZIP, at the same time. PNG readers stop at
-`IEND`; ZIP readers scan backward for the central directory. Neither notices the other.
+It had happened to me before. I used Fireworks religiously until Adobe killed it in
+2013, and nothing since has wanted to be what it was: one person, one file, pixels
+and paths in the same canvas, assets out the door by lunch.
 
-- **Double-click it** — Finder thumbnails it, Preview opens it, any image viewer on
-  any OS shows you the cover page.
-- **`unzip` it** — every page as SVG in `exports/`, the editable document as JSON in
-  `pages/`, placed images in `assets/`.
+Accomplice is how I make sure neither eviction happens again. It's a 3 MB native Mac
+app with no account, no subscription, and no telemetry — and every document is a PNG
+with its own source riding inside, so even if this app disappears, `unzip` gets your
+artwork back as plain SVG. The escape hatch is the file format.
 
-Geometry is stored as SVG path data, so the document is readable with a text editor.
-There is no step where you need this program to get your artwork back. That is the
-entire point.
+## Quick start
 
-This is the Fireworks `.fw.png` trick, which nobody has shipped since Adobe killed
-Fireworks in 2013.
+Grab the [signed, notarized build](https://accomplice.ai/download) — unzip, drop in
+Applications, open. Or build it yourself:
 
-**Double-clicking opens Accomplice**, while every other PNG on the machine still
-belongs to Preview. LaunchServices resolves a file's type from the last extension
-component only, so a `.acmplc.png` is a `public.png` and a third-party type cannot
-outrank an Apple system type — the compound extension is registered but never wins.
-The lever that does work is the per-file binding Finder writes for *Get Info > Open
-With*: an extended attribute naming the handler. Accomplice stamps it on every file it
-writes, and `acmplc claim <file|dir>` re-applies it in bulk.
-
-**The binding requires a Developer ID signature.** With an ad-hoc signature the app is
-Gatekeeper-rejected, and macOS then challenges any *document* bound to it — the warning
-names the document, not the app, and offers to move it to the Trash. `bin/build` picks
-up a Developer ID automatically and warns loudly if it can't find one. `acmplc unclaim`
-removes the binding if you ever need to.
-
-Otherwise the binding degrades gracefully: extended attributes don't survive zipping,
-email, or most upload round trips, and when it's lost the file just opens in Preview
-again, which is what it did before.
-
-**One caution:** the editable half lives in bytes appended after the PNG. Run the file
-through an image optimizer, or re-save it from another image editor, and that half is
-stripped — you keep the picture and lose the document. `acmplc verify` detects this.
-
-## The app
-
-```
-./bin/build          # generate the Xcode project, build Release, re-sign
+```bash
+git clone https://github.com/adamhowell/accomplice.git
+cd accomplice
+./bin/build
 open build/Build/Products/Release/Accomplice.app
 ```
 
-A viewer, for now: open an `.acmplc.png` (or a `.sketch` directly), browse pages,
-inspect the layer tree, click the canvas to select a layer, export one page or all
-pages as SVG. Zoom and pan with the trackpad.
+## What it does
 
-The canvas draws through the same `Renderer.draw(page:in:)` the exporter uses, so what
-is on screen and what lands in the SVG cannot drift apart.
+- **Pen tool with live booleans** — subtract a shape and both parts stay editable;
+  double-click straight into a combined shape, even into the holes it cut
+- **Auto Shapes** — stars and polygons that remember their recipe; change 7 points
+  to 5 and the shape re-draws
+- **Text on circles**, for badges and coins, with every text property live
+- **Quick photo work** — crop, brightness/contrast/saturation, marquee and brush
+  erase, all non-destructive; the pixels underneath are never touched
+- **Reads your old `.sketch` files** — verified pixel-for-pixel against Sketch's own
+  render on a 62-file corpus
+- **Export as a first-class workflow** — SVG, PNG, JPG at 1–3×, from the inspector,
+  drawn by the same code as the canvas so they can never disagree
 
-Note `bin/build` re-signs the whole bundle in one pass at the end. Without that,
-xcodebuild gives the app and the embedded `AccompliceCore.framework` separate ad-hoc
-identities and dyld refuses to load the framework with "different Team IDs".
+## The accomplice
 
-## Usage
+There's an assistant in the corner of the window, and it's only allowed to do the
+work you were never going to enjoy:
 
-```
-acmplc info    <file.sketch>                    # what's in it
-acmplc svg     <file.sketch> [-o dir]           # every page as SVG
-acmplc png     <file.sketch> [-o dir] [--size]  # every page as PNG
-acmplc convert <file.sketch> [-o out] [--cover N]
-acmplc verify  <file.acmplc.png>                # prove both halves are intact
-```
+> rename these forty layers
+> reorder the layer list to match the canvas
+> make every black fill our brand blue
+> swap the headline on all six artboards
 
-## Status
+It runs against a model on your own machine (Ollama works out of the box) or an API
+key you own. It never touches the canvas unless you ask, every change lands as one
+ordinary undo step you can inspect and revert, and your files are never used to
+train anything. Nothing leaves the room.
 
-Verified against the real corpus: **62/62 TAM `.sketch` files converted, 172 pages,
-172 SVG exports, zero failures.** All 62 pass `verify` as both PNG and ZIP. The
-converted library holds **1,163 text layers — exactly the count an independent audit
-of the raw `.sketch` files found**, so nothing is being dropped in translation.
+An accomplice does the part you didn't want to do, and never asks for credit.
 
-Rendering is checked against Sketch's own embedded `previews/preview.png` as an
-oracle. On the moon-phases coin, after eroding antialiased edges, **2 pixels differ
-out of 250,000** — the geometry is exact and the residual is rasterizer antialiasing.
+## The format
 
-`acmplc roundtrip` writes a document, reads it back, renders both and diffs: worst
-byte difference **0.07–0.15%** across lighthouse / moon phases / bear.
-
-Size is honest: the converted library is **0.96× the size of the original `.sketch`
-files**, and 97% of it is the placed bitmaps themselves. Zero orphaned assets — every
-stored image is referenced by a layer.
-
-Supported: multi-page documents, bezier paths, ovals/rectangles, groups, boolean ops
-(union/subtract/intersect/difference), solid and gradient fills, borders with
-inside/center/outside position and dashes, shadows, clipping masks, text (outlined via
-CoreText), placed bitmaps.
-
-Deliberately not supported: symbols, shared styles, libraries, prototyping, Smart
-Layout, resizing constraints. An audit of the corpus found zero usage of any of them.
+An `.acmplc.png` is a PNG **and** a ZIP at the same time — the Fireworks `.fw.png`
+trick, which nobody has shipped since 2013. Finder thumbnails it, Preview opens it,
+and `unzip` produces every page as SVG, the document as readable JSON, and the
+placed images. There is no step where you need this program to get your artwork
+back. Details in [docs/format.md](docs/format.md).
 
 ## Design notes
 
-- **Zero dependencies.** A tool whose job is outliving other software should not
-  inherit anyone else's supply chain. The ZIP reader/writer is hand-rolled against
-  `Compression.framework`.
-- **CoreGraphics does the hard math.** macOS 13 added curve-preserving boolean ops on
-  `CGPath` (`union`, `subtracting`, `intersection`, `symmetricDifference`). Path
-  booleans are the one genuinely difficult piece of a vector editor, and Apple ships it.
-- **One compositor.** `Compose` resolves geometry once; the rasterizer and the SVG
-  writer both consume it, so the preview and the engraving file cannot disagree.
-- **Text is always outlined.** The output goes to a laser cutter, where a live `<text>`
-  element is a liability.
+Zero dependencies — a tool whose job is outliving other software shouldn't inherit
+anyone's supply chain. CoreGraphics does the hard math (macOS ships curve-preserving
+path booleans). One compositor feeds both the canvas and the exporter. Text is
+always outlined, because laser cutters don't have fonts. More in
+[docs/design-notes.md](docs/design-notes.md).
 
-## Build
+## License
 
-```
-swift build -c release
-swift test
-```
-
-Requires macOS 13+ (that's where the `CGPath` booleans land).
+[MIT](LICENSE). If this project ever stops, fork it — the build instructions above
+are the whole ceremony.
