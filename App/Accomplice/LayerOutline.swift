@@ -245,8 +245,20 @@ struct LayerOutline: NSViewRepresentable {
 
         // MARK: - Selection
 
+        /// The selection this coordinator last opened the tree for. Reveal only on a
+        /// CHANGE: without this, every view update would re-expand a group the user
+        /// just collapsed while something inside it stays selected.
+        private var lastRevealed: Set<String> = []
+
         func applySelection(_ ids: Set<String>) {
             guard let outline, !applyingSelection else { return }
+            // A layer picked on the canvas can live inside a collapsed artboard or
+            // group — then it has no row to highlight and the list just looks
+            // unresponsive. Open the way down to it first, the way Sketch does.
+            if ids != lastRevealed {
+                lastRevealed = ids
+                revealAncestors(of: ids)
+            }
             var rows = IndexSet()
             for row in 0..<outline.numberOfRows {
                 if let item = outline.item(atRow: row) as? LayerItem, ids.contains(item.id) {
@@ -258,6 +270,20 @@ struct LayerOutline: NSViewRepresentable {
             outline.selectRowIndexes(rows, byExtendingSelection: false)
             if let first = rows.first { outline.scrollRowToVisible(first) }
             applyingSelection = false
+        }
+
+        private func revealAncestors(of ids: Set<String>) {
+            guard let outline, !ids.isEmpty else { return }
+            func walk(_ items: [LayerItem], _ trail: [LayerItem]) {
+                for i in items {
+                    if ids.contains(i.id) {
+                        // Outermost first: a child can't expand until its parent has.
+                        for a in trail { outline.expandItem(a) }
+                    }
+                    walk(i.children, trail + [i])
+                }
+            }
+            walk(roots, [])
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
