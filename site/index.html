@@ -20,15 +20,37 @@
 
   .hero-zone {
     position: relative;
-    background-image:
-      linear-gradient(180deg,
-        rgba(8, 20, 45, 0.50) 0%,
-        rgba(8, 20, 45, 0.18) 38%,
-        rgba(8, 20, 45, 0.35) 100%),
-      url("tahoe.jpg");
+    overflow: hidden;
+    background-image: url("poster.jpg");
     background-size: cover;
     background-position: center top;
     padding-bottom: 40px;
+  }
+
+  /* The clouds, actually moving. The poster underneath is the video's own first
+     frame, so nothing pops when it starts. */
+  .hero-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center top;
+    z-index: 0;
+  }
+  @media (prefers-reduced-motion: reduce) { .hero-video { display: none; } }
+
+  /* The readability scrim rides above the video. */
+  .hero-zone::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+      rgba(8, 20, 45, 0.50) 0%,
+      rgba(8, 20, 45, 0.18) 38%,
+      rgba(8, 20, 45, 0.35) 100%);
   }
 
   /* The photo dissolves into the page colour right where the hero ends. */
@@ -37,10 +59,11 @@
     position: absolute;
     left: 0; right: 0; bottom: 0;
     height: 260px;
+    z-index: 2;
     pointer-events: none;
     background: linear-gradient(180deg, rgba(34, 43, 59, 0) 0%, #222b3b 100%);
   }
-  .hero-zone .page { position: relative; z-index: 1; padding-bottom: 0; }
+  .hero-zone .page { position: relative; z-index: 3; padding-bottom: 0; }
 
   .page {
     position: relative;
@@ -215,6 +238,8 @@
 </head>
 <body>
 <div class="hero-zone">
+<video class="hero-video" autoplay muted loop playsinline
+       poster="poster.jpg" src="hero_loop.mp4" aria-hidden="true"></video>
 <div class="page">
   <nav>
     <img src="logo.png" alt="" width="36" height="36">
