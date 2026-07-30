@@ -131,6 +131,38 @@
     will-change: transform;
   }
 
+  .eyebrow {
+    margin: 0 0 18px !important;
+  }
+
+  nav .login {
+    margin-left: auto;
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.28);
+    backdrop-filter: blur(6px);
+    padding: 7px 16px;
+    border-radius: 99px;
+  }
+  nav .login:hover { background: rgba(255,255,255,0.26); }
+
+  .cta { margin-top: 30px; }
+  .btn {
+    display: inline-block;
+    background: #fff;
+    color: #14203a;
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 650;
+    padding: 13px 28px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px -8px rgba(0, 10, 30, 0.55);
+  }
+  .btn:hover { transform: translateY(-1px); }
+
   .spec {
     margin-top: 26px;
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -245,15 +277,18 @@
     <img src="logo.png" alt="" width="36" height="36">
     <span class="name">Accomplice</span>
     <span class="mac">for&nbsp;Mac</span>
+    <a class="login" href="/login">Log&nbsp;in</a>
   </nav>
 
   <header>
+    <p class="spec eyebrow">Local, fast, and yours. Made for the Mac.</p>
     <h1>Bitmap and vector, back&nbsp;together.</h1>
-    <p class="sub">Design tools used to do both, in one canvas, on your machine.
-    Accomplice picks up where <b>Fireworks</b> and early <b>Sketch</b> left off —
-    pixels and paths side by side, files that stay yours, and nothing between
-    you and the work.</p>
-    <p class="spec">Local, fast, and yours. Made for the Mac.</p>
+    <p class="sub">Accomplice picks up where <b>Fireworks</b> and early <b>Sketch</b>
+    left off — pixels and paths side by side, files that stay yours, and
+    nothing between you and the work.</p>
+    <div class="cta">
+      <a class="btn" href="/download">Download for Mac</a>
+    </div>
   </header>
 
   <div class="hero-wrap">
