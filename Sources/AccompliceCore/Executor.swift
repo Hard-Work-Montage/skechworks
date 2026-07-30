@@ -120,6 +120,20 @@ extension Page {
         case .setVisible(_, let v):
             for id in ids { p.updateLayer(id) { $0.isVisible = v } }
 
+        case .setText(_, let text, let font, let size):
+            var changed = 0
+            for id in ids {
+                p.updateLayer(id) { l in
+                    guard case .text(var t) = l.kind else { return }
+                    if let text { t.string = text }
+                    if let font { t.fontName = font }
+                    if let size { t.fontSize = CGFloat(size) }
+                    l.kind = .text(t)
+                    changed += 1
+                }
+            }
+            return "\(changed) text layer\(changed == 1 ? "" : "s") changed"
+
         case .rename(_, let pattern):
             for (i, id) in ids.enumerated() {
                 p.updateLayer(id) { l in

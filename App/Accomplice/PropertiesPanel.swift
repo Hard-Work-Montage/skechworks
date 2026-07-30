@@ -538,21 +538,92 @@ struct PropertiesPanel: View {
         }
     }
 
+    @State private var textDraft = ""
+    @FocusState private var textDraftFocused: Bool
+
     private func text(_ t: TextRun, _ layer: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Text")
-            row("Font", t.fontName)
-            row("Size", "\(trim(t.fontSize))")
-            row("Align", ["Left", "Right", "Center", "Justified"][alignIndex(t)])
-            if t.lineHeight > 0 { row("Line height", trim(t.lineHeight)) }
-            if t.kerning != 0 { row("Kerning", trim(t.kerning)) }
-            Text(t.string)
-                .font(.caption).foregroundStyle(.secondary)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
-                .textSelection(.enabled)
+            // The string itself. Fireworks users change template text all day —
+            // this being read-only was the single biggest hole in the panel.
+            TextField("Text", text: $textDraft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...6)
+                .font(.callout)
+                .focused($textDraftFocused)
+                .onAppear { textDraft = t.string }
+                .onChange(of: t.string) { _, s in if !textDraftFocused { textDraft = s } }
+                .onSubmit { commitTextString(layer.id, t) }
+                .onChange(of: textDraftFocused) { _, f in
+                    if !f { commitTextString(layer.id, t) }
+                }
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    fontPicker(t, layer)
+                    editableText("Size", t.fontSize, layer) { run, v in
+                        run.fontSize = max(1, v)
+                    }
+                }
+                GridRow {
+                    editableText("Kern", t.kerning, layer) { run, v in run.kerning = v }
+                    editableText("Line", t.lineHeight, layer) { run, v in
+                        run.lineHeight = max(0, v)
+                    }
+                }
+            }
+            Picker("", selection: Binding(
+                get: { alignIndex(t) },
+                set: { i in
+                    let all: [CTTextAlignment] = [.left, .right, .center, .justified]
+                    store.editText(layer.id, "Align Text") { $0.alignment = all[i] }
+                }
+            )) {
+                Image(systemName: "text.alignleft").tag(0)
+                Image(systemName: "text.aligncenter").tag(2)
+                Image(systemName: "text.alignright").tag(1)
+                Image(systemName: "text.justify").tag(3)
+            }
+            .labelsHidden().pickerStyle(.segmented)
             curve(t, layer)
+        }
+    }
+
+    private func commitTextString(_ id: String, _ t: TextRun) {
+        let s = textDraft
+        guard s != t.string, !s.isEmpty else { return }
+        store.editText(id, "Edit Text") { $0.string = s }
+    }
+
+    /// A number field that writes into the layer's text run.
+    private func editableText(_ label: String, _ value: CGFloat, _ l: Layer,
+                              apply: @escaping (inout TextRun, CGFloat) -> Void) -> some View {
+        NumberField(label: label, value: value) { v in
+            store.editText(l.id, "Change \(label)") { apply(&$0, v) }
+        }
+    }
+
+    /// Every family installed, with the current one checked. A font a designer owns
+    /// is a font they might use — no curated shortlist.
+    private func fontPicker(_ t: TextRun, _ l: Layer) -> some View {
+        HStack(spacing: 5) {
+            Text("Font")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: FieldMetrics.labelWidth, alignment: .leading)
+            Menu {
+                ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { fam in
+                    Button {
+                        store.editText(l.id, "Change Font") { $0.fontName = fam }
+                    } label: {
+                        if fam == t.fontName { Label(fam, systemImage: "checkmark") }
+                        else { Text(fam) }
+                    }
+                }
+            } label: {
+                Text(t.fontName)
+                    .font(.callout).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .menuStyle(.button).buttonStyle(.bordered)
         }
     }
 

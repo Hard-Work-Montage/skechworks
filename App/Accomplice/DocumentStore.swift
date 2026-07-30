@@ -890,6 +890,17 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Edits the text run inside a text layer — the unwrap/rewrap that every text
+    /// property change needs, in one place.
+    func editText(_ id: String, _ actionName: String, coalescingAs key: String? = nil,
+                  _ body: (inout TextRun) -> Void) {
+        edit(id, actionName: actionName, coalescingAs: key) { l in
+            guard case .text(var t) = l.kind else { return }
+            body(&t)
+            l.kind = .text(t)
+        }
+    }
+
     func setBooleanOp(_ id: String, to op: BooleanOp) {
         edit(id, actionName: "Change Boolean") { $0.booleanOp = op }
     }

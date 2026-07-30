@@ -60,6 +60,8 @@ final class PageCanvas: NSView {
     var onPointSelected: ((Int?, CurveMode?) -> Void)?
     /// Inline rename, from double-clicking an artboard label. (id, new name)
     var onRenameLayer: ((String, String) -> Void)?
+    /// Inline content edit, from double-clicking a text layer. (id, new string)
+    var onEditTextContent: ((String, String) -> Void)?
 
     var tool: DocumentStore.Tool = .select {
         didSet {
@@ -841,6 +843,40 @@ final class PageCanvas: NSView {
     private var labelEditor: NSTextField?
     private var labelEditingID: String?
     private var labelNameBeforeEdit = ""
+    /// True while the editor holds a text layer's CONTENT rather than a name.
+    private var labelEditIsText = false
+
+    /// Edit a text layer's words right where they sit.
+    private func beginTextEdit(_ l: Layer, _ run: TextRun) {
+        endLabelEdit(commit: true)
+        guard let page,
+              let f = { () -> CGRect? in
+                  guard let t = transformOf(l.id, in: page.layers, base: .identity) else { return nil }
+                  return CGRect(origin: .zero, size: l.frame.size).applying(t)
+              }() else { return }
+        let v = viewPoint(f.origin)
+        let frame = CGRect(x: v.x - 2, y: v.y - 2,
+                           width: max(160, f.width * scale + 8),
+                           height: max(24, f.height * scale + 6))
+        let tf = NSTextField(frame: frame)
+        tf.stringValue = run.string
+        // Match the artwork's size on screen so the words don't jump scale mid-edit.
+        tf.font = NSFont(name: run.fontName, size: max(9, min(64, run.fontSize * scale)))
+            ?? .systemFont(ofSize: 13)
+        tf.isBordered = true
+        tf.bezelStyle = .roundedBezel
+        tf.usesSingleLineMode = false
+        tf.cell?.wraps = true
+        tf.delegate = self
+        addSubview(tf)
+        window?.makeFirstResponder(tf)
+        tf.selectText(nil)
+        labelEditor = tf
+        labelEditingID = l.id
+        labelNameBeforeEdit = run.string
+        labelEditIsText = true
+        needsDisplay = true
+    }
 
     private func beginLabelEdit(_ ab: ArtboardLabel) {
         endLabelEdit(commit: true)
@@ -862,20 +898,24 @@ final class PageCanvas: NSView {
         labelEditor = tf
         labelEditingID = ab.id
         labelNameBeforeEdit = ab.name
+        labelEditIsText = false
         needsDisplay = true    // hide the drawn label while the field covers it
     }
 
     private func endLabelEdit(commit: Bool) {
         guard let tf = labelEditor else { return }
         let id = labelEditingID
+        let isText = labelEditIsText
         labelEditor = nil
         labelEditingID = nil
+        labelEditIsText = false
         tf.removeFromSuperview()
         window?.makeFirstResponder(self)
         needsDisplay = true    // the drawn label comes back
         guard commit, let id else { return }
-        let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty, name != labelNameBeforeEdit { onRenameLayer?(id, name) }
+        let value = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != labelNameBeforeEdit else { return }
+        if isText { onEditTextContent?(id, value) } else { onRenameLayer?(id, value) }
     }
 
     private var currentScale: CGFloat { scale }
@@ -1255,6 +1295,12 @@ final class PageCanvas: NSView {
             // points.
             if selected == [leaf.id], case .path = leaf.kind {
                 editingLayerID = leaf.id
+                return
+            }
+            // A text layer's next step in is its words — edit in place, the way
+            // Fireworks always did.
+            if selected == [leaf.id], case .text(let run) = leaf.kind {
+                beginTextEdit(leaf, run)
                 return
             }
             // A combined shape (Subtract, Union…) composes to one drawable, so the
@@ -1885,6 +1931,9 @@ struct CanvasRepresentable: NSViewRepresentable {
     private func wire(_ canvas: PageCanvas) {
         canvas.onSelect = { id, extend in store.select(id, extend: extend) }
         canvas.onRenameLayer = { id, name in store.rename(id, to: name) }
+        canvas.onEditTextContent = { id, s in
+            store.editText(id, "Edit Text") { $0.string = s }
+        }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

@@ -155,6 +155,8 @@ public enum DocumentCommand: Sendable {
     case setOpacity(LayerQuery, value: Double)
     case setVisible(LayerQuery, value: Bool)
     case rename(LayerQuery, pattern: String)
+    /// Change a text layer's words, face or size — whichever are given.
+    case setText(LayerQuery, text: String?, font: String?, size: Double?)
     case move(LayerQuery, dx: Double, dy: Double)
     case resize(LayerQuery, width: Double?, height: Double?)
     case align(LayerQuery, edge: String)
@@ -179,6 +181,7 @@ public enum DocumentCommand: Sendable {
         case .select(let q), .delete(let q), .ungroup(let q): return q
         case .setFill(let q, _), .setOpacity(let q, _), .setVisible(let q, _): return q
         case .setStroke(let q, _, _), .rename(let q, _), .align(let q, _): return q
+        case .setText(let q, _, _, _): return q
         case .move(let q, _, _), .resize(let q, _, _): return q
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
         case .sort(let q, _): return q
@@ -200,6 +203,7 @@ public enum DocumentCommand: Sendable {
         case .setOpacity(_, let v): return "Set Opacity \(Int(v * 100))%"
         case .setVisible(_, let v): return v ? "Show" : "Hide"
         case .rename: return "Rename"
+        case .setText: return "Edit Text"
         case .move: return "Move"
         case .resize: return "Resize"
         case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
@@ -285,6 +289,17 @@ extension DocumentCommand {
             let v = (d["value"] as? Bool) ?? (op.lowercased() == "show")
             return .setVisible(q, value: v)
         case "rename": return s("pattern", "value", "to", "name").map { .rename(q, pattern: $0) }
+        case "settext", "setstring", "changetext", "edittext":
+            let text = s("text", "string", "value", "to", "content")
+            let font = s("font", "fontName", "face")
+            let size = n("size", "fontSize")
+            guard text != nil || font != nil || size != nil else { return nil }
+            // "text" here is the NEW content, not a content filter — the query
+            // decoder grabbed it as one too, which made every setText match
+            // nothing. Use "contains" to filter by current content instead.
+            var tq = q
+            tq.text = s("contains", "matching")
+            return .setText(tq, text: text, font: font, size: size)
         case "move": return .move(q, dx: n("dx") ?? 0, dy: n("dy") ?? 0)
         case "resize": return .resize(q, width: n("width"), height: n("height"))
         case "align": return s("edge", "value", "to").map { .align(q, edge: $0) }
@@ -428,6 +443,10 @@ extension DocumentCommand {
           setOpacity   value (0-1 or 0-100)
           setVisible   value (true/false)   — or use op "show" / "hide"
           rename       pattern, where {i} is a 1-based index and {name} the old name
+          setText      text, font, size — changes a TEXT layer's content, face or
+                       size; give whichever you mean to change. This edits the
+                       words on the canvas; "rename" only changes the layer's
+                       NAME in the list.
           move         dx, dy
           resize       width and/or height
           align        edge: left|centre|right|top|middle|bottom
