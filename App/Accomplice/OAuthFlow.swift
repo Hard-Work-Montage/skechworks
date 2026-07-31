@@ -40,7 +40,7 @@ final class OAuthFlow: NSObject {
             return Provider(
                 name: "Accomplice",
                 authorize: URL(string: root + "/oauth/authorize")!,
-                exchange: URL(string: root + "/oauth/token")!,
+                exchange: URL(string: root + "/api/v1/oauth/token")!,
                 slot: .accompliceToken,
                 tokenKey: "access_token")
         }
