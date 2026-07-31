@@ -135,9 +135,19 @@ public struct Renderer {
 
             // Erase strokes clip the image rather than altering it. Built at twice the
             // layer size so a soft edge stays soft when you zoom in.
+            //
+            // clip(to:mask:) shares draw(_:in:)'s orientation rules, and this space is
+            // y-down — apply it un-flipped and the holes land mirrored, which reads as
+            // "erase does nothing" whenever the mirrored spot is already transparent.
+            // Flip around the layer box just for the clip; the region itself is stored
+            // in device space, so it survives the flip back.
             if !d.layer.erased.isEmpty,
                let mask = EraseMask.image(strokes: d.layer.erased, size: r.size) {
+                ctx.translateBy(x: 0, y: r.height)
+                ctx.scaleBy(x: 1, y: -1)
                 ctx.clip(to: r, mask: mask)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.translateBy(x: 0, y: -r.height)
             }
 
             // Adjusted or cropped: the baked image arrives already in display
