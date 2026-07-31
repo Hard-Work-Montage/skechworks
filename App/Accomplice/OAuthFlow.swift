@@ -86,9 +86,13 @@ final class OAuthFlow: NSObject {
 
     private func authorize(_ url: URL, callback: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
+            // @Sendable, deliberately: AuthenticationServices calls this back on an
+            // XPC queue, and a closure that inherits this class's MainActor
+            // isolation traps the moment it's invoked off the main thread. The
+            // continuation is safe to resume from anywhere.
             let session = ASWebAuthenticationSession(
                 url: url, callbackURLScheme: Self.callbackScheme
-            ) { returned, error in
+            ) { @Sendable returned, error in
                 if let error {
                     let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
                     continuation.resume(throwing: cancelled ? Failure.cancelled : error)
