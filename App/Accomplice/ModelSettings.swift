@@ -10,7 +10,6 @@ struct ModelSettings: View {
     @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
     @AppStorage("ai.model") private var model = LocalModel.recommended
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
-    @AppStorage("ai.accompliceHost") private var accompliceHost = "https://accomplice.ai"
 
     @StateObject private var local = LocalModel(host: "http://127.0.0.1:11434")
     @State private var flow = OAuthFlow()
@@ -72,17 +71,12 @@ struct ModelSettings: View {
             account(connected: Credentials.has(.accompliceToken),
                     connectedLabel: "Signed in to Accomplice",
                     connectLabel: "Sign in to Accomplice…",
-                    connect: { try await flow.connect(.accomplice(base: accompliceHost)) },
+                    connect: { try await flow.connect(.accomplice(base: ModelConnector.Settings().accompliceHost)) },
                     disconnect: { Credentials.set(.accompliceToken, nil) })
             Text("Uses Accomplice tokens, so there's nothing to download and no second "
                  + "account to set up. Your document is sent to our service to be "
                  + "edited — the on-this-Mac option is the one where it never leaves.")
                 .font(.caption).foregroundStyle(.secondary)
-            // Not hidden behind a build flag: accomplice.ai currently redirects
-            // elsewhere, so until the service is up this is where you point it.
-            LabeledContent("Service") {
-                TextField("", text: $accompliceHost).textFieldStyle(.roundedBorder)
-            }
         }
     }
 

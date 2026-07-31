@@ -43,10 +43,10 @@ struct ModelConnector {
         var ollamaHost = "http://127.0.0.1:11434"
         var model = LocalModel.recommended
         var openRouterModel = "anthropic/claude-sonnet-4.5"
-        /// Where Accomplice accounts live. Configurable because accomplice.ai
-        /// currently redirects elsewhere, and the app shouldn't need a release to
-        /// follow a domain.
-        var accompliceHost = "https://accomplice.ai"
+        /// Where Accomplice accounts live. Was configurable while accomplice.ai
+        /// still redirected elsewhere; the service is home now, so it's baked in —
+        /// a stored blank in the old setting once quietly broke sign-in.
+        let accompliceHost = "https://accomplice.ai"
 
         /// Read at the point of use rather than held, so disconnecting takes effect
         /// at once and no key sits in memory longer than a request.
@@ -181,8 +181,7 @@ struct ModelConnector {
     static func vectorize(png: Data, style: String = "color") async throws -> (svg: String, remaining: Double?) {
         let token = Credentials.get(.accompliceToken) ?? ""
         guard !token.isEmpty else { throw Failure.notSignedIn }
-        let host = UserDefaults.standard.string(forKey: "ai.accompliceHost") ?? "https://accomplice.ai"
-        guard let url = URL(string: host + "/api/v1/vectorize") else {
+        guard let url = URL(string: Settings().accompliceHost + "/api/v1/vectorize") else {
             throw Failure.unreachable("bad url")
         }
         var req = URLRequest(url: url)
