@@ -905,6 +905,65 @@ final class DocumentStore: ObservableObject {
         edit(id, actionName: "Change Boolean") { $0.booleanOp = op }
     }
 
+    /// Tools ▸ Vectorize: the selected bitmap goes out as pixels and comes back
+    /// as editable paths, grouped, sitting exactly where the bitmap sits.
+    func vectorizeSelection(style: String = "color") {
+        guard let id = selectedLayerID, let page,
+              let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let data = images[ref] else {
+            status = "Select one image layer to vectorize"
+            return
+        }
+        guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
+            status = "Vectorize needs your Accomplice account — connect it in Settings ▸ Model"
+            return
+        }
+        status = "Vectorizing… this takes a minute or two"
+        let frame = l.frame
+        Task { @MainActor in
+            do {
+                let result = try await ModelConnector.vectorize(png: data, style: style)
+                guard let svgData = result.svg.data(using: .utf8) else {
+                    status = "Vectorize failed: unreadable SVG"
+                    return
+                }
+                let read = try SVGReader().read(data: svgData)
+                var kids = read.document.pages.first?.layers ?? []
+                guard !kids.isEmpty else {
+                    status = "Vectorize produced no shapes"
+                    return
+                }
+                // The trace is in the flattened image's pixel space. Group it,
+                // then size the group to the bitmap's frame so it lands exactly
+                // on top of what it traced.
+                let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+                for i in kids.indices {
+                    kids[i].frame.origin.x -= bounds.minX
+                    kids[i].frame.origin.y -= bounds.minY
+                }
+                var group = Layer(kind: .group(kids))
+                group.name = l.name.isEmpty ? "Vectorized" : "\(l.name) vector"
+                group.frame = CGRect(origin: .zero, size: bounds.size)
+                group.resize(to: frame.size)
+                group.frame.origin = frame.origin
+
+                mutatePage("Vectorize") { p in
+                    let parent = p.ancestors(of: id).last
+                    let index = p.children(of: parent).firstIndex { $0.id == id }
+                    p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                }
+                selection = [group.id]
+                if let left = result.remaining {
+                    status = "Vectorized · $\(String(format: "%.2f", left)) in credits left"
+                } else {
+                    status = "Vectorized"
+                }
+            } catch {
+                status = "Vectorize failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// The bitmap being cropped on canvas, if any. Entered from the inspector,
     /// left by Enter (commit) or Escape (never mind).
     @Published var croppingID: String?

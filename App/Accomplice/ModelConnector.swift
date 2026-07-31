@@ -175,6 +175,43 @@ struct ModelConnector {
         return content
     }
 
+    /// Tools ▸ Vectorize: a bitmap goes to the account service, a traced SVG
+    /// comes back. Static because it doesn't depend on the chat backend choice,
+    /// only on the signed-in account.
+    static func vectorize(png: Data, style: String = "color") async throws -> (svg: String, remaining: Double?) {
+        let token = Credentials.get(.accompliceToken) ?? ""
+        guard !token.isEmpty else { throw Failure.notSignedIn }
+        let host = UserDefaults.standard.string(forKey: "ai.accompliceHost") ?? "https://accomplice.ai"
+        guard let url = URL(string: host + "/api/v1/vectorize") else {
+            throw Failure.unreachable("bad url")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        // The redraw alone can take a minute or two; this is the one call in the
+        // app that is genuinely slow, and it says so in the status bar.
+        req.timeoutInterval = 300
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "image": png.base64EncodedString(), "style": style,
+        ])
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw Failure.unreachable(error.localizedDescription)
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            let message = (json["error"] as? [String: Any])?["message"] as? String
+            throw Failure.badResponse(message ?? "HTTP \(http.statusCode)")
+        }
+        guard let svg = json["svg"] as? String else {
+            throw Failure.badResponse("no SVG in the reply")
+        }
+        return (svg, json["credits_remaining"] as? Double)
+    }
+
     private func post(_ url: URL, body: [String: Any], headers: [String: String]) async throws -> [String: Any] {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

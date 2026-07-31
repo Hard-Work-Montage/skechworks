@@ -204,6 +204,8 @@ struct AccompliceApp: App {
                     .shortcut("vector")
                 Button("Erase") { AppDelegate.shared?.active?.tool = .erase }
                     .shortcut("erase")
+                Divider()
+                Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
             }
             CommandGroup(replacing: .saveItem) {
                 // Close lives in this placement too, not in .newItem — replacing the
