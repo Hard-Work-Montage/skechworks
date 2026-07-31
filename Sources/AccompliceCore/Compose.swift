@@ -53,23 +53,41 @@ public enum Compose {
     private static func combine(_ children: [Layer], winding: WindingRule) -> CGPath? {
         let rule: CGPathFillRule = (winding == .evenOdd) ? .evenOdd : .winding
         var acc: CGPath?
+        // A run of union'd children resolves in ONE planar pass, not one per child.
+        // Normalize each operand (fixes its interior under the group rule), stack the
+        // results — every interior point then has winding ≥ 1, so a single non-zero
+        // normalize of the stack IS the union. Unions associate, so this equals the
+        // pairwise fold — minus the n-1 full-document sweeps that made a vectorized
+        // trace (hundreds of union'd glyph paths) unusable to recompose per frame.
+        var pending: [CGPath] = []
+        func flush() {
+            guard !pending.isEmpty else { return }
+            let stack = CGMutablePath()
+            for p in pending { stack.addPath(p.normalized(using: rule)) }
+            pending = []
+            let merged = stack.normalized(using: .winding)
+            acc = acc.map { $0.union(merged, using: rule) } ?? merged
+        }
         for c in children where c.isVisible {
             guard let raw = resolvedPath(c) else { continue }
             let p = raw.transformed(by: transform(c))
-            guard let a = acc else { acc = p; continue }
+            guard acc != nil || !pending.isEmpty else { acc = p; continue }
             switch c.booleanOp {
             case .none:
                 // No op: just another subpath. The winding rule decides what fills —
                 // this is how Sketch stores a ring as two concentric circles.
+                flush()
                 let m = CGMutablePath()
-                m.addPath(a); m.addPath(p)
+                if let a = acc { m.addPath(a) }
+                m.addPath(p)
                 acc = m.copy()
-            case .union:      acc = a.union(p, using: rule)
-            case .subtract:   acc = a.subtracting(p, using: rule)
-            case .intersect:  acc = a.intersection(p, using: rule)
-            case .difference: acc = a.symmetricDifference(p, using: rule)
+            case .union:      pending.append(p)
+            case .subtract:   flush(); acc = acc?.subtracting(p, using: rule)
+            case .intersect:  flush(); acc = acc?.intersection(p, using: rule)
+            case .difference: flush(); acc = acc?.symmetricDifference(p, using: rule)
             }
         }
+        flush()
         return acc
     }
 
