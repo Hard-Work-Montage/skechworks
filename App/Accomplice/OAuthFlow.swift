@@ -60,7 +60,7 @@ final class OAuthFlow: NSObject {
         }
     }
 
-    static let callbackScheme = "accomplice"
+    nonisolated static let callbackScheme = "accomplice"
 
     private var session: ASWebAuthenticationSession?
 
@@ -86,32 +86,39 @@ final class OAuthFlow: NSObject {
 
     private func authorize(_ url: URL, callback: String) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
-            // @Sendable, deliberately: AuthenticationServices calls this back on an
-            // XPC queue, and a closure that inherits this class's MainActor
-            // isolation traps the moment it's invoked off the main thread. The
-            // continuation is safe to resume from anywhere.
-            let session = ASWebAuthenticationSession(
-                url: url, callbackURLScheme: Self.callbackScheme
-            ) { @Sendable returned, error in
-                if let error {
-                    let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
-                    continuation.resume(throwing: cancelled ? Failure.cancelled : error)
-                    return
-                }
-                guard let returned,
-                      let items = URLComponents(url: returned, resolvingAgainstBaseURL: false)?.queryItems,
-                      let code = items.first(where: { $0.name == "code" })?.value else {
-                    continuation.resume(throwing: Failure.noCode)
-                    return
-                }
-                continuation.resume(returning: code)
-            }
+            let session = Self.makeSession(url: url, continuation: continuation)
             session.presentationContextProvider = self
             // Their existing browser session is the point — most people are already
             // signed in, so this is one click rather than a password.
             session.prefersEphemeralWebBrowserSession = false
             self.session = session
             if !session.start() { continuation.resume(throwing: Failure.cancelled) }
+        }
+    }
+
+    /// Built in a nonisolated context, deliberately: AuthenticationServices invokes
+    /// the completion on an XPC queue, and a closure formed inside this MainActor
+    /// class inherits its isolation — the runtime then traps the moment the
+    /// callback fires off the main thread. (@Sendable alone did not sever the
+    /// inference; a nonisolated enclosing function does.) The continuation is safe
+    /// to resume from any thread.
+    private nonisolated static func makeSession(
+        url: URL,
+        continuation: CheckedContinuation<String, Error>
+    ) -> ASWebAuthenticationSession {
+        ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { returned, error in
+            if let error {
+                let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
+                continuation.resume(throwing: cancelled ? Failure.cancelled : error)
+                return
+            }
+            guard let returned,
+                  let items = URLComponents(url: returned, resolvingAgainstBaseURL: false)?.queryItems,
+                  let code = items.first(where: { $0.name == "code" })?.value else {
+                continuation.resume(throwing: Failure.noCode)
+                return
+            }
+            continuation.resume(returning: code)
         }
     }
 
