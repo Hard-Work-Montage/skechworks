@@ -151,9 +151,11 @@ struct AccompliceApp: App {
                 Divider()
                 // Three named strengths rather than a tolerance box: the useful
                 // question is "how much do I mind it moving", not a number in points.
-                Button("Simplify — Light") { AppDelegate.shared?.active?.simplifySelection(detail: 0.8) }
-                Button("Simplify — Medium") { AppDelegate.shared?.active?.simplifySelection(detail: 0.5) }
-                Button("Simplify — Strong") { AppDelegate.shared?.active?.simplifySelection(detail: 0.25) }
+                Menu("Simplify") {
+                    Button("Light") { AppDelegate.shared?.active?.simplifySelection(detail: 0.8) }
+                    Button("Medium") { AppDelegate.shared?.active?.simplifySelection(detail: 0.5) }
+                    Button("Strong") { AppDelegate.shared?.active?.simplifySelection(detail: 0.25) }
+                }
             }
             CommandMenu("Arrange") {
                 Button("Bring Forward") { AppDelegate.shared?.active?.bringForward() }
