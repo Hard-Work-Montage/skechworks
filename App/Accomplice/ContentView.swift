@@ -76,6 +76,8 @@ struct ContentView: View {
                 Menu {
                     Button("Artboard") { store.insertArtboard() }
                         .shortcut("insertArtboard")
+                    Button("Artboard from Selection") { store.insertArtboardFromSelection() }
+                        .disabled(store.selection.isEmpty)
                     Divider()
                     Button("Vector") { store.tool = .pen }
                         .shortcut("vector")

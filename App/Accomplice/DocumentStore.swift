@@ -1201,6 +1201,17 @@ final class DocumentStore: ObservableObject {
     }
 
     func insertArtboard()  { insert("artboard", "Insert Artboard") }
+
+    /// Insert ▸ Artboard from Selection: a board the exact size of what's selected,
+    /// which then owns it — the way a placed image becomes an artboard.
+    func insertArtboardFromSelection() {
+        let ids = Array(selection)
+        guard !ids.isEmpty else { status = "Select something to build the artboard around"; return }
+        var made: String?
+        mutatePage("Artboard from Selection") { made = $0.artboardAround(ids) }
+        if let made { selection = [made] }
+        else { status = "Artboard from Selection needs top-level layers" }
+    }
     func insertRectangle() { insert("rect", "Insert Rectangle") }
     func insertOval()      { insert("ellipse", "Insert Oval") }
     func insertStar()      { insert("star", "Insert Star") }

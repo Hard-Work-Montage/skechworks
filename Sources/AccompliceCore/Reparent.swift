@@ -105,6 +105,32 @@ extension Page {
         layers.reversed().first { $0.isArtboard && $0.frame.contains(point) }
     }
 
+    /// Insert ▸ Artboard from Selection: an artboard fitted to the given top-level
+    /// layers, which it then adopts — Sketch's gesture for turning a placed image
+    /// into a board sized exactly to it.
+    ///
+    /// Only top-level, non-artboard layers count: a layer already inside a board
+    /// belongs to that board, and boards don't nest.
+    @discardableResult
+    public mutating func artboardAround(_ ids: [String]) -> String? {
+        let eligible = ids.filter { id in layers.contains { $0.id == id && !$0.isArtboard } }
+        guard !eligible.isEmpty else { return nil }
+        var box = CGRect.null
+        for id in eligible { if let l = layer(id) { box = box.union(l.frame) } }
+        guard box.width > 0, box.height > 0 else { return nil }
+
+        var spec = AddSpec()
+        spec.kind = "artboard"
+        spec.x = box.minX; spec.y = box.minY
+        spec.width = box.width; spec.height = box.height
+        if eligible.count == 1, let n = layer(eligible[0])?.name, !n.isEmpty { spec.name = n }
+        guard let made = add(spec) else { return nil }
+        // Adopt explicitly into THIS board, not whatever artboard happens to contain
+        // the centre — the new board may share ground with an older one.
+        for id in eligible { _ = reparent([id], into: made, at: children(of: made).count) }
+        return made
+    }
+
     /// Moves a newly made layer into the artboard it's sitting on.
     ///
     /// Not a nicety — an artboard is the export unit and it clips what's inside it, so a
