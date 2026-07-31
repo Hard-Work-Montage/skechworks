@@ -175,6 +175,26 @@ struct ModelConnector {
         return content
     }
 
+    /// Who's signed in and what they have to spend. Settings shows it; the app
+    /// never needs more than this about the account.
+    static func accountBalance() async throws -> (email: String, credits: Double) {
+        let token = Credentials.get(.accompliceToken) ?? ""
+        guard !token.isEmpty else { throw Failure.notSignedIn }
+        guard let url = URL(string: Settings().accompliceHost + "/api/v1/me") else {
+            throw Failure.unreachable("bad url")
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, _) = try await URLSession.shared.data(for: req)
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let email = json["email"] as? String,
+              let credits = json["credits"] as? Double else {
+            throw Failure.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
+        }
+        return (email, credits)
+    }
+
     /// Tools ▸ Vectorize: a bitmap goes to the account service, a traced SVG
     /// comes back. Static because it doesn't depend on the chat backend choice,
     /// only on the signed-in account.

@@ -15,6 +15,7 @@ struct ModelSettings: View {
     @State private var flow = OAuthFlow()
     @State private var connecting = false
     @State private var problem: String?
+    @State private var balance: String?
     /// Bumped after connect/disconnect so the Keychain is re-read; the credential is
     /// deliberately not held in a property, or "Disconnect" wouldn't take effect.
     @State private var credentialsRevision = 0
@@ -89,8 +90,24 @@ struct ModelSettings: View {
                          disconnect: @escaping () -> Void) -> some View {
         HStack {
             if connected {
-                Label(connectedLabel, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(connectedLabel, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    if connectedLabel.contains("Accomplice") {
+                        if let balance {
+                            Text(balance)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Link("Buy credits", destination: URL(string: "https://accomplice.ai/credits")!)
+                            .font(.caption)
+                    }
+                }
+                .task(id: credentialsRevision) {
+                    guard connectedLabel.contains("Accomplice") else { return }
+                    if let me = try? await ModelConnector.accountBalance() {
+                        balance = "\(me.email) · $\(String(format: "%.2f", me.credits)) in credits"
+                    }
+                }
                 Spacer()
                 Button("Disconnect") {
                     disconnect()
