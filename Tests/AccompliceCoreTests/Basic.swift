@@ -2865,3 +2865,19 @@ private func maskValue(_ strokes: [EraseStroke], size: CGSize, at p: CGPoint) ->
     let after = centrePixel()
     #expect(after > before + 40)
 }
+
+@Test func aDeletedImageDoesNotRideAlongInTheArchive() throws {
+    var photo = Layer(kind: .bitmap(imageRef: "kept.png"))
+    photo.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+    var page = Page(name: "p")
+    page.layers = [photo]
+    var doc = Document()
+    doc.pages = [page]
+
+    // The store still holds bytes for an image whose layer was deleted — undo
+    // needs them back — but the file must only carry what the artwork references.
+    let images = ["kept.png": Data([1]), "orphan.png": Data([2])]
+    let back = try Zip.read(try AcmplcFile.write(document: doc, images: images))
+    #expect(back["assets/kept.png"] != nil)
+    #expect(back["assets/orphan.png"] == nil)
+}

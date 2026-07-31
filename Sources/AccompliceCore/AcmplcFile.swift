@@ -71,7 +71,14 @@ public struct AcmplcFile {
         ]
         entries.append(ZipEntry(name: "document.json", data: try json(doc)))
 
-        for (k, v) in images {
+        // Only assets the artwork still references. The in-memory store holds on to
+        // whatever it likes — undo needs the bytes back after a deleted image layer —
+        // but the file must not: a mockup that a trace replaced would otherwise ride
+        // along in every save forever, and it's usually the biggest thing in there.
+        let live = document.pages.reduce(into: Set<String>()) { refs, page in
+            for l in page.layers { refs.formUnion(l.imageRefs) }
+        }
+        for (k, v) in images where live.contains(k) {
             entries.append(ZipEntry(name: "assets/\(k)", data: v))
         }
         entries.append(ZipEntry(name: "README.txt", data: Data(readme(document, coverIndex).utf8)))
