@@ -1,0 +1,17 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the test suite
+        run: swift test
+      - name: Release build
+        run: swift build -c release

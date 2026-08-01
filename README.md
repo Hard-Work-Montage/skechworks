@@ -13,6 +13,14 @@
   3 MB&nbsp; • &nbsp;macOS 14+&nbsp; • &nbsp;MIT
 </p>
 
+<p align="center">
+  <a href="https://github.com/adamhowell/accomplice/actions/workflows/ci.yml"><img src="https://github.com/adamhowell/accomplice/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="Tests"><img src="https://img.shields.io/badge/tests-221-2ea44f" alt="221 tests"></a>
+  <img src="https://img.shields.io/badge/swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-111" alt="macOS 14+">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
+
 ---
 
 <p align="center">
