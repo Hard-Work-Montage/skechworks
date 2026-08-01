@@ -194,21 +194,48 @@ public struct SVGWriter {
     }
 
     public func pathData(_ p: CGPath) -> String {
-        var d = ""
+        // Serialized per subpath, so hairline contours can be dropped whole. Boolean
+        // sweeps leave slivers thinner than anything a cutter can act on, and laser
+        // software (LightBurn, at least) treats a zero-width filled contour as an
+        // unclosed shape and strips it — with a scary warning per sliver. Anything
+        // whose box is under 1/20 unit in either direction is below the writer's own
+        // three-decimal resolution story, and invisible on screen.
+        var subs: [(d: String, min: CGPoint, max: CGPoint)] = []
+        var cur = ""
+        var lo = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
+        var hi = CGPoint(x: -CGFloat.greatestFiniteMagnitude, y: -CGFloat.greatestFiniteMagnitude)
+        func track(_ n: Int, _ pts: UnsafeMutablePointer<CGPoint>) {
+            for i in 0..<n {
+                lo.x = min(lo.x, pts[i].x); lo.y = min(lo.y, pts[i].y)
+                hi.x = max(hi.x, pts[i].x); hi.y = max(hi.y, pts[i].y)
+            }
+        }
+        func flush() {
+            if !cur.isEmpty { subs.append((cur, lo, hi)) }
+            cur = ""
+            lo = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
+            hi = CGPoint(x: -CGFloat.greatestFiniteMagnitude, y: -CGFloat.greatestFiniteMagnitude)
+        }
         p.applyWithBlock { e in
             let pts = e.pointee.points
             switch e.pointee.type {
-            case .moveToPoint:     d += "M\(fmt(pts[0].x)) \(fmt(pts[0].y))"
-            case .addLineToPoint:  d += "L\(fmt(pts[0].x)) \(fmt(pts[0].y))"
+            case .moveToPoint:
+                flush()
+                cur += "M\(fmt(pts[0].x)) \(fmt(pts[0].y))"; track(1, pts)
+            case .addLineToPoint:
+                cur += "L\(fmt(pts[0].x)) \(fmt(pts[0].y))"; track(1, pts)
             case .addQuadCurveToPoint:
-                d += "Q\(fmt(pts[0].x)) \(fmt(pts[0].y)) \(fmt(pts[1].x)) \(fmt(pts[1].y))"
+                cur += "Q\(fmt(pts[0].x)) \(fmt(pts[0].y)) \(fmt(pts[1].x)) \(fmt(pts[1].y))"; track(2, pts)
             case .addCurveToPoint:
-                d += "C\(fmt(pts[0].x)) \(fmt(pts[0].y)) \(fmt(pts[1].x)) \(fmt(pts[1].y)) \(fmt(pts[2].x)) \(fmt(pts[2].y))"
-            case .closeSubpath:    d += "Z"
+                cur += "C\(fmt(pts[0].x)) \(fmt(pts[0].y)) \(fmt(pts[1].x)) \(fmt(pts[1].y)) \(fmt(pts[2].x)) \(fmt(pts[2].y))"; track(3, pts)
+            case .closeSubpath:
+                cur += "Z"
             @unknown default: break
             }
         }
-        return d
+        flush()
+        return subs.filter { min($0.max.x - $0.min.x, $0.max.y - $0.min.y) >= 0.05 }
+                   .map(\.d).joined()
     }
 }
 
