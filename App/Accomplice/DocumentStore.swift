@@ -173,6 +173,7 @@ final class DocumentStore: ObservableObject {
             var made: DocumentSource?
             var failure: String?
             var notes: [String] = []
+            var importedImage = false
 
             // .acmplc.png first — it's the native format, and it only parses
             // document.json here, so this is fast regardless of document size. A
@@ -199,6 +200,27 @@ final class DocumentStore: ObservableObject {
                         } catch {
                             failure = "\(error)"
                         }
+                    } else if let data = try? Data(contentsOf: url),
+                              let bitmap = BitmapImage.load(data) {
+                        // A plain image: open it as a picture on the canvas, at its
+                        // own size, in a fresh untitled document. This is also the
+                        // soft landing for a stripped .acmplc.png — the document is
+                        // gone but the picture survives, so show the picture rather
+                        // than an empty window.
+                        let key = "images/\(Zip.crc32(data))-\(data.count).png"
+                        var l = Layer(kind: .bitmap(imageRef: key))
+                        l.name = AcmplcFile.baseName(url.lastPathComponent)
+                        l.frame = CGRect(origin: .zero, size: bitmap.displaySize)
+                        var page = Page(name: "Page 1")
+                        page.layers = [l]
+                        var doc = Document()
+                        doc.pages = [page]
+                        made = DocumentSource.eager(doc, images: [key: data])
+                        importedImage = true
+                        // Only a file claiming to BE a document warrants the warning.
+                        if url.lastPathComponent.lowercased().contains(".acmplc") {
+                            notes = ["\(error)"]
+                        }
                     } else {
                         failure = "\(error)"
                     }
@@ -206,7 +228,7 @@ final class DocumentStore: ObservableObject {
             }
 
             let warnings = MissingFonts.all
-            await MainActor.run { [made, failure, notes] in
+            await MainActor.run { [made, failure, notes, importedImage] in
                 self.isLoading = false
                 self.fontWarnings = warnings
                 guard let src = made else {
@@ -228,9 +250,10 @@ final class DocumentStore: ObservableObject {
                     + (notes.isEmpty ? "" : " · \(notes.count) note\(notes.count == 1 ? "" : "s")")
                 // Imported SVG can't carry everything; say what was left out rather
                 // than letting it look like a faithful import.
-                if !notes.isEmpty { self.fontWarnings = notes.map { ("SVG", $0) } }
-                // An imported SVG has no .acmplc.png behind it yet.
-                if url.pathExtension.lowercased() == "svg" {
+                if !notes.isEmpty { self.fontWarnings = notes.map { ("Import", $0) } }
+                // An imported SVG or plain image has no .acmplc.png behind it yet —
+                // saving must ask where, never overwrite the original in place.
+                if url.pathExtension.lowercased() == "svg" || importedImage {
                     self.url = nil
                     self.isDirty = true
                 }
