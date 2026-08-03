@@ -23,12 +23,13 @@ final class DocumentStore: ObservableObject {
     }
 
     enum Tool: String, CaseIterable {
-        case select, pen, erase
+        case select, pen, erase, remove
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
             case .erase: return "eraser"
+            case .remove: return "wand.and.stars"
             }
         }
         var title: String {
@@ -36,6 +37,7 @@ final class DocumentStore: ObservableObject {
             case .select: return "Select"
             case .pen: return "Vector"
             case .erase: return "Erase"
+            case .remove: return "Remove"
             }
         }
     }
@@ -1009,6 +1011,62 @@ final class DocumentStore: ObservableObject {
                 }
             } catch {
                 status = "Vectorize failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Tools ▸ Remove: the boxed part of a bitmap goes to the account service
+    /// with the whole image; the service works out what the box means to remove
+    /// and sends the image back with it painted out. Only the boxed region can
+    /// change, so the swap is safe to drop straight over the old pixels.
+    func removeRegion(_ id: String, rect: CGRect) {
+        guard rect.width > 1, rect.height > 1,
+              let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref] else { return }
+        // Send the pixels the user boxed, which are the pixels they SEE: bake
+        // orientation, adjustments and crop the way the canvas draws them. This
+        // also guarantees PNG going out; the stored bytes may be JPEG or HEIC.
+        guard let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+              let data = Renderer.png(baked) else {
+            status = "Can't read that image"
+            return
+        }
+        guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
+            status = "Remove needs your Accomplice account. Connect it in Settings ▸ Model"
+            return
+        }
+        // The box in unit coordinates: layer space spans the frame, y-down like
+        // the image, so the ratio is all the server needs.
+        let unit = CGRect(x: rect.minX / l.frame.width, y: rect.minY / l.frame.height,
+                          width: rect.width / l.frame.width, height: rect.height / l.frame.height)
+            .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        guard unit.width > 0.001, unit.height > 0.001 else { return }
+        status = "Removing… this takes a minute or two"
+        Task { @MainActor in
+            do {
+                let result = try await ModelConnector.remove(png: data, rect: unit)
+                guard let src = source, BitmapImage.load(result.png) != nil else {
+                    status = "Remove failed: unreadable image"
+                    return
+                }
+                let key = "images/\(Zip.crc32(result.png))-\(result.png.count).png"
+                source = src.adding(image: result.png, key: key)
+                edit(id, actionName: "Remove") { layer in
+                    layer.kind = .bitmap(imageRef: key)
+                    // The reply has the adjustments and crop baked in; leaving
+                    // them on would apply them twice.
+                    layer.brightness = 0
+                    layer.contrast = 1
+                    layer.saturation = 1
+                    layer.cropRect = nil
+                }
+                if let left = result.remaining {
+                    status = "Removed · $\(String(format: "%.2f", left)) in credits left"
+                } else {
+                    status = "Removed"
+                }
+            } catch {
+                status = "Remove failed: \(error.localizedDescription)"
             }
         }
     }

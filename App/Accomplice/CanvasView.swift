@@ -65,6 +65,8 @@ final class PageCanvas: NSView {
     /// Crop mode, entered from the inspector. (id, kept region in unit coords)
     var onCommitCrop: ((String, CGRect) -> Void)?
     var onCancelCrop: (() -> Void)?
+    /// A remove box on a bitmap. (id, rect in the layer's own coordinates)
+    var onRemoveRect: ((String, CGRect) -> Void)?
     /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
     var onEraseRect: ((String, CGRect) -> Void)?
 
@@ -428,6 +430,10 @@ final class PageCanvas: NSView {
             return
         }
         if brushAt != nil { brushAt = nil; needsDisplay = true }
+        if tool == .remove {
+            NSCursor.crosshair.set()
+            return
+        }
         if tool == .pen {
             // The badge is the whole point of drawing our own: it says whether this
             // click extends the path or shuts it, which is the one thing the canvas
@@ -1405,6 +1411,16 @@ final class PageCanvas: NSView {
             return
         }
 
+        // --- Remove: box the thing on the bitmap that should go ---
+        if tool == .remove {
+            if let target = bitmapHit(p),
+               let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
+                eraseRectDrag = (target.id, t, p, p)
+                needsDisplay = true
+            }
+            return
+        }
+
         dragAnchor = p
         dragOffset = .zero
         snapGuides = []
@@ -1941,7 +1957,11 @@ final class PageCanvas: NSView {
                                   width: abs(er.current.x - er.start.x),
                                   height: abs(er.current.y - er.start.y))
             let local = pageRect.applying(er.t.inverted())
-            if local.width > 1, local.height > 1 { onEraseRect?(er.id, local) }
+            if local.width > 1, local.height > 1 {
+                // The same drag serves two tools: erase cuts the box out itself,
+                // remove sends it off to be understood first.
+                if tool == .remove { onRemoveRect?(er.id, local) } else { onEraseRect?(er.id, local) }
+            }
             needsDisplay = true
             return
         }
@@ -2192,6 +2212,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onCommitCrop = { id, unit in store.applyCrop(id, unit: unit) }
         canvas.onCancelCrop = { store.croppingID = nil }
         canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
+        canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

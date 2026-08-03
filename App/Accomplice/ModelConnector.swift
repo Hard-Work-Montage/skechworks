@@ -231,6 +231,43 @@ struct ModelConnector {
         return (svg, json["credits_remaining"] as? Double)
     }
 
+    /// Tools ▸ Remove: a bitmap and the user's box go to the account service,
+    /// the same image comes back with whatever the box marked painted out.
+    /// The rect is in unit coordinates of the image.
+    static func remove(png: Data, rect: CGRect) async throws -> (png: Data, remaining: Double?) {
+        let token = Credentials.get(.accompliceToken) ?? ""
+        guard !token.isEmpty else { throw Failure.notSignedIn }
+        guard let url = URL(string: Settings().accompliceHost + "/api/v1/remove") else {
+            throw Failure.unreachable("bad url")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        // A masked edit plus its quality check runs about as long as a
+        // vectorize, and the status bar says so.
+        req.timeoutInterval = 300
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "image": png.base64EncodedString(),
+            "rect": ["x": rect.minX, "y": rect.minY, "w": rect.width, "h": rect.height],
+        ])
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw Failure.unreachable(error.localizedDescription)
+        }
+        let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            let message = (json["error"] as? [String: Any])?["message"] as? String
+            throw Failure.badResponse(message ?? "HTTP \(http.statusCode)")
+        }
+        guard let b64 = json["image"] as? String, let out = Data(base64Encoded: b64) else {
+            throw Failure.badResponse("no image in the reply")
+        }
+        return (out, json["credits_remaining"] as? Double)
+    }
+
     private func post(_ url: URL, body: [String: Any], headers: [String: String]) async throws -> [String: Any] {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"

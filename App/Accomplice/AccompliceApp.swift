@@ -206,6 +206,7 @@ struct AccompliceApp: App {
                     .shortcut("vector")
                 Button("Erase") { AppDelegate.shared?.active?.tool = .erase }
                     .shortcut("erase")
+                Button("Remove") { AppDelegate.shared?.active?.tool = .remove }
                 Divider()
                 Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
             }
