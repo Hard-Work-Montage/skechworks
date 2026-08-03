@@ -120,6 +120,29 @@ extension Page {
         return out
     }
 
+    /// What a rubber-band selects: every visible, unlocked layer whose painted
+    /// bounds touch the rect. Artboards are never themselves hits — the label is
+    /// the handle for a board — but the art sitting on one is, which is what makes
+    /// a marquee started inside an artboard behave like one started outside.
+    /// Groups stay atomic: the group is the hit, not its members.
+    public func marqueeHits(_ rect: CGRect) -> Set<String> {
+        var hits: Set<String> = []
+        func walk(_ ls: [Layer], _ base: CGAffineTransform) {
+            for l in ls where l.isVisible && !l.isLocked {
+                let t = Compose.transform(l).concatenating(base)
+                if l.isArtboard {
+                    if case .group(let kids) = l.kind { walk(kids, t) }
+                    continue
+                }
+                let box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
+                    ?? CGRect(origin: .zero, size: l.frame.size).applying(t)
+                if rect.intersects(box) { hits.insert(l.id) }
+            }
+        }
+        walk(layers, .identity)
+        return hits
+    }
+
     /// A compact description for a model's context.
     ///
     /// Deliberately lossy: nesting, names, types, sizes and fills — enough to reason

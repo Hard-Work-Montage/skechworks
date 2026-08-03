@@ -1357,13 +1357,7 @@ final class DocumentStore: ObservableObject {
 
     /// Everything the marquee touched.
     func selectAll(in rect: CGRect, on page: Page, extend: Bool) {
-        var hits: Set<String> = []
-        for l in page.layers where l.isVisible && !l.isLocked {
-            let t = Compose.transform(l)
-            let box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
-                ?? CGRect(origin: .zero, size: l.frame.size).applying(t)
-            if rect.intersects(box) { hits.insert(l.id) }
-        }
+        let hits = page.marqueeHits(rect)
         selection = extend ? selection.union(hits) : hits
     }
 
