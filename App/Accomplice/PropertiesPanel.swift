@@ -20,8 +20,12 @@ struct PropertiesPanel: View {
                         geometry(layer)
                         if roundableCorners(layer) > 0 { Divider(); corners(layer) }
                         if layer.autoShape != nil { Divider(); autoShapeSection(layer) }
-                        if !layer.style.fills.isEmpty { Divider(); fills(layer) }
-                        if !layer.style.borders.isEmpty { Divider(); borders(layer) }
+                        // Shown whenever the layer can take paint, not only when it
+                        // already has some — the + button that ADDS the first fill or
+                        // border lives inside these sections, so hiding them empty
+                        // left no way to add a border from the panel at all.
+                        if paintable(layer) { Divider(); fills(layer) }
+                        if paintable(layer) { Divider(); borders(layer) }
                         if case .bitmap = layer.kind {
                             Divider(); imageSection(layer)
                             Divider(); eraser(layer)
@@ -378,6 +382,16 @@ struct PropertiesPanel: View {
     private func roundableCorners(_ l: Layer) -> Int {
         guard case .path(let p, _) = l.kind else { return 0 }
         return Corners.roundableCorners(in: p)
+    }
+
+    /// Layers whose geometry can carry a fill or border. Artboards paint their
+    /// background through their own section, and bitmaps are pixels.
+    private func paintable(_ l: Layer) -> Bool {
+        if l.isArtboard { return false }
+        switch l.kind {
+        case .path, .shapeGroup, .text: return true
+        default: return !l.style.fills.isEmpty || !l.style.borders.isEmpty
+        }
     }
 
     private func fills(_ l: Layer) -> some View {
