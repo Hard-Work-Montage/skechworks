@@ -963,6 +963,21 @@ final class DocumentStore: ObservableObject {
                 }
                 let read = try SVGReader().read(data: svgData)
                 var kids = read.document.pages.first?.layers ?? []
+                // The tracer's SVG nests groups that mean nothing — ungrouping a
+                // trace later exploded into a hundred shells. Inline them so the
+                // result is one flat group of paths.
+                func inline(_ ls: [Layer]) -> [Layer] {
+                    ls.flatMap { l -> [Layer] in
+                        guard case .group(let k) = l.kind, !l.isArtboard else { return [l] }
+                        return inline(k).map { child in
+                            var c = child
+                            c.frame.origin.x += l.frame.minX
+                            c.frame.origin.y += l.frame.minY
+                            return c
+                        }
+                    }
+                }
+                kids = inline(kids)
                 guard !kids.isEmpty else {
                     status = "Vectorize produced no shapes"
                     return
