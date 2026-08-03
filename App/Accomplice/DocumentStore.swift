@@ -933,9 +933,20 @@ final class DocumentStore: ObservableObject {
     func vectorizeSelection(style: String = "color") {
         guard let id = selectedLayerID, let page,
               let l = page.layer(id), case .bitmap(let ref) = l.kind,
-              let data = images[ref] else {
+              let raw = images[ref] else {
             status = "Select one image layer to vectorize"
             return
+        }
+        // Vectorize what the user SEES. A cropped or adjusted bitmap must go out
+        // as its baked display rendition — sending the original bytes traced the
+        // uncropped photo and handed back shapes for parts that aren't on canvas.
+        let data: Data
+        if l.hasBitmapAdjustments,
+           let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+           let png = Renderer.png(baked) {
+            data = png
+        } else {
+            data = raw
         }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
             status = "Vectorize needs your Accomplice account — connect it in Settings ▸ Model"

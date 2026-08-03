@@ -140,6 +140,28 @@ extension Page {
         }
         walk(layers, 0)
         if count >= maxLayers { lines.append("… truncated at \(maxLayers) layers") }
+
+        // The tree above truncates, but colour questions ("delete everything with
+        // this fill") need the WHOLE page's palette — a model that can't see a
+        // colour concludes it doesn't exist and refuses to touch it. A vectorized
+        // trace put the colour a user asked about at layer 700 of 900.
+        var fills: [String: Int] = [:]
+        func tally(_ ls: [Layer]) {
+            for l in ls {
+                if let f = l.firstFillHex { fills[f.lowercased(), default: 0] += 1 }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _): tally(k)
+                default: break
+                }
+            }
+        }
+        tally(layers)
+        if !fills.isEmpty {
+            let sorted = fills.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
+            let shown = sorted.prefix(40).map { "\($0.key) ×\($0.value)" }.joined(separator: "  ")
+            let more = sorted.count > 40 ? "  … \(sorted.count - 40) more" : ""
+            lines.append("fills used (every layer, including any truncated above): \(shown)\(more)")
+        }
         return lines.joined(separator: "\n")
     }
 }
