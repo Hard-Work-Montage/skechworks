@@ -1151,11 +1151,32 @@ final class DocumentStore: ObservableObject {
             return
         }
 
-        // Fresh ids, nudged so a paste-in-place isn't invisible.
-        let offset: CGFloat = 20
+        // Pasting with an artboard selected drops the copy INTO that board: at the
+        // same relative spot it held on its source board, or centred when it came
+        // from loose canvas. Selecting a board and pasting is the "put it there"
+        // gesture — without this the copy just landed back where it came from.
+        var targetBoard: Layer?
+        if selection.count == 1, let sel = selection.first,
+           let l = p.layer(sel), l.isArtboard { targetBoard = l }
+
+        let bounds = layers.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        // Plain paste: nudged so a paste-in-place isn't invisible.
+        var shift = CGPoint(x: 20, y: 20)
+        if let board = targetBoard {
+            let srcBoard = p.artboard(containing: CGPoint(x: bounds.midX, y: bounds.midY))
+            if srcBoard?.id == board.id {
+                targetBoard = nil    // pasting onto its own board: plain paste
+            } else if let src = srcBoard {
+                shift = CGPoint(x: board.frame.minX - src.frame.minX,
+                                y: board.frame.minY - src.frame.minY)
+            } else {
+                shift = CGPoint(x: board.frame.midX - bounds.midX,
+                                y: board.frame.midY - bounds.midY)
+            }
+        }
         let fresh = layers.map { l -> Layer in
             var c = l.withNewIDs()
-            c.frame.origin = CGPoint(x: c.frame.minX + offset, y: c.frame.minY + offset)
+            c.frame.origin = CGPoint(x: c.frame.minX + shift.x, y: c.frame.minY + shift.y)
             return c
         }
         // Bring any referenced images across; pasting between documents otherwise
@@ -1166,7 +1187,13 @@ final class DocumentStore: ObservableObject {
         }
         source = newSource
         p.layers.append(contentsOf: fresh)
-        for l in fresh { p.adoptIntoArtboard(l.id) }
+        if let board = targetBoard {
+            // Into the CHOSEN board, not whichever one happens to contain the
+            // centre — the point of selecting it first.
+            _ = p.reparent(fresh.map(\.id), into: board.id, at: p.children(of: board.id).count)
+        } else {
+            for l in fresh { p.adoptIntoArtboard(l.id) }
+        }
         apply(p, at: pageIndex, src: newSource)
         revision += 1
         isDirty = true
