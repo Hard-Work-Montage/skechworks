@@ -1590,7 +1590,14 @@ final class PageCanvas: NSView {
             return
         }
 
-        guard let leaf = layerHit(p) else {
+        // The artboard's background reads as bare canvas: pressing on empty board
+        // and dragging rubber-bands over the art, exactly like starting off-board.
+        // The label above the corner stays the handle for the board itself.
+        var hit = layerHit(p)
+        if let l = hit, l.isArtboard, !artboards.contains(where: { $0.hit.contains(p) }) {
+            hit = nil
+        }
+        guard let leaf = hit else {
             if !extend { onSelect?(nil, false) }   // clears the selection
             enteredGroup = nil
             marqueeing = true

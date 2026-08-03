@@ -9,9 +9,27 @@ jobs:
   test:
     name: Tests
     runs-on: macos-26
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Run the test suite
-        run: swift test
+        run: swift test 2>&1 | tee test.log
       - name: Release build
         run: swift build -c release
+      # The homepage chip on accomplice.ai reads this count from the badges
+      # branch, so the number on the site is the number that actually ran here
+      # rather than whatever someone last remembered to type.
+      - name: Publish test count
+        if: github.ref == 'refs/heads/main'
+        run: |
+          COUNT=$(grep -oE 'Test run with [0-9]+ tests' test.log | tail -1 | grep -oE '[0-9]+')
+          [ -n "$COUNT" ] || { echo "could not parse test count"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan badges
+          git rm -rf --quiet .
+          printf '{"schemaVersion":1,"label":"tests","message":"%s passing","count":%s,"color":"brightgreen"}\n' "$COUNT" "$COUNT" > tests.json
+          git add tests.json
+          git commit -m "tests: $COUNT"
+          git push -f origin badges
