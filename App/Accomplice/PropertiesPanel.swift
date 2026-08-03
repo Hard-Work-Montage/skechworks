@@ -193,22 +193,31 @@ struct PropertiesPanel: View {
     }
 
     private func geometry(_ l: Layer) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // A masked group paints less than its frame says — describe the visible
+        // region, and map edits back through it (unmasked layers keep exact frame
+        // semantics, so a rotated layer's W/H don't turn into its rotated bbox).
+        let masked = l.containsClippingMask
+        let vb = masked ? Compose.visibleBounds(of: l) : l.frame
+        return VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Position & Size")
             // Two even columns throughout, so every field lines up regardless of how
             // long its label is. A fixed label column is what stops "Opacity" wrapping
             // onto a second line and shoving its field out of alignment.
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
-                    editable("X", l.frame.minX, l) { layer, v in layer.frame.origin.x = v }
-                    editable("Y", l.frame.minY, l) { layer, v in layer.frame.origin.y = v }
+                    editable("X", vb.minX, l) { layer, v in layer.frame.origin.x += v - vb.minX }
+                    editable("Y", vb.minY, l) { layer, v in layer.frame.origin.y += v - vb.minY }
                 }
                 GridRow {
-                    editable("W", l.frame.width, l) { layer, v in
-                        layer.resize(to: CGSize(width: max(1, v), height: layer.frame.height))
+                    editable("W", vb.width, l) { layer, v in
+                        let w = masked ? layer.frame.width * (max(1, v) / max(vb.width, 0.001))
+                                       : max(1, v)
+                        layer.resize(to: CGSize(width: w, height: layer.frame.height))
                     }
-                    editable("H", l.frame.height, l) { layer, v in
-                        layer.resize(to: CGSize(width: layer.frame.width, height: max(1, v)))
+                    editable("H", vb.height, l) { layer, v in
+                        let h = masked ? layer.frame.height * (max(1, v) / max(vb.height, 0.001))
+                                       : max(1, v)
+                        layer.resize(to: CGSize(width: layer.frame.width, height: h))
                     }
                 }
                 GridRow {

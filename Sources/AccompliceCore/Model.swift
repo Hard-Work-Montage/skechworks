@@ -234,6 +234,19 @@ public struct Layer: @unchecked Sendable {
 
     public var bounds: CGRect { frame }
 
+    /// True when a visible child clips its siblings — the layer paints less than its
+    /// frame says, and geometry shown to the user should come from
+    /// `Compose.visibleBounds` instead.
+    public var containsClippingMask: Bool {
+        let kids: [Layer]
+        switch kind {
+        case .group(let k): kids = k
+        case .shapeGroup(let k, _): kids = k
+        default: return false
+        }
+        return kids.contains { ($0.hasClippingMask && $0.isVisible) || $0.containsClippingMask }
+    }
+
     /// Anchor count for a path layer. What a model needs to tell an over-detailed
     /// trace from a shape that's meant to be intricate.
     public var pointCount: Int? {

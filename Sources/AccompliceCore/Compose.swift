@@ -194,6 +194,33 @@ public enum Compose {
         guard let a else { return b }
         return a.intersection(b)
     }
+
+    /// The bounds of what a layer actually paints, in its parent's space.
+    ///
+    /// A group's `frame` is the union of everything inside it — including the parts a
+    /// clipping mask hides. Selection handles and the W/H fields describing a masked
+    /// photo with the unmasked numbers read as a bug, so this walks the same drawables
+    /// the renderer paints and intersects each with its clip before unioning.
+    public static func visibleBounds(of layer: Layer, base: CGAffineTransform = .identity) -> CGRect {
+        var r = CGRect.null
+        for d in flatten([layer], base: base) where !d.isMarker {
+            var b: CGRect
+            if let p = d.path {
+                b = p.boundingBoxOfPath
+            } else {
+                b = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
+            }
+            if let c = d.clip { b = b.intersection(c.boundingBoxOfPath) }
+            guard !b.isNull, !b.isEmpty else { continue }
+            r = r.union(b)
+        }
+        guard !r.isNull else {
+            // Nothing painted (hidden layer, empty group): fall back to the frame.
+            return CGRect(origin: .zero, size: layer.frame.size)
+                .applying(transform(layer).concatenating(base))
+        }
+        return r
+    }
 }
 
 extension CGPath {

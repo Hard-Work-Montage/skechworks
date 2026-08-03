@@ -1499,6 +1499,28 @@ private func maskedGroup() -> Layer {
     #expect(abs(box.height - 200) < 1)
 }
 
+@Test func aMaskedGroupReportsTheClippedBoundsNotTheUnion() {
+    let group = maskedGroup()
+    #expect(group.containsClippingMask)
+
+    // The photo alone spans 400×400; the circle clips the visible region to the
+    // 200×200 it covers, at the group's position on the page.
+    let vb = Compose.visibleBounds(of: group)
+    #expect(abs(vb.minX - 100) < 1)
+    #expect(abs(vb.minY - 100) < 1)
+    #expect(abs(vb.width - 200) < 1)
+    #expect(abs(vb.height - 200) < 1)
+}
+
+@Test func anUnmaskedGroupDoesNotClaimAClippingMask() {
+    var plain = maskedGroup()
+    if case .group(var kids) = plain.kind {
+        kids[0].hasClippingMask = false
+        plain.kind = .group(kids)
+    }
+    #expect(!plain.containsClippingMask)
+}
+
 @Test func ignoreMaskExemptsALayerFromTheClip() {
     var group = maskedGroup()
     guard case .group(var kids) = group.kind else { Issue.record("no kids"); return }
