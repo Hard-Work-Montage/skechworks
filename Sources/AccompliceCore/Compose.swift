@@ -129,6 +129,13 @@ public enum Compose {
                         .transformed(by: t)
                     if let bg = l.backgroundColor {
                         var plate = Layer(kind: .path(CGPath(rect: CGRect(origin: .zero, size: l.frame.size), transform: nil), closed: true))
+                        // The plate IS the artboard as far as anything downstream is
+                        // concerned — same id, same isArtboard. A synthesized identity
+                        // here meant canvas hit-testing saw a plain path named
+                        // "Artboard" and treated a press on the board like a press on
+                        // a shape, which ate the marquee.
+                        plate.id = l.id
+                        plate.isArtboard = true
                         plate.frame = l.frame
                         plate.name = l.name
                         plate.style.fills = [Fill(paint: .color(bg))]

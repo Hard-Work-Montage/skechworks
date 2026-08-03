@@ -24,3 +24,17 @@ import CoreGraphics
     // Band over bare board only: nothing.
     #expect(page.marqueeHits(CGRect(x: 400, y: 400, width: 80, height: 80)).isEmpty)
 }
+
+@Test func theArtboardBackgroundPlateKeepsTheArtboardsIdentity() {
+    // flatten() synthesizes a plate drawable for the board's background. It must
+    // carry the artboard's own id and isArtboard flag — canvas hit-testing reads
+    // them, and a plate that looks like a plain path eats the marquee gesture.
+    var board = Layer(kind: .group([]))
+    board.isArtboard = true
+    board.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
+    board.frame = CGRect(x: 50, y: 50, width: 300, height: 300)
+    let drawables = Compose.flatten([board])
+    let plate = try! #require(drawables.first(where: { $0.isArtboardBackground }))
+    #expect(plate.layer.id == board.id)
+    #expect(plate.layer.isArtboard)
+}
