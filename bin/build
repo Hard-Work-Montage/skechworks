@@ -56,3 +56,10 @@ echo -n "gatekeeper: "
 spctl -a -vv -t exec "$APP" 2>&1 | tail -1
 
 echo "built $APP"
+
+# Land it where double-click finds it. Every build replaces /Applications, so
+# "the latest" and "the one in Applications" are always the same app — a
+# running instance keeps its old copy alive until it relaunches.
+rm -rf /Applications/Accomplice.app
+ditto "$APP" /Applications/Accomplice.app
+echo "installed /Applications/Accomplice.app"
