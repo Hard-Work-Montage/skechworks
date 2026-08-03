@@ -108,6 +108,27 @@ extension Page {
     /// is always relative to its parent.
     @discardableResult
     public mutating func group(_ ids: Set<String>, named name: String = "Group") -> String? {
+        // A selection that spans containers first gathers into the deepest
+        // container everyone shares — the page, when they span it. Without this,
+        // the sibling walk below grouped whichever container it met first and
+        // silently dropped the rest: band-select a trace plus the background
+        // oval living on the artboard, group, and the oval stayed behind.
+        let present = ids.filter { layer($0) != nil }
+        let chains = present.map { ancestors(of: $0) }
+        if let first = chains.first {
+            var common = first
+            for c in chains.dropFirst() {
+                var i = 0
+                while i < min(common.count, c.count), common[i] == c[i] { i += 1 }
+                common = Array(common.prefix(i))
+            }
+            let target = common.last     // nil means the page itself
+            if chains.contains(where: { $0.last != target }) {
+                _ = reparent(Array(present), into: target,
+                             at: target.map { children(of: $0).count } ?? layers.count)
+            }
+        }
+
         var madeID: String?
         forEachSiblingGroup(ids) { siblings, picked in
             guard picked.count >= 1, madeID == nil else { return }
