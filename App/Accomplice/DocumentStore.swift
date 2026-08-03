@@ -1119,7 +1119,14 @@ final class DocumentStore: ObservableObject {
         // Copied out in page coordinates. A frame relative to an artboard means nothing
         // once it's on the clipboard, and pasting one anywhere else threw it by that
         // artboard's offset; paste puts it back into whatever it lands on.
-        let layers = selection.compactMap { id -> Layer? in
+        //
+        // In DOCUMENT order, back to front — selection is a Set, and encoding it in
+        // hash order meant paste restacked the copy however the hashes fell (the
+        // background ellipse landed on top of the art it sat behind).
+        let paintOrder = Dictionary(uniqueKeysWithValues:
+            page.find(LayerQuery()).enumerated().map { ($1, $0) })
+        let layers = selection.sorted { (paintOrder[$0] ?? .max) < (paintOrder[$1] ?? .max) }
+            .compactMap { id -> Layer? in
             guard var l = page.layer(id) else { return nil }
             if let absolute = page.absoluteOrigin(of: id) { l.frame.origin = absolute }
             return l
