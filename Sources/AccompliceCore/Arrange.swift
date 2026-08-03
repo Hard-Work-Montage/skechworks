@@ -140,7 +140,9 @@ extension Page {
         func walk(_ ls: inout [Layer]) -> Bool {
             for i in ls.indices {
                 if ls[i].id == id {
-                    guard case .group(let kids) = ls[i].kind, !kids.isEmpty else { return true }
+                    // An empty group ungroups to nothing: the shell goes. Skipping
+                    // them left husks that "ungroup everything" could never clear.
+                    guard case .group(let kids) = ls[i].kind else { return true }
                     let origin = ls[i].frame.origin
                     let promoted = kids.map { child -> Layer in
                         var c = child

@@ -34,6 +34,8 @@ public struct LayerQuery: Codable, Sendable {
     public var maxPoints: Int?
     public var minWidth: Double?
     public var maxWidth: Double?
+    /// Containers with nothing inside — the cleanup case.
+    public var empty: Bool?
     /// Restrict to the current selection.
     public var selectedOnly: Bool?
     /// Cap the result, so a mistaken query can't rewrite a whole document.
@@ -47,7 +49,7 @@ public struct LayerQuery: Codable, Sendable {
     public var isEmpty: Bool {
         name == nil && type == nil && fill == nil && stroke == nil && text == nil
             && visible == nil && minWidth == nil && maxWidth == nil && selectedOnly == nil
-            && minPoints == nil && maxPoints == nil
+            && minPoints == nil && maxPoints == nil && empty == nil
     }
 }
 
@@ -76,6 +78,15 @@ extension Layer {
     public func matches(_ q: LayerQuery) -> Bool {
         if let n = q.name, !name.localizedCaseInsensitiveContains(n) { return false }
         if let t = q.type, apiType.lowercased() != t.lowercased() { return false }
+        if let e = q.empty {
+            let childCount: Int?
+            switch kind {
+            case .group(let k), .shapeGroup(let k, _): childCount = k.count
+            default: childCount = nil
+            }
+            if e { guard childCount == 0 else { return false } }
+            else if childCount == 0 { return false }
+        }
         if let f = q.fill, firstFillHex?.lowercased() != f.lowercased() { return false }
         if let s = q.stroke, style.borders.first?.color.hex.lowercased() != s.lowercased() { return false }
         if let t = q.text {
@@ -128,6 +139,11 @@ extension Page {
                 if let b = l.style.borders.first { bits.append("stroke \(b.color.hex) \(Int(b.thickness))pt") }
                 if !l.isVisible { bits.append("hidden") }
                 if l.isLocked { bits.append("locked") }
+                switch l.kind {
+                case .group(let k) where k.isEmpty, .shapeGroup(let k, _) where k.isEmpty:
+                    bits.append("empty")
+                default: break
+                }
                 if let t = l.apiText { bits.append("text: \(t.replacingOccurrences(of: "\n", with: " ").prefix(40))") }
                 // Only worth mentioning when it's enough to matter.
                 if let n = l.pointCount, n >= 24 { bits.append("\(n) points") }
@@ -463,6 +479,7 @@ extension DocumentCommand {
           minPoints    number — anchor count, matching the "N points" shown above.
                        This is how you target over-detailed paths.
           maxPoints    number
+          empty        true — containers with nothing inside (cleanup after ungrouping)
           selectedOnly true — restrict to what the user has selected
           limit        number — cap how many layers are affected
 

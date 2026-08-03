@@ -212,8 +212,13 @@ struct LayerOutline: NSViewRepresentable {
             cell.imageView?.image = NSImage(systemSymbolName: node.isLocked ? "lock.fill" : node.symbol,
                                             accessibilityDescription: nil)
             cell.textField?.stringValue = node.name
-            cell.textField?.textColor = node.isVisible ? .labelColor : .tertiaryLabelColor
-            cell.imageView?.contentTintColor = node.isVisible ? .secondaryLabelColor : .tertiaryLabelColor
+            // An empty container reads dimmer than a full one — the triangle stays
+            // (it's the drop affordance), but the grey says there's nothing inside.
+            let emptyContainer = node.isContainer && node.children.isEmpty
+            cell.textField?.textColor = !node.isVisible ? .tertiaryLabelColor
+                : emptyContainer ? .secondaryLabelColor : .labelColor
+            cell.imageView?.contentTintColor = node.isVisible && !emptyContainer
+                ? .secondaryLabelColor : .tertiaryLabelColor
             // On the text field as well: that's the element the accessibility tree
             // actually exposes for a table cell, and a UI test querying the row finds
             // nothing without it.
