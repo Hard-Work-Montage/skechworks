@@ -2,6 +2,11 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.2 (August 4, 2026)
+
+- The W/H padlock: aspect ratio locked by default, and shift inverts the mode mid-drag. An unlocked layer constrains while shift is held.
+- A group's selection box measures everything it paints — bitmaps included, not just the vector children.
+
 ## 0.4.1 (August 4, 2026)
 
 - Click what you see: art an artboard clips away can't be selected, right-clicked or marqueed from a neighboring panel.
