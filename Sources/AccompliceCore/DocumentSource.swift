@@ -187,6 +187,12 @@ public final class DocumentSource: @unchecked Sendable {
               let entries = dj["pages"] as? [[String: Any]] else {
             throw AcmplcFile.ReadError.stripped
         }
+        // Sketch files are zips with a document.json and a "pages" array too — the
+        // guard above can't tell them apart, and treating one as ours produced a
+        // hollow "1 page, 0 layers" document with the Sketch reader never consulted.
+        if dj["_class"] != nil || entries.contains(where: { !($0["file"] is String) }) {
+            throw AcmplcFile.ReadError.notAccomplice
+        }
 
         let refs = entries.map {
             PageRef(name: $0["name"] as? String ?? "Page", layerCount: $0["layers"] as? Int ?? 0)

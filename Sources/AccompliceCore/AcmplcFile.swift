@@ -120,6 +120,10 @@ public struct AcmplcFile {
     public enum ReadError: Error, CustomStringConvertible {
         case stripped
         case malformed(String)
+        /// The archive parses but it isn't ours — a .sketch is also a zip with a
+        /// document.json, and swallowing one here produced a hollow "1 page, 0
+        /// layers" document instead of letting the Sketch reader have it.
+        case notAccomplice
         public var description: String {
             switch self {
             case .stripped:
@@ -129,6 +133,8 @@ public struct AcmplcFile {
                     The picture survives; the document does not.
                     """
             case .malformed(let s): return s
+            case .notAccomplice:
+                return "not an Accomplice document — the archive belongs to another app"
             }
         }
     }
@@ -177,6 +183,9 @@ public struct AcmplcFile {
               let dj = try? JSONSerialization.jsonObject(with: docData) as? [String: Any] else {
             throw ReadError.stripped
         }
+        // A .sketch is also a zip with a document.json and a "pages" array. Ours is
+        // told apart by its page entries carrying "file"; Sketch's carry "_class".
+        if dj["_class"] != nil { throw ReadError.notAccomplice }
 
         var doc = Document()
         doc.sourceApp = dj["importedFrom"] as? String

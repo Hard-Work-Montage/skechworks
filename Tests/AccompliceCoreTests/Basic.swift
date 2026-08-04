@@ -110,6 +110,24 @@ import Testing
     #expect(throws: (any Error).self) { try AcmplcFile.read(png) }
 }
 
+@Test func aSketchArchiveIsRefusedNotSwallowed() throws {
+    // A .sketch is also a zip with a document.json and a "pages" array. Parsing one
+    // as an Accomplice document "succeeded" with a hollow 1-page/0-layer document,
+    // so the app never fell through to the Sketch reader and showed blank pages.
+    let sketchDocJSON = #"{"_class":"document","pages":[{"_class":"MSJSONFileReference","_ref":"pages/ABC"}]}"#
+    let zip = Zip.write([
+        ZipEntry(name: "document.json", data: Data(sketchDocJSON.utf8)),
+        ZipEntry(name: "pages/ABC.json", data: Data(#"{"_class":"page"}"#.utf8)),
+    ])
+    #expect(throws: AcmplcFile.ReadError.self) { try AcmplcFile.read(zip) }
+
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("fake-\(UUID().uuidString).sketch")
+    try zip.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+    #expect(throws: AcmplcFile.ReadError.self) { _ = try DocumentSource.acmplc(url: url) }
+}
+
 @Test func groupInsideShapeGroupStillComposes() {
     // Regression: plain groups nested inside a shapeGroup were being dropped, which
     // silently deleted the dot clusters from the moon-phases coin.
