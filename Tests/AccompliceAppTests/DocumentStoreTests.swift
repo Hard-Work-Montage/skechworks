@@ -513,6 +513,33 @@ final class OAuthTests: XCTestCase {
         }
     }
 
+    func testSelectAllGathersTheArtworkNeverTheBoards() {
+        // Artboards are selected deliberately — canvas label or layer list. ⌘A
+        // sweeping the board into the selection made it the target of whatever came
+        // next (paste into it, delete it) without anyone choosing that.
+        var child = Layer(kind: .bitmap(imageRef: "c.png"))
+        child.name = "Group"
+        child.frame = CGRect(x: 10, y: 10, width: 50, height: 50)
+        var art = Layer(kind: .group([child]))
+        art.name = "Frame"
+        art.isArtboard = true
+        art.frame = CGRect(x: 0, y: 0, width: 600, height: 600)
+        var loose = Layer(kind: .bitmap(imageRef: "loose.png"))
+        loose.name = "Loose"
+        loose.frame = CGRect(x: 700, y: 0, width: 100, height: 100)
+        var page = Page(name: "Page 1")
+        page.layers = [art, loose]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+
+        store.selectAll()
+        let names = store.selection.compactMap { store.page?.layer($0)?.name }.sorted()
+        XCTAssertEqual(names, ["Group", "Loose"])   // the board's child + the loose layer
+        XCTAssertFalse(store.selection.contains(where: { store.page?.layer($0)?.isArtboard == true }))
+    }
+
     func testEveryVerifierIsDifferent() {
         let made = Set((0..<500).map { _ in OAuthFlow.randomVerifier() })
         XCTAssertEqual(made.count, 500, "a repeated verifier would defeat the point of PKCE")

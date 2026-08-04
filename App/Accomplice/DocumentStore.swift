@@ -1300,7 +1300,19 @@ final class DocumentStore: ObservableObject {
 
     func selectAll() {
         guard let page else { return }
-        selection = Set(page.layers.map(\.id))
+        // Artboards are only selected deliberately — their canvas label or the
+        // layer list. ⌘A gathers the ARTWORK: each board's children plus loose
+        // layers. Sweeping the board itself into the selection made it the target
+        // of whatever came next (paste, delete) without anyone choosing that.
+        var ids: [String] = []
+        for l in page.layers {
+            if l.isArtboard {
+                if case .group(let kids) = l.kind { ids.append(contentsOf: kids.map(\.id)) }
+            } else {
+                ids.append(l.id)
+            }
+        }
+        selection = Set(ids)
     }
 
     // MARK: - Insert

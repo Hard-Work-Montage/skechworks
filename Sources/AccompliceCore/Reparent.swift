@@ -40,7 +40,13 @@ extension Page {
     /// the one that matters, since it would detach that whole subtree from the document.
     @discardableResult
     public mutating func reparent(_ ids: [String], into newParent: String?, at index: Int) -> Bool {
-        let moving = ids.filter { layer($0) != nil }
+        // Artboards live at the top level. One pasted or dragged INTO another
+        // container plates over everything already inside it, which reads as the
+        // paste having replaced the board and its contents.
+        let moving = ids.filter { id in
+            guard let l = layer(id) else { return false }
+            return newParent == nil || !l.isArtboard
+        }
         guard !moving.isEmpty else { return false }
 
         if let newParent {

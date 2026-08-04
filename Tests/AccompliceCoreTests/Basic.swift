@@ -1727,6 +1727,34 @@ private func pageWithArtboardAndLooseImage() -> Page {
     return page
 }
 
+@Test func anArtboardNeverReparentsIntoAnotherContainer() {
+    // Pasting a copied board with another board selected reparented the copy INSIDE
+    // it — the copy's plate covered everything, which read as the paste having
+    // replaced the board and its contents.
+    var page = pageWithArtboardAndLooseImage()
+    var second = Layer(kind: .group([]))
+    second.name = "Frame 2"
+    second.isArtboard = true
+    second.frame = CGRect(x: 950, y: 300, width: 400, height: 400)
+    page.layers.append(second)
+    let art = page.layers[0].id, photo = page.layers[1].id
+
+    // A board alone: refused outright.
+    let boardAlone = page.reparent([second.id], into: art, at: 0)
+    #expect(boardAlone == false)
+    #expect(page.layers.map(\.name) == ["Frame", "etsy_01", "Frame 2"])
+
+    // A mixed batch: the art goes in, the board stays top-level.
+    let mixed = page.reparent([photo, second.id], into: art, at: 0)
+    #expect(mixed)
+    #expect(page.children(of: art).map(\.name) == ["etsy_01"])
+    #expect(page.layers.map(\.name) == ["Frame", "Frame 2"])
+
+    // To the top level (no parent) a board still moves freely.
+    let toTop = page.reparent([second.id], into: nil, at: 0)
+    #expect(toTop)
+}
+
 @Test func draggingAnImageIntoAnArtboardMakesItAChildWithoutMovingIt() {
     var page = pageWithArtboardAndLooseImage()
     let art = page.layers[0].id, photo = page.layers[1].id
