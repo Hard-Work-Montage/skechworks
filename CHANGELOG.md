@@ -2,8 +2,6 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
-## 0.5 (August 4, 2026)
-
 - Click what you see: art an artboard clips away can't be selected, right-clicked or marqueed from a neighboring panel.
 - A lone layer inside an artboard aligns to the board — align-left hugs the board's left edge.
 - The align icons live in the Properties panel now, with Flip Horizontal and Flip Vertical beside them and in the Arrange menu. Chat can flip too.
