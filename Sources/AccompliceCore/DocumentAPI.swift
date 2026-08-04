@@ -322,6 +322,19 @@ extension DocumentCommand {
             for k in keys { if let v = d[k] as? String { return v } }
             return nil
         }
+        /// A colour, wherever the model put it. Real replies wrap it in an object
+        /// ({"color": {"hex": "#fff"}}) as often as they write the string.
+        func colour(_ keys: String...) -> String? {
+            for k in keys {
+                if let v = d[k] as? String { return v }
+                if let o = d[k] as? [String: Any] {
+                    for kk in [ "hex", "value", "color", "colour" ] {
+                        if let v = o[kk] as? String { return v }
+                    }
+                }
+            }
+            return nil
+        }
         func n(_ keys: String...) -> Double? {
             for k in keys {
                 if let v = d[k] as? Double { return v }
@@ -344,9 +357,27 @@ extension DocumentCommand {
         case "select": return .select(q)
         case "delete": return .delete(q)
         case "setfill", "fill":
-            return s("hex", "value", "color", "colour", "to").map { .setFill(q, hex: $0) }
+            if let hex = colour("hex", "value", "color", "colour", "to") {
+                return .setFill(q, hex: hex)
+            }
+            // "Set the fill to X" naturally arrives as {"op":"setFill","fill":"#..."}
+            // — but "fill" is a selector key, so the colour landed in the query and
+            // the command decoded as "recolour to nothing" and was dropped. With no
+            // other colour present, "fill" IS the colour, not a filter.
+            if let hex = colour("fill") {
+                var q2 = q; q2.fill = nil
+                return .setFill(q2, hex: hex)
+            }
+            return nil
         case "setstroke", "stroke":
-            return s("hex", "value", "color", "colour", "to").map { .setStroke(q, hex: $0, width: n("width")) }
+            if let hex = colour("hex", "value", "color", "colour", "to") {
+                return .setStroke(q, hex: hex, width: n("width"))
+            }
+            if let hex = colour("stroke") {
+                var q2 = q; q2.stroke = nil
+                return .setStroke(q2, hex: hex, width: n("width"))
+            }
+            return nil
         case "setopacity", "opacity":
             guard let v = n("value") else { return nil }
             return .setOpacity(q, value: v > 1 ? v / 100 : v)   // accept 50 or 0.5

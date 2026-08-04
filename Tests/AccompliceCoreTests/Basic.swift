@@ -631,6 +631,37 @@ private func styledPage() -> Page {
     #expect(visible == false)               // bare "hide" implies false
 }
 
+@Test func setFillReadsTheColourWhereverTheModelPutIt() {
+    // "Make every layer white" produced {"op":"setFill","fill":"#ffffff"} — but
+    // "fill" is a selector key, so the colour landed in the query and the command
+    // decoded as "recolour to nothing" and was dropped.
+    let json = """
+    {"commands":[
+      {"op":"setFill","fill":"#ffffff"},
+      {"op":"setFill","fill":"#0c0a0b","color":"#ffffff"},
+      {"op":"setFill","color":{"hex":"#ff0000"}},
+      {"op":"setStroke","stroke":"#123456"}
+    ]}
+    """
+    let cmds = DocumentCommand.decodeList(Data(json.utf8))
+    #expect(cmds.count == 4)
+
+    guard case .setFill(let q1, let h1) = cmds[0] else { Issue.record("expected setFill"); return }
+    #expect(h1 == "#ffffff")
+    #expect(q1.fill == nil)                 // the colour, not a filter
+
+    guard case .setFill(let q2, let h2) = cmds[1] else { Issue.record("expected setFill"); return }
+    #expect(h2 == "#ffffff")
+    #expect(q2.fill == "#0c0a0b")           // explicit colour present: "fill" stays a selector
+
+    guard case .setFill(_, let h3) = cmds[2] else { Issue.record("expected setFill"); return }
+    #expect(h3 == "#ff0000")                // colour wrapped in an object
+
+    guard case .setStroke(let q4, let h4, _) = cmds[3] else { Issue.record("expected setStroke"); return }
+    #expect(h4 == "#123456")
+    #expect(q4.stroke == nil)
+}
+
 @Test func describeStaysSmallEnoughForAContextWindow() {
     let p = styledPage()
     let text = p.describe()
@@ -852,8 +883,10 @@ private func styledPage() -> Page {
 }
 
 @Test func anUnreadableCommandIsReportedNotDropped() {
-    // ##"..."## because the JSON contains `"#`, which closes a #"..."# literal early.
-    let reply = ##"{"say":"Done!","commands":[{"op":"setFill","fill":"#000000"}]}"##
+    // A setFill with no colour anywhere. ({"op":"setFill","fill":"#..."} used to be
+    // the example here, but that shape is real model output and now decodes with
+    // "fill" read as the colour.)
+    let reply = #"{"say":"Done!","commands":[{"op":"setFill","name":"Halo"}]}"#
     let turn = ModelTurn.decode(Data(reply.utf8))
     #expect(turn.commands.isEmpty)
     #expect(turn.problems.count == 1)          // the claim can't stand unchallenged
