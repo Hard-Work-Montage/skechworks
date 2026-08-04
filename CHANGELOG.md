@@ -2,6 +2,10 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.3 (August 4, 2026)
+
+- The drop decides the parent: drag a layer fully out of its artboard and it lands on the canvas, drop it on another board and it moves in.
+
 ## 0.4.2 (August 4, 2026)
 
 - The W/H padlock: aspect ratio locked by default, and shift inverts the mode mid-drag. An unlocked layer constrains while shift is held.
