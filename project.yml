@@ -85,7 +85,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
-        MARKETING_VERSION: "0.2"
+        MARKETING_VERSION: "0.2.1"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps

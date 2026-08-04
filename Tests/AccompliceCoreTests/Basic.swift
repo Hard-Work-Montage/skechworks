@@ -151,6 +151,41 @@ import Testing
     #expect(board.backgroundInExport == false)
 }
 
+@Test func aSketchFrameImportsAsAnArtboardWithItsFillAsTheCard() throws {
+    // Sketch Frames (groupBehavior != 0) replaced artboards; the card colour is a
+    // style fill. Imported as plain groups they lost the card, the label and the
+    // clip, so neighbouring panels visually merged on the canvas.
+    let fill = #"{"_class":"fill","isEnabled":true,"fillType":0,"color":{"_class":"color","alpha":1,"red":0.9,"green":0.8,"blue":0.7}}"#
+    let page = """
+    {"_class":"page","name":"P","layers":[
+      {"_class":"group","name":"Panel","groupBehavior":1,
+       "frame":{"x":0,"y":0,"width":100,"height":100},
+       "style":{"fills":[\(fill)]},"layers":[]},
+      {"_class":"group","name":"Plain","groupBehavior":0,
+       "frame":{"x":0,"y":0,"width":50,"height":50},"layers":[]}
+    ]}
+    """
+    let zip = Zip.write([
+        ZipEntry(name: "document.json", data: Data(#"{"_class":"document","pages":[{"_class":"MSJSONFileReference","_ref":"pages/P1"}]}"#.utf8)),
+        ZipEntry(name: "pages/P1.json", data: Data(page.utf8)),
+    ])
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("fixture-\(UUID().uuidString).sketch")
+    try zip.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    var reader = SketchReader()
+    let doc = try reader.read(url: url)
+    let frame = try #require(doc.pages.first?.layers.first)
+    #expect(frame.isArtboard)
+    let bg = try #require(frame.backgroundColor)
+    #expect(abs(bg.r - 0.9) < 0.001 && abs(bg.g - 0.8) < 0.001 && abs(bg.b - 0.7) < 0.001)
+    #expect(frame.style.fills.isEmpty)
+
+    let plain = try #require(doc.pages.first?.layers.last)
+    #expect(!plain.isArtboard)
+}
+
 @Test func groupInsideShapeGroupStillComposes() {
     // Regression: plain groups nested inside a shapeGroup were being dropped, which
     // silently deleted the dot clusters from the moon-phases coin.

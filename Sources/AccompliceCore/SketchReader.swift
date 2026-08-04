@@ -111,6 +111,22 @@ public struct SketchReader {
             l.backgroundInExport = hasCustom &&
                 (j["includeBackgroundColorInExport"] as? Bool ?? true)
         }
+
+        // Sketch Frames — the artboard replacement (a group with groupBehavior set).
+        // They present exactly like artboards (card, label, clipped children, export
+        // unit) but carry the card colour as a style fill, not hasBackgroundColor.
+        // Without this they imported as plain groups: no card, no clip, artwork from
+        // neighbouring panels visually merging on the canvas.
+        if cls == "group", (j["groupBehavior"] as? Int ?? 0) != 0 {
+            l.isArtboard = true
+            if case .color(let c) = l.style.fills.first?.paint {
+                l.backgroundColor = c
+            }
+            // The fill IS the card. Leaving it on the style too would paint it twice
+            // if groups ever learn to draw their own fills.
+            l.style.fills = []
+            l.backgroundInExport = j["includeBackgroundColorInExport"] as? Bool ?? true
+        }
         return l
     }
 
