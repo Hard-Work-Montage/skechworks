@@ -162,7 +162,7 @@ public enum Shortcuts {
               keyCodes: [20], group: "Editing Points"),
         .init(id: "pointFree", title: "Free", key: "4", context: .points,
               keyCodes: [21], group: "Editing Points"),
-        .init(id: "centrePoint", title: "Add Point Centred on the Segment", key: "⇧click",
+        .init(id: "centrePoint", title: "Add Point Centered on the Segment", key: "⇧click",
               modifiers: .shift, context: .points, group: "Editing Points"),
     ]
 

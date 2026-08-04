@@ -84,7 +84,7 @@ private struct ColorPickerPane: View {
                     }
                 } label: { Image(systemName: "eyedropper") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Pick a colour from the screen")
+                    .help("Pick a color from the screen")
                 HStack(spacing: 3) {
                     Text("#").foregroundStyle(.tertiary)
                     TextField("", text: $hexTyped)

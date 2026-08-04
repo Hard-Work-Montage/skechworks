@@ -756,7 +756,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func setArtboardBackground(_ id: String, to c: Color) {
-        edit(id, actionName: "Change Artboard Colour", coalescingAs: "artboard:\(id)") {
+        edit(id, actionName: "Change Artboard Color", coalescingAs: "artboard:\(id)") {
             $0.backgroundColor = c
         }
     }

@@ -315,7 +315,7 @@ extension DocumentCommand {
         guard let d = any as? [String: Any], let op = d["op"] as? String else { return nil }
         let q = decodeQuery(d)
         /// Models pick reasonable-but-different parameter names — a real reply used
-        /// "value" for a colour where the schema said "hex". Rejecting that dropped
+        /// "value" for a color where the schema said "hex". Rejecting that dropped
         /// the whole command and left the model's claim standing with nothing behind
         /// it. Accept the obvious synonyms instead of spending a round trip.
         func s(_ keys: String...) -> String? {
@@ -362,7 +362,7 @@ extension DocumentCommand {
             }
             // "Set the fill to X" naturally arrives as {"op":"setFill","fill":"#..."}
             // — but "fill" is a selector key, so the colour landed in the query and
-            // the command decoded as "recolour to nothing" and was dropped. With no
+            // the command decoded as "recolor to nothing" and was dropped. With no
             // other colour present, "fill" IS the colour, not a filter.
             if let hex = colour("fill") {
                 var q2 = q; q2.fill = nil

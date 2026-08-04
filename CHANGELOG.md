@@ -13,7 +13,7 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 - Big files feel fast. The canvas keeps a rendered copy of the artwork and reuses it between edits, and redraws only touch what's on screen. A 5,000-path SVG now selects, hovers and marquees without a spinner.
 - Artboards are picked on purpose: click the name label or the layer list. Select All gathers the artwork, never the boards themselves.
 - Pasting can no longer drop a copied artboard inside another one and plate over its contents.
-- Chat: "make every layer white" now works however the reply spells the colour.
+- Chat: "make every layer white" now works however the reply spells the color.
 - Fixed: signing in to Accomplice could land you back on the sign-in button even after pressing Allow. The token is now stored, verified, and a real storage failure says so out loud.
 - `acmplc bench` accepts an .svg, so you can measure what a big file costs before opening it.
 

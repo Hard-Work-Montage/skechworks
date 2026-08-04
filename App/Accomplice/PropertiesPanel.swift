@@ -542,7 +542,7 @@ struct PropertiesPanel: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
                 ColorField(color: s.color) { c in
-                    store.editShadow(l.id, at: i, actionName: "Change Shadow Colour",
+                    store.editShadow(l.id, at: i, actionName: "Change Shadow Color",
                                      coalescingAs: "shadow:\(l.id):\(i)") { $0.color = c }
                 }
                 removeButton("Remove shadow") { store.removeShadow(l.id, at: i) }
@@ -814,7 +814,7 @@ struct PropertiesPanel: View {
             }
             HStack {
                 if l.brightness != 0 || l.contrast != 1 || l.saturation != 1 {
-                    Button("Reset colour") {
+                    Button("Reset color") {
                         store.edit(l.id, actionName: "Reset Adjustments") {
                             $0.brightness = 0; $0.contrast = 1; $0.saturation = 1
                         }

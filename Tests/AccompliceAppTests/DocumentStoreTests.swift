@@ -393,7 +393,7 @@ extension PageTests {
 }
 
 
-// MARK: - Colour
+// MARK: - Color
 
 extension DocumentStoreTests {
 
@@ -405,7 +405,7 @@ extension DocumentStoreTests {
     /// The system colour panel reports continuously while you drag around the wheel.
     /// One undo step per report would make ⌘Z walk back through every shade you passed
     /// through on the way to the one you wanted.
-    func testDraggingThroughColoursIsOneUndoStep() {
+    func testDraggingThroughColorsIsOneUndoStep() {
         let (store, _, photo) = loaded()
         store.selection = [photo]
         store.addFill(photo)
@@ -428,7 +428,7 @@ extension DocumentStoreTests {
 
     /// Two separate visits to the colour well are two edits, however quickly they
     /// follow each other — coalescing keys off the gesture, not off elapsed time.
-    func testColouringADifferentLayerStartsANewUndoStep() {
+    func testColoringADifferentLayerStartsANewUndoStep() {
         let (store, group, photo) = loaded()
         store.selection = [photo]
         store.addFill(photo)
@@ -468,7 +468,7 @@ extension DocumentStoreTests {
         XCTAssertEqual(faded.a, 0.5, accuracy: 0.001, "changing only alpha is still an edit")
     }
 
-    func testBorderColourAndWidthSurvive() {
+    func testBorderColorAndWidthSurvive() {
         let (store, _, photo) = loaded()
         store.selection = [photo]
         store.addBorder(photo)

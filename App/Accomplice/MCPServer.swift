@@ -231,7 +231,7 @@ final class MCPServer {
     private static let tools: [[String: Any]] = [
         [
             "name": "describe_document",
-            "description": "The open document: pages, selection, and the layer tree with names, types, sizes and fills. Geometry is summarised, never dumped.",
+            "description": "The open document: pages, selection, and the layer tree with names, types, sizes and fills. Geometry is summarized, never dumped.",
             "inputSchema": ["type": "object", "properties": [:] as [String: Any]],
         ],
         [
