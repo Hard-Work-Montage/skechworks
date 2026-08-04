@@ -2,6 +2,10 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.4 (August 4, 2026)
+
+- Shift erases in a straight line, snapped to 45-degree headings.
+
 ## 0.4.3 (August 4, 2026)
 
 - The drop decides the parent: drag a layer fully out of its artboard and it lands on the canvas, drop it on another board and it moves in.
