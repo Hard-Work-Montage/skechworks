@@ -128,6 +128,29 @@ import Testing
     #expect(throws: AcmplcFile.ReadError.self) { _ = try DocumentSource.acmplc(url: url) }
 }
 
+@Test func aDefaultSketchArtboardImportsAsAWhiteCardThatExportsTransparent() throws {
+    // Sketch presents every artboard as a white card; hasBackgroundColor only marks
+    // a custom colour. Importing only the custom case left default artboards with no
+    // plate — artwork floating on the dark canvas.
+    let page = #"{"_class":"page","name":"P","layers":[{"_class":"artboard","name":"Board","frame":{"x":0,"y":0,"width":100,"height":100},"layers":[]}]}"#
+    let zip = Zip.write([
+        ZipEntry(name: "document.json", data: Data(#"{"_class":"document","pages":[{"_class":"MSJSONFileReference","_ref":"pages/P1"}]}"#.utf8)),
+        ZipEntry(name: "pages/P1.json", data: Data(page.utf8)),
+    ])
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("fixture-\(UUID().uuidString).sketch")
+    try zip.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    var reader = SketchReader()
+    let doc = try reader.read(url: url)
+    let board = try #require(doc.pages.first?.layers.first)
+    #expect(board.isArtboard)
+    let bg = try #require(board.backgroundColor)
+    #expect(bg.r == 1 && bg.g == 1 && bg.b == 1 && bg.a == 1)
+    #expect(board.backgroundInExport == false)
+}
+
 @Test func groupInsideShapeGroupStillComposes() {
     // Regression: plain groups nested inside a shapeGroup were being dropped, which
     // silently deleted the dot clusters from the moon-phases coin.

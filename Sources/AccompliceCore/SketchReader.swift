@@ -99,10 +99,17 @@ public struct SketchReader {
         l.style = style(from: j["style"] as? [String: Any])
         if cls == "artboard" || cls == "symbolMaster" {
             l.isArtboard = true
-            if j["hasBackgroundColor"] as? Bool ?? false {
-                l.backgroundColor = color(j["backgroundColor"])
-            }
-            l.backgroundInExport = j["includeBackgroundColorInExport"] as? Bool ?? true
+            // Sketch draws every artboard as a white card; hasBackgroundColor only
+            // marks a CUSTOM colour. Importing only the custom case left default
+            // artboards with no plate at all — artwork floating on the dark canvas.
+            // Exports stay faithful to Sketch: the plate ships only when a custom
+            // colour is set and marked for export, so a default-white artboard
+            // still exports transparent.
+            let hasCustom = j["hasBackgroundColor"] as? Bool ?? false
+            l.backgroundColor = hasCustom ? color(j["backgroundColor"])
+                                          : Color(r: 1, g: 1, b: 1, a: 1)
+            l.backgroundInExport = hasCustom &&
+                (j["includeBackgroundColorInExport"] as? Bool ?? true)
         }
         return l
     }
