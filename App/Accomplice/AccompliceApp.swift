@@ -101,6 +101,8 @@ struct AccompliceApp: App {
                     }
                 }
                 .shortcut("paste")
+                Button("Paste at Selection") { AppDelegate.shared?.active?.pasteAtSelection() }
+                    .shortcut("pasteAtSelection")
                 Button("Duplicate") { AppDelegate.shared?.active?.duplicateSelection() }
                     .shortcut("duplicate")
                 Divider()
@@ -292,8 +294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Every open window's store, most recently registered last.
     private var stores: [DocumentStore] = []
 
-    /// Best guess at the frontmost document. Menu commands route here.
-    var active: DocumentStore? { stores.last }
+    /// The document the user is looking at. Resolved through the key window — with
+    /// two tabs open, "whichever store registered last" was the hidden tab as often
+    /// as not, and ⌘V pasted into a document you couldn't see.
+    var active: DocumentStore? {
+        if let key = NSApp.keyWindow ?? NSApp.mainWindow,
+           let match = stores.last(where: { $0.window === key }) {
+            return match
+        }
+        return stores.last
+    }
 
     func register(_ s: DocumentStore) {
         stores.removeAll { $0 === s }

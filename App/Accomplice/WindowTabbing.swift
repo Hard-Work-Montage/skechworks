@@ -30,6 +30,7 @@ struct WindowTabbing: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         // The dot in the close button, for free.
         nsView.window?.isDocumentEdited = store.isDirty
+        if let w = nsView.window { store.window = w }
         context.coordinator.store = store
     }
 
@@ -37,6 +38,7 @@ struct WindowTabbing: NSViewRepresentable {
 
     private func configure(_ window: NSWindow?, coordinator: CloseGuard) {
         guard let window else { return }
+        store.window = window
         window.tabbingMode = .preferred
         window.tabbingIdentifier = Self.identifier
         window.isDocumentEdited = store.isDirty

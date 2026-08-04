@@ -12,6 +12,9 @@ final class DocumentStore: ObservableObject {
 
     @Published var source: DocumentSource?
     @Published var url: URL?
+    /// The window this document lives in, set by WindowTabbing. How menu commands
+    /// find the document the user is actually looking at.
+    weak var window: NSWindow?
     @Published var pageIndex = 0 { didSet { loadCurrentPage() } }
     /// The selection. A set rather than a single id because boolean ops, aligning and
     /// bulk moves all act on several layers at once, and retrofitting that later would
@@ -1212,7 +1215,7 @@ final class DocumentStore: ObservableObject {
         deleteSelection()
     }
 
-    func paste() {
+    func paste(at targetOrigin: CGPoint? = nil) {
         let pb = NSPasteboard.general
         guard let src = source, var p = page,
               let data = pb.data(forType: Self.pasteboardType),
@@ -1226,13 +1229,16 @@ final class DocumentStore: ObservableObject {
         // from loose canvas. Selecting a board and pasting is the "put it there"
         // gesture — without this the copy just landed back where it came from.
         var targetBoard: Layer?
-        if selection.count == 1, let sel = selection.first,
+        if targetOrigin == nil, selection.count == 1, let sel = selection.first,
            let l = p.layer(sel), l.isArtboard { targetBoard = l }
 
         let bounds = layers.map(\.frame).reduce(CGRect.null) { $0.union($1) }
         // Plain paste: nudged so a paste-in-place isn't invisible.
         var shift = CGPoint(x: 20, y: 20)
-        if let board = targetBoard {
+        if let targetOrigin {
+            // An exact landing spot wins over every other placement rule.
+            shift = CGPoint(x: targetOrigin.x - bounds.minX, y: targetOrigin.y - bounds.minY)
+        } else if let board = targetBoard {
             let srcBoard = p.artboard(containing: CGPoint(x: bounds.midX, y: bounds.midY))
             if srcBoard?.id == board.id {
                 targetBoard = nil    // pasting onto its own board: plain paste
@@ -1295,6 +1301,18 @@ final class DocumentStore: ObservableObject {
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             if let d = pb.data(forType: type), placeImage(d, name: "Pasted Image") { return }
         }
+    }
+
+    /// ⇧⌘V: the copy lands with its top-left exactly on the selection's top-left.
+    func pasteAtSelection() {
+        guard let p = page, !selection.isEmpty else { paste(); return }
+        var r = CGRect.null
+        for id in selection {
+            guard let l = p.layer(id), let o = p.absoluteOrigin(of: id) else { continue }
+            r = r.union(CGRect(origin: o, size: l.frame.size))
+        }
+        guard !r.isNull else { paste(); return }
+        paste(at: r.origin)
     }
 
     func duplicateSelection() {

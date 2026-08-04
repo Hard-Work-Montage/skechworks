@@ -573,6 +573,31 @@ final class OAuthTests: XCTestCase {
         XCTAssertEqual(DocumentStore.pendingRecoveries().count, 0)
     }
 
+    func testPasteAtSelectionLandsOnTheSelectionsTopLeft() throws {
+        var a = Layer(kind: .bitmap(imageRef: "a.png"))
+        a.name = "A"
+        a.frame = CGRect(x: 40, y: 60, width: 100, height: 80)
+        var b = Layer(kind: .bitmap(imageRef: "b.png"))
+        b.name = "B"
+        b.frame = CGRect(x: 500, y: 300, width: 50, height: 50)
+        var page = Page(name: "P")
+        page.layers = [a, b]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: ["a.png": Data([1]), "b.png": Data([2])])
+
+        store.selection = [a.id]
+        store.copySelection()
+        store.selection = [b.id]
+        store.pasteAtSelection()
+
+        let pasted = try XCTUnwrap(store.page?.layers.first { $0.id != a.id && $0.id != b.id },
+                                   "paste appended a new layer")
+        XCTAssertEqual(pasted.frame.origin, CGPoint(x: 500, y: 300),
+                       "the copy's top-left sits exactly on the selection's top-left")
+    }
+
     func testEveryVerifierIsDifferent() {
         let made = Set((0..<500).map { _ in OAuthFlow.randomVerifier() })
         XCTAssertEqual(made.count, 500, "a repeated verifier would defeat the point of PKCE")

@@ -87,6 +87,7 @@ public enum Shortcuts {
         .init(id: "cut", title: "Cut", key: "X", modifiers: .command, group: "Edit"),
         .init(id: "copy", title: "Copy", key: "C", modifiers: .command, group: "Edit"),
         .init(id: "paste", title: "Paste", key: "V", modifiers: .command, group: "Edit"),
+        .init(id: "pasteAtSelection", title: "Paste at Selection", key: "V", modifiers: [.command, .shift], group: "Edit"),
         .init(id: "duplicate", title: "Duplicate", key: "D", modifiers: .command, group: "Edit"),
         .init(id: "selectAll", title: "Select All", key: "A", modifiers: .command, group: "Edit"),
 
