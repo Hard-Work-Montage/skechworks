@@ -1909,7 +1909,23 @@ final class PageCanvas: NSView {
             return
         }
         if var stroke = erasing {
-            stroke.points.append(p.applying(stroke.transform.inverted()))
+            var pt = p
+            // Shift rules the stroke straight, Photoshop-style — locked to the
+            // drag's own heading from where the stroke began, snapped to 45°
+            // steps so horizontals, verticals and diagonals land exactly.
+            if event.modifierFlags.contains(.shift), let first = stroke.points.first {
+                let anchor = first.applying(stroke.transform)
+                let dx = p.x - anchor.x, dy = p.y - anchor.y
+                if dx != 0 || dy != 0 {
+                    let step = CGFloat.pi / 4
+                    let heading = (atan2(dy, dx) / step).rounded() * step
+                    let along = dx * cos(heading) + dy * sin(heading)
+                    pt = CGPoint(x: anchor.x + along * cos(heading),
+                                 y: anchor.y + along * sin(heading))
+                }
+            }
+            brushAt = pt
+            stroke.points.append(pt.applying(stroke.transform.inverted()))
             erasing = stroke
             needsDisplay = true
             return
