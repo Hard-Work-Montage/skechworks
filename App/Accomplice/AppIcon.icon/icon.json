@@ -1,0 +1,28 @@
+{
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "art.png",
+          "name" : "art"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "bg.png",
+          "name" : "bg"
+        }
+      ],
+      "name" : "background"
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

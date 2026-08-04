@@ -91,6 +91,9 @@ targets:
         # re-signs the whole bundle afterwards with one identity, which is what keeps
         # the embedded framework loadable.
         ENABLE_HARDENED_RUNTIME: YES
+        # New-style .icon bundle (macOS 26 Tahoe) — compiled by actool into
+        # Assets.car + CFBundleIconName, while AppIcon.icns keeps pre-Tahoe.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
         DEAD_CODE_STRIPPING: YES
