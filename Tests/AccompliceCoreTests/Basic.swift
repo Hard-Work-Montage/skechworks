@@ -1758,6 +1758,39 @@ private func pageWithArtboardAndLooseImage() -> Page {
     return page
 }
 
+@Test func aMarqueeCannotCatchArtClippedAwayByItsBoard() {
+    // The bed's frame spills far outside Panel 2, across Panel 1. The board clips
+    // the paint — hits have to clip the same way, or selecting in one panel grabs
+    // a neighbouring panel's invisible overflow.
+    var bed = Layer(kind: .bitmap(imageRef: "bed.png"))
+    bed.name = "Bed"
+    bed.frame = CGRect(x: -900, y: 100, width: 1400, height: 400)   // overflows left
+    var board2 = Layer(kind: .group([bed]))
+    board2.name = "Panel 2"
+    board2.isArtboard = true
+    board2.frame = CGRect(x: 1100, y: 0, width: 1000, height: 1000)
+
+    var desk = Layer(kind: .bitmap(imageRef: "desk.png"))
+    desk.name = "Desk"
+    desk.frame = CGRect(x: 500, y: 100, width: 400, height: 400)
+    var board1 = Layer(kind: .group([desk]))
+    board1.name = "Panel 1"
+    board1.isArtboard = true
+    board1.frame = CGRect(x: 0, y: 0, width: 1000, height: 1000)
+
+    var page = Page(name: "p")
+    page.layers = [board1, board2]
+
+    // A marquee over Panel 1's desk: the desk, never the bed's clipped tail
+    // (which covers the same page area, x 200–1100).
+    let hits = page.marqueeHits(CGRect(x: 550, y: 150, width: 100, height: 100))
+    #expect(hits == [desk.id])
+
+    // Over Panel 2 itself, the bed is fair game.
+    let inBoard2 = page.marqueeHits(CGRect(x: 1200, y: 150, width: 100, height: 100))
+    #expect(inBoard2 == [bed.id])
+}
+
 @Test func anArtboardNeverReparentsIntoAnotherContainer() {
     // Pasting a copied board with another board selected reparented the copy INSIDE
     // it — the copy's plate covered everything, which read as the paste having

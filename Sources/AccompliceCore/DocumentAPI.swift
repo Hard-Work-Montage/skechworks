@@ -127,19 +127,25 @@ extension Page {
     /// Groups stay atomic: the group is the hit, not its members.
     public func marqueeHits(_ rect: CGRect) -> Set<String> {
         var hits: Set<String> = []
-        func walk(_ ls: [Layer], _ base: CGAffineTransform) {
+        func walk(_ ls: [Layer], _ base: CGAffineTransform, _ clip: CGRect?) {
             for l in ls where l.isVisible && !l.isLocked {
                 let t = Compose.transform(l).concatenating(base)
                 if l.isArtboard {
-                    if case .group(let kids) = l.kind { walk(kids, t) }
+                    // The board clips its children — for hits exactly as for paint,
+                    // so a marquee in one panel can't catch the invisible tail of a
+                    // neighbouring panel's art.
+                    let boardRect = CGRect(origin: .zero, size: l.frame.size).applying(t)
+                    let inner = clip.map { $0.intersection(boardRect) } ?? boardRect
+                    if case .group(let kids) = l.kind { walk(kids, t, inner) }
                     continue
                 }
-                let box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
+                var box = (Compose.resolvedPath(l)?.transformed(by: t).boundingBoxOfPath)
                     ?? CGRect(origin: .zero, size: l.frame.size).applying(t)
-                if rect.intersects(box) { hits.insert(l.id) }
+                if let clip { box = box.intersection(clip) }
+                if !box.isNull, rect.intersects(box) { hits.insert(l.id) }
             }
         }
-        walk(layers, .identity)
+        walk(layers, .identity, nil)
         return hits
     }
 

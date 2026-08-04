@@ -1337,6 +1337,10 @@ final class PageCanvas: NSView {
         for d in composed.reversed() {
             // Locked means the click sails through to whatever is underneath.
             if lockedDeep(d.layer.id) { continue }
+            // Clipped away is gone: art overflowing its artboard (or mask) can't be
+            // hit where it isn't painted, so a click on one panel can never select
+            // the invisible tail of a neighbouring panel's art.
+            if let c = d.clip, !c.contains(point) { continue }
             if let p = d.path, p.contains(point) { return d.layer }
             if d.path == nil {
                 // The pathless rect test is for text and bitmaps, which have no
@@ -1394,6 +1398,7 @@ final class PageCanvas: NSView {
                     .applying(d.transform).contains(p)
             } else { contains = false }
             guard contains, !d.isArtboardBackground else { continue }
+            if let c = d.clip, !c.contains(p) { continue }
             let t = selectionTarget(d.layer, drill: false)
             if seen.insert(t.id).inserted { targets.append(t) }
         }
