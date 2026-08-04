@@ -245,6 +245,37 @@ case "artboards":
     print("exported \(n) artboards")
 
 case "bench":
+    // A big SVG: the same costs, minus the archive.
+    if input.pathExtension.lowercased() == "svg" {
+        let t0 = Date()
+        guard let r = try? SVGReader().read(url: input) else { fail("can't read that SVG") }
+        let read = Date().timeIntervalSince(t0)
+        let page = r.document.pages[0]
+        print(String(format: "read              %6.2fs   %d top-level layers", read, page.layers.count))
+
+        let t1 = Date()
+        let drawables = Compose.flatten(page.layers)
+        let flat = Date().timeIntervalSince(t1)
+        print(String(format: "compose           %6.2fs   %d drawables", flat, drawables.count))
+
+        let t2 = Date()
+        var union = CGRect.null
+        for d in drawables { if let p = d.path { union = union.union(p.boundingBoxOfPath) } }
+        let boxes = Date().timeIntervalSince(t2)
+        print(String(format: "bounding boxes    %6.2fs   (paid per redraw wherever they aren't cached)", boxes))
+
+        let t3 = Date()
+        _ = Renderer(images: r.images).render(page: page, maxDimension: 1024)
+        let render = Date().timeIntervalSince(t3)
+        print(String(format: "render @1024      %6.2fs   (~one full canvas redraw)", render))
+
+        let t4 = Date()
+        _ = Compose.flatten(page.layers, adjusting: [ page.layers[0].id ], live: .identity)
+        let tick = Date().timeIntervalSince(t4)
+        print(String(format: "drag-tick reflatten %4.2fs (paid per mouse move while dragging)", tick))
+        exit(0)
+    }
+
     // What the app pays before it can show you anything.
     let t0 = Date()
     guard let src = try? DocumentSource.acmplc(url: input) else { fail("not an .acmplc.png") }

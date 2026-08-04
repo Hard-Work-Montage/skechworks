@@ -63,10 +63,18 @@ public struct Renderer {
     /// costs ~0.6s on a busy coin page. An interactive canvas redraws on every scroll
     /// and zoom tick, so it must flatten once per page and reuse the result — not
     /// recompute it per frame.
-    public func draw(drawables: [Drawable], in ctx: CGContext) {
+    /// `visible` culls drawables whose bounds sit entirely outside it — the canvas
+    /// passes its viewport so a zoomed-in redraw of a 5,000-path page only
+    /// rasterizes what's on screen. Exports pass nothing and draw everything.
+    public func draw(drawables: [Drawable], in ctx: CGContext, visible: CGRect? = nil) {
         var i = 0
         while i < drawables.count {
             let d = drawables[i]
+            if let v = visible, !d.isMarker, d.groupShadows == nil,
+               !Self.roughBounds(of: d).intersects(v) {
+                i += 1
+                continue
+            }
             if let shadows = d.groupShadows, let close = Self.matchingEnd(drawables, from: i) {
                 let inner = Array(drawables[(i + 1)..<close])
                 // One pass per shadow, each drawing the group inside a transparency
@@ -88,6 +96,25 @@ public struct Renderer {
             if !d.isMarker { draw(d, in: ctx) }
             i += 1
         }
+    }
+
+    /// A drawable's page-space bounds, generously padded for what draws outside the
+    /// geometry: strokes, shadows, and text that overruns its frame. Culling only —
+    /// too big is a few wasted paths, too small is artwork missing at the edges.
+    static func roughBounds(of d: Drawable) -> CGRect {
+        var b: CGRect
+        if let p = d.path { b = p.boundingBoxOfPath }
+        else { b = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform) }
+        if let c = d.clip { b = b.intersection(c.boundingBoxOfPath) }
+        var grow: CGFloat = 2
+        for border in d.style.borders {
+            grow = max(grow, border.thickness * 2)
+        }
+        for s in d.style.shadows {
+            grow = max(grow, s.blur + max(abs(s.offset.width), abs(s.offset.height)))
+        }
+        if d.text != nil { grow = max(grow, 100) }
+        return b.insetBy(dx: -grow, dy: -grow)
     }
 
     /// Index of the marker closing the group opened at `start`, allowing for nesting.

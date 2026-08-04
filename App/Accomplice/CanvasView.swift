@@ -598,9 +598,14 @@ final class PageCanvas: NSView {
         // makes an edit rebuild this rather than redrawing stale geometry.
         composed = Compose.flatten(page.layers)
         composedFor = key
+        composedGen += 1
         artboards = []
         collectArtboards(page.layers, .identity, &artboards)
     }
+
+    /// Bumped whenever the static composition is rebuilt — the backdrop cache's
+    /// signal that its pixels are stale.
+    private var composedGen = 0
 
     /// Identity of the page whose bounds we're currently using. A token rather than a
     /// name, because names collide across documents.
@@ -634,23 +639,31 @@ final class PageCanvas: NSView {
     /// The artwork, in page coordinates. What zoom-to-fit aims at.
     var contentRectInView: CGRect { page?.contentBounds() ?? bounds }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+    /// The rasterized artwork at the current viewport, reused until content, zoom,
+    /// or scroll changes. Fireworks' trick: on a 5,000-path page, a selection tick
+    /// or marquee frame costs a bitmap blit instead of re-rasterizing every path.
+    private var backdrop: CGImage?
+    private var backdropKey = ""
+
+    /// Canvas fill, artwork (culled to the viewport) and artboard hairlines — the
+    /// pixels that are identical from frame to frame while nothing is being edited.
+    /// Draws in view coordinates; shared by the live path and the backdrop cache.
+    private func drawContent(_ ctx: CGContext, viewSize: CGSize) {
         // Nothing behind the canvas any more, so it paints the surround itself.
-        Palette.canvas.setFill()
-        dirtyRect.fill()
+        ctx.setFillColor(Palette.canvas.cgColor)
+        ctx.fill(CGRect(origin: .zero, size: viewSize))
 
         // No page background. A Sketch-style canvas is infinite and unpainted — only
         // artboards have a colour. Filling the view white made every page look like one
         // big artboard and hid where the real ones start and stop.
-        guard let page else { return }
         ctx.saveGState()
         ctx.setShouldAntialias(true)
         ctx.interpolationQuality = .high
         ctx.scaleBy(x: scale, y: scale)
         ctx.translateBy(x: -origin.x, y: -origin.y)
-
-        Renderer(images: images).draw(drawables: composed, in: ctx)
+        let visible = CGRect(x: origin.x, y: origin.y,
+                             width: viewSize.width / scale, height: viewSize.height / scale)
+        Renderer(images: images).draw(drawables: composed, in: ctx, visible: visible)
 
         // A hairline round each artboard. On a light canvas a white board has no edge
         // of its own, and knowing where the page stops is most of what an artboard is
@@ -658,6 +671,56 @@ final class PageCanvas: NSView {
         ctx.setStrokeColor(Palette.divider.cgColor)
         ctx.setLineWidth(1 / max(0.01, currentScale))
         for ab in artboards { ctx.stroke(ab.frame) }
+        ctx.restoreGState()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        guard let page else {
+            Palette.canvas.setFill()
+            dirtyRect.fill()
+            return
+        }
+
+        if liveGesture != nil {
+            // Mid-gesture the artwork changes every frame; draw it directly.
+            backdrop = nil
+            backdropKey = ""
+            drawContent(ctx, viewSize: bounds.size)
+        } else {
+            let bs = window?.backingScaleFactor ?? 2
+            let appearance = effectiveAppearance.name.rawValue
+            let key = "\(composedGen)|\(scale)|\(origin.x),\(origin.y)|\(bounds.size)|\(bs)|\(images.count)|\(appearance)"
+            if backdrop == nil || backdropKey != key {
+                let w = max(1, Int(bounds.width * bs)), h = max(1, Int(bounds.height * bs))
+                if let bctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                        bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                    // The bitmap is bottom-up while the view is flipped; mirror once
+                    // here so the cached pixels match the view exactly.
+                    bctx.translateBy(x: 0, y: CGFloat(h))
+                    bctx.scaleBy(x: bs, y: -bs)
+                    drawContent(bctx, viewSize: bounds.size)
+                    backdrop = bctx.makeImage()
+                    backdropKey = key
+                }
+            }
+            if let backdrop {
+                ctx.saveGState()
+                // Un-flip to blit, then the chrome below draws flipped as before.
+                ctx.translateBy(x: 0, y: bounds.height)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(backdrop, in: CGRect(origin: .zero, size: bounds.size))
+                ctx.restoreGState()
+            } else {
+                drawContent(ctx, viewSize: bounds.size)
+            }
+        }
+
+        ctx.saveGState()
+        ctx.setShouldAntialias(true)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.translateBy(x: -origin.x, y: -origin.y)
 
         let sc = max(0.01, currentScale)
         for id in selected {
