@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Security
 
 /// Where API keys and access tokens live.
@@ -33,20 +34,38 @@ enum Credentials {
         return s
     }
 
-    static func set(_ slot: Slot, _ value: String?) {
+    private static let log = Logger(subsystem: "com.accomplice.Accomplice", category: "credentials")
+
+    /// True when the value is stored and reads back. Ignoring SecItemAdd's status
+    /// turned a failed store into a sign-in that silently bounced back to the
+    /// sign-in button — the server said 200, the app forgot the token.
+    @discardableResult
+    static func set(_ slot: Slot, _ value: String?) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: slot.rawValue,
         ]
         SecItemDelete(base as CFDictionary)
-        guard let value, !value.isEmpty else { return }
+        guard let value, !value.isEmpty else { return true }
         var add = base
         add[kSecValueData as String] = Data(value.utf8)
         // Available without the machine being unlocked by anyone else, and never
         // synced to another device — a key pulled here belongs to this install.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+        var status = SecItemAdd(add as CFDictionary, nil)
+        if status != errSecSuccess {
+            // The accessibility attribute belongs to the data-protection keychain,
+            // and whether a given signing context may use that varies. A plain
+            // login-keychain item beats losing the sign-in.
+            add.removeValue(forKey: kSecAttrAccessible as String)
+            status = SecItemAdd(add as CFDictionary, nil)
+        }
+        if status != errSecSuccess {
+            log.error("keychain add for \(slot.rawValue, privacy: .public) failed: \(status)")
+            return false
+        }
+        return get(slot) != nil
     }
 
     static func has(_ slot: Slot) -> Bool { get(slot) != nil }

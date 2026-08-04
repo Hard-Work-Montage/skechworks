@@ -81,7 +81,11 @@ final class OAuthFlow: NSObject {
 
         let code = try await authorize(components.url!, callback: callback)
         let token = try await exchange(provider, code: code, verifier: verifier)
-        Credentials.set(provider.slot, token)
+        guard Credentials.set(provider.slot, token) else {
+            // The server said yes and the app then failed to keep the token. Saying
+            // so beats silently landing back on the sign-in button.
+            throw Failure.exchange("signed in, but the token couldn't be stored in the keychain")
+        }
     }
 
     private func authorize(_ url: URL, callback: String) async throws -> String {
