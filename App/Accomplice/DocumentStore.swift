@@ -1443,6 +1443,70 @@ final class DocumentStore: ObservableObject {
         return true
     }
 
+    /// MCP ▸ place_image: image bytes land as a bitmap layer, optionally inside a
+    /// named artboard — so an agent can generate a piece and drop it exactly where
+    /// the comic panel needs it, without a drag through the Finder.
+    func placeImageFromAPI(_ data: Data, name: String, artboardNamed: String?,
+                           x: Double?, y: Double?, width: Double?, height: Double?) -> String {
+        guard let src = source else { return "No document open." }
+        guard let loaded = BitmapImage.load(data) else { return "That file isn't a readable image." }
+
+        var parentID: String?
+        var parentFrame: CGRect?
+        if let wanted = artboardNamed, !wanted.isEmpty {
+            guard let page else { return "No page." }
+            let boards = page.layers.filter(\.isArtboard)
+            guard let board = boards.first(where: { $0.name == wanted })
+                ?? boards.first(where: { $0.name.lowercased() == wanted.lowercased() }) else {
+                let names = boards.map(\.name).joined(separator: ", ")
+                return "No artboard named “\(wanted)”. Artboards here: \(names.isEmpty ? "none" : names)"
+            }
+            parentID = board.id
+            parentFrame = board.frame
+        }
+
+        // Natural size, capped to fit where it lands; explicit width/height win,
+        // and giving just one keeps the aspect.
+        let display = loaded.displaySize
+        let size: CGSize
+        if let width, let height {
+            size = CGSize(width: width, height: height)
+        } else if let width {
+            size = CGSize(width: width, height: width * display.height / max(1, display.width))
+        } else if let height {
+            size = CGSize(width: height * display.width / max(1, display.height), height: height)
+        } else {
+            let cap = parentFrame.map { min($0.width, $0.height) } ?? 800
+            let scale = min(1, cap / max(display.width, display.height))
+            size = CGSize(width: display.width * scale, height: display.height * scale)
+        }
+
+        // Coordinates are relative to the artboard when one is named, matching
+        // how run_commands positions into a parent.
+        let origin: CGPoint
+        if let pf = parentFrame {
+            origin = CGPoint(x: x.map { CGFloat($0) } ?? (pf.width - size.width) / 2,
+                             y: y.map { CGFloat($0) } ?? (pf.height - size.height) / 2)
+        } else {
+            let fallback = insertionPoint(size)
+            origin = CGPoint(x: x.map { CGFloat($0) } ?? fallback.x,
+                             y: y.map { CGFloat($0) } ?? fallback.y)
+        }
+
+        let key = "images/\(Zip.crc32(data))-\(data.count).png"
+        source = src.adding(image: data, key: key)
+        var l = Layer(kind: .bitmap(imageRef: key))
+        l.name = name.isEmpty ? "Image" : name
+        l.frame = CGRect(origin: origin, size: size)
+        let pid = parentID
+        mutatePage("Place Image") { p in
+            p.insertLayer(l, parent: pid, index: p.children(of: pid).count)
+        }
+        selection = [l.id]
+        let place = artboardNamed.map { " in “\($0)”" } ?? ""
+        return "Placed “\(l.name)” (\(Int(size.width))×\(Int(size.height)))\(place)."
+    }
+
     static func isDocument(_ url: URL) -> Bool { DocumentKind.isDocument(url) }
 
     /// A dropped file: open documents, place everything else we can decode.

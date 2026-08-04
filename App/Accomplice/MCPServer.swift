@@ -223,6 +223,19 @@ final class MCPServer {
         case "schema":
             return DocumentCommand.schema
 
+        case "place_image":
+            guard let path = args["path"] as? String, !path.isEmpty else { return "path required" }
+            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            guard let data = try? Data(contentsOf: url) else { return "Can't read \(url.path)" }
+            return store.placeImageFromAPI(
+                data,
+                name: url.deletingPathExtension().lastPathComponent,
+                artboardNamed: args["artboard"] as? String,
+                x: (args["x"] as? NSNumber)?.doubleValue,
+                y: (args["y"] as? NSNumber)?.doubleValue,
+                width: (args["width"] as? NSNumber)?.doubleValue,
+                height: (args["height"] as? NSNumber)?.doubleValue)
+
         default:
             return "Unknown tool \(name)."
         }
@@ -270,6 +283,16 @@ final class MCPServer {
             "name": "export_svg",
             "description": "The current page as SVG.",
             "inputSchema": ["type": "object", "properties": [:] as [String: Any]],
+        ],
+        [
+            "name": "place_image",
+            "description": "Place an image file from disk as a bitmap layer, optionally inside a named artboard. x/y are relative to the artboard; give width or height to size it, or omit both for natural size capped to fit.",
+            "inputSchema": ["type": "object", "properties": [
+                "path": ["type": "string"],
+                "artboard": ["type": "string"],
+                "x": ["type": "number"], "y": ["type": "number"],
+                "width": ["type": "number"], "height": ["type": "number"],
+            ], "required": ["path"]],
         ],
     ]
 
