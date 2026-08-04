@@ -2,6 +2,12 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4 (August 4, 2026)
+
+- Autosave: unsaved work survives a quit, crash, or kill, and comes back on launch.
+- Paste lands in the tab you're looking at, not whichever opened last.
+- Paste at Selection (shift-cmd-V): the copy lands exactly on the selection's top-left.
+
 ## 0.3 (August 4, 2026)
 
 - Big files feel fast. The canvas keeps a rendered copy of the artwork and reuses it between edits, and redraws only touch what's on screen. A 5,000-path SVG now selects, hovers and marquees without a spinner.
