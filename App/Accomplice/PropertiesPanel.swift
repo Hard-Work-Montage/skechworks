@@ -72,6 +72,46 @@ struct PropertiesPanel: View {
         }
     }
 
+
+    /// Sketch's row: six align icons, then the two flips. Lives above the fields
+    /// because it acts on the selection as a whole, not on one number.
+    private func alignRow(showAlign: Bool) -> some View {
+        HStack(spacing: 1) {
+            if showAlign {
+                alignButton("align.horizontal.left", .left, "Left")
+                alignButton("align.horizontal.center", .horizontalCentre, "Center")
+                alignButton("align.horizontal.right", .right, "Right")
+                Divider().frame(height: 14).padding(.horizontal, 3)
+                alignButton("align.vertical.top", .top, "Top")
+                alignButton("align.vertical.center", .verticalMiddle, "Middle")
+                alignButton("align.vertical.bottom", .bottom, "Bottom")
+            }
+            Spacer(minLength: 0)
+            iconButton("arrow.left.and.right.righttriangle.left.righttriangle.right", "Flip Horizontal") {
+                store.flipSelection(horizontal: true)
+            }
+            iconButton("arrow.up.and.down.righttriangle.up.righttriangle.down", "Flip Vertical") {
+                store.flipSelection(horizontal: false)
+            }
+        }
+        .foregroundStyle(.secondary)
+    }
+
+    private func alignButton(_ symbol: String, _ edge: AlignEdge, _ name: String) -> some View {
+        iconButton(symbol, "Align \(name)") { store.align(edge, name) }
+    }
+
+    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .frame(width: 24, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+
     // MARK: - Multi-selection
 
     private var selectedLayers: [Layer] {
@@ -109,6 +149,7 @@ struct PropertiesPanel: View {
                 Spacer()
             }
             Divider()
+            alignRow(showAlign: true)
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle("Position & Size")
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
@@ -200,6 +241,7 @@ struct PropertiesPanel: View {
         let vb = masked ? Compose.visibleBounds(of: l) : l.frame
         return VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Position & Size")
+            alignRow(showAlign: false)
             // Two even columns throughout, so every field lines up regardless of how
             // long its label is. A fixed label column is what stops "Opacity" wrapping
             // onto a second line and shoving its field out of alignment.

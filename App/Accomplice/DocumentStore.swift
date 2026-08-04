@@ -640,6 +640,13 @@ final class DocumentStore: ObservableObject {
         mutatePage("Align \(name)") { $0.align(selection, to: edge) }
     }
 
+    func flipSelection(horizontal: Bool) {
+        guard !selection.isEmpty else { return }
+        edit(Array(selection), actionName: horizontal ? "Flip Horizontal" : "Flip Vertical") {
+            if horizontal { $0.flipH.toggle() } else { $0.flipV.toggle() }
+        }
+    }
+
     func distribute(_ axis: Axis, _ name: String) {
         mutatePage("Distribute \(name)") { $0.distribute(selection, along: axis) }
     }

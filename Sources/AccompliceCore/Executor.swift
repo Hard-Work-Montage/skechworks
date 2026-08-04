@@ -170,6 +170,12 @@ extension Page {
             ]
             if let e = map[edge.lowercased()] { p.align(set, to: e) }
 
+        case .flip(_, let axis):
+            let vertical = axis.lowercased().hasPrefix("v") || axis.lowercased() == "y"
+            for id in ids {
+                p.updateLayer(id) { if vertical { $0.flipV.toggle() } else { $0.flipH.toggle() } }
+            }
+
         case .distribute(_, let axis):
             let vertical = axis.lowercased().hasPrefix("v")
             p.distribute(set, along: vertical ? .vertical : .horizontal)

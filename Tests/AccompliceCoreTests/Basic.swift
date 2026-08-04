@@ -608,6 +608,37 @@ private func styledPage() -> Page {
     #expect(p.find(q).count == 1)
 }
 
+@Test func flipMirrorsInPlaceAndDecodesEveryWayAModelSaysIt() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 20), transform: nil), closed: true))
+    l.name = "Arrow"
+    var page = Page(name: "p")
+    page.layers = [l]
+
+    // An empty query means "the selection" — name the layer, the way a model would.
+    var q = LayerQuery()
+    q.name = "Arrow"
+    _ = page.run([.flip(q, axis: "horizontal")])
+    #expect(page.layers[0].flipH == true)
+    _ = page.run([.flip(q, axis: "horizontal")])
+    #expect(page.layers[0].flipH == false)      // a mirror of a mirror is the original
+    _ = page.run([.flip(q, axis: "vertical")])
+    #expect(page.layers[0].flipV == true)
+
+    let cmds = DocumentCommand.decodeList(Data("""
+    {"commands":[
+      {"op":"flip","axis":"vertical"},
+      {"op":"flipHorizontal"},
+      {"op":"mirror","direction":"y"}
+    ]}
+    """.utf8))
+    #expect(cmds.count == 3)
+    guard case .flip(_, let a0) = cmds[0], case .flip(_, let a1) = cmds[1] else {
+        Issue.record("expected flips"); return
+    }
+    #expect(a0 == "vertical")
+    #expect(a1 == "horizontal")
+}
+
 @Test func commandsDecodeFromTheJSONAModelWouldWrite() {
     let json = """
     {"commands":[

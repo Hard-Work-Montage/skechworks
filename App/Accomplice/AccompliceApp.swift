@@ -171,7 +171,7 @@ struct AccompliceApp: App {
                 Divider()
                 Menu("Align") {
                     Button("Left") { AppDelegate.shared?.active?.align(.left, "Left") }
-                    Button("Horizontal Centres") { AppDelegate.shared?.active?.align(.horizontalCentre, "Centre") }
+                    Button("Horizontal Centers") { AppDelegate.shared?.active?.align(.horizontalCentre, "Center") }
                     Button("Right") { AppDelegate.shared?.active?.align(.right, "Right") }
                     Divider()
                     Button("Top") { AppDelegate.shared?.active?.align(.top, "Top") }
@@ -182,6 +182,9 @@ struct AccompliceApp: App {
                     Button("Horizontally") { AppDelegate.shared?.active?.distribute(.horizontal, "Horizontally") }
                     Button("Vertically") { AppDelegate.shared?.active?.distribute(.vertical, "Vertically") }
                 }
+                Divider()
+                Button("Flip Horizontal") { AppDelegate.shared?.active?.flipSelection(horizontal: true) }
+                Button("Flip Vertical") { AppDelegate.shared?.active?.flipSelection(horizontal: false) }
                 Divider()
                 Button("Group") { AppDelegate.shared?.active?.groupSelection() }
                     .shortcut("group")
@@ -208,9 +211,12 @@ struct AccompliceApp: App {
                     .shortcut("vector")
                 Button("Erase") { AppDelegate.shared?.active?.tool = .erase }
                     .shortcut("erase")
-                Button("Remove") { AppDelegate.shared?.active?.tool = .remove }
                 Divider()
-                Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
+                // The two that call a model, set apart the way Adam asked.
+                Section("AI Tools") {
+                    Button("Remove") { AppDelegate.shared?.active?.tool = .remove }
+                    Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
+                }
             }
             CommandGroup(replacing: .saveItem) {
                 // Close lives in this placement too, not in .newItem — replacing the

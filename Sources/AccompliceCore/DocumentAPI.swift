@@ -223,6 +223,8 @@ public enum DocumentCommand: Sendable {
     case move(LayerQuery, dx: Double, dy: Double)
     case resize(LayerQuery, width: Double?, height: Double?)
     case align(LayerQuery, edge: String)
+    /// Mirror in place: axis "horizontal" | "vertical".
+    case flip(LayerQuery, axis: String)
     case distribute(LayerQuery, axis: String)
     case order(LayerQuery, where: String)   // front | back | forward | backward
     /// Reorder the layer list itself: position (canvas reading order) | name.
@@ -248,6 +250,7 @@ public enum DocumentCommand: Sendable {
         case .setText(let q, _, _, _): return q
         case .move(let q, _, _), .resize(let q, _, _): return q
         case .distribute(let q, _), .order(let q, _), .group(let q, _): return q
+        case .flip(let q, _): return q
         case .sort(let q, _): return q
         case .curve(let q, _, _, _): return q
         case .duplicate(let q, _, _, _): return q
@@ -268,6 +271,7 @@ public enum DocumentCommand: Sendable {
         case .setVisible(_, let v): return v ? "Show" : "Hide"
         case .setLocked(_, let v): return v ? "Lock" : "Unlock"
         case .rename: return "Rename"
+        case .flip(_, let a): return a.lowercased().hasPrefix("v") ? "Flip Vertical" : "Flip Horizontal"
         case .setText: return "Edit Text"
         case .move: return "Move"
         case .resize: return "Resize"
@@ -402,6 +406,10 @@ extension DocumentCommand {
         case "move": return .move(q, dx: n("dx") ?? 0, dy: n("dy") ?? 0)
         case "resize": return .resize(q, width: n("width"), height: n("height"))
         case "align": return s("edge", "value", "to").map { .align(q, edge: $0) }
+        case "flip", "mirror", "fliphorizontal", "flipvertical":
+            var axis = s("axis", "value", "direction") ?? ""
+            if axis.isEmpty { axis = op.lowercased().contains("vertical") ? "vertical" : "horizontal" }
+            return .flip(q, axis: axis)
         case "distribute": return .distribute(q, axis: s("axis", "value") ?? "horizontal")
         case "order", "arrange", "bringtofront", "sendtoback":
             // "arrange by position" is a sort, not a restack — the "by" gives it away.
@@ -551,7 +559,8 @@ extension DocumentCommand {
                        NAME in the list.
           move         dx, dy
           resize       width and/or height
-          align        edge: left|centre|right|top|middle|bottom
+          align        edge: left|center|right|top|middle|bottom
+          flip         axis: horizontal|vertical — mirrors in place
           distribute   axis: horizontal|vertical
           order        where: front|back|forward|backward
           sort         by: position|name — reorders the LAYER LIST. "position"
