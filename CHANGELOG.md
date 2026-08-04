@@ -2,6 +2,12 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.2.1 (August 3, 2026)
+
+- Fixed: opening a .sketch file showed blank pages. A .sketch is also a zip, and the importer was swallowing it as an empty document instead of handing it to the Sketch reader.
+- Sketch artboards arrive as the white cards Sketch draws, not artwork floating on the dark canvas. Exports still come out transparent unless Sketch would have included the background.
+- Sketch Frames (the artboard replacement in newer Sketch) import as artboards: card color, name label, and panels that clip their contents.
+
 ## 0.2 (August 3, 2026)
 
 - Remove: drag a box over anything in a photo and it gets painted out, the gap filled from its surroundings. Accomplice reads the picture and works out what you meant.
