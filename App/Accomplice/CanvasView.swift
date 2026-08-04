@@ -1224,9 +1224,11 @@ final class PageCanvas: NSView {
                 // not the artwork. Union-of-children here made a selected artboard
                 // wear its content's handles, which read as the child being selected.
                 if l.isArtboard { return CGRect(origin: .zero, size: l.frame.size).applying(t) }
-                // A masked group's handles hug what's visible, not the artwork the
-                // mask hides — same numbers the Properties panel shows.
-                if case .group = l.kind, l.containsClippingMask {
+                // Groups measure what they PAINT. resolvedPath only merges vector
+                // children, so a group holding a bitmap and a rect wore a selection
+                // box around just the rect. visibleBounds walks the same drawables
+                // the renderer does — bitmaps and text included — and respects masks.
+                if case .group = l.kind {
                     return Compose.visibleBounds(of: l, base: base)
                 }
                 if let p = Compose.resolvedPath(l) { return p.transformed(by: t).boundingBoxOfPath }

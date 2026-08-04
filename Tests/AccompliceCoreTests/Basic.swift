@@ -1639,6 +1639,23 @@ private func maskedGroup() -> Layer {
     #expect(abs(box.height - 200) < 1)
 }
 
+@Test func aMixedGroupsVisibleBoundsIncludeItsBitmaps() {
+    // resolvedPath only merges vector children, so a group holding a bitmap and a
+    // rect measured as just the rect — the selection box ignored the picture.
+    var laptop = Layer(kind: .bitmap(imageRef: "laptop.png"))
+    laptop.frame = CGRect(x: 0, y: 0, width: 300, height: 200)
+    var rect = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 260, height: 12), transform: nil), closed: true))
+    rect.frame = CGRect(x: 20, y: 195, width: 260, height: 12)
+    var group = Layer(kind: .group([laptop, rect]))
+    group.frame = CGRect(x: 50, y: 60, width: 300, height: 207)
+
+    let vb = Compose.visibleBounds(of: group)
+    #expect(abs(vb.minX - 50) < 1)
+    #expect(abs(vb.minY - 60) < 1)
+    #expect(abs(vb.width - 300) < 1)     // the bitmap's width, not the rect's
+    #expect(abs(vb.height - 207) < 1)
+}
+
 @Test func aMaskedGroupReportsTheClippedBoundsNotTheUnion() {
     let group = maskedGroup()
     #expect(group.containsClippingMask)
