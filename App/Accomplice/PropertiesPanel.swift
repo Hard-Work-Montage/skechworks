@@ -75,9 +75,9 @@ struct PropertiesPanel: View {
 
     /// Sketch's row: six align icons, then the two flips. Lives above the fields
     /// because it acts on the selection as a whole, not on one number.
-    private func alignRow(showAlign: Bool) -> some View {
+    private func alignRow(alignEnabled: Bool) -> some View {
         HStack(spacing: 1) {
-            if showAlign {
+            Group {
                 alignButton("align.horizontal.left", .left, "Left")
                 alignButton("align.horizontal.center", .horizontalCentre, "Center")
                 alignButton("align.horizontal.right", .right, "Right")
@@ -86,6 +86,10 @@ struct PropertiesPanel: View {
                 alignButton("align.vertical.center", .verticalMiddle, "Middle")
                 alignButton("align.vertical.bottom", .bottom, "Bottom")
             }
+            // A lone layer aligns to its artboard; a loose one has nothing to
+            // align to, so the buttons sit disabled rather than vanishing.
+            .disabled(!alignEnabled)
+            .opacity(alignEnabled ? 1 : 0.35)
             Spacer(minLength: 0)
             iconButton("arrow.left.and.right.righttriangle.left.righttriangle.right", "Flip Horizontal") {
                 store.flipSelection(horizontal: true)
@@ -149,7 +153,7 @@ struct PropertiesPanel: View {
                 Spacer()
             }
             Divider()
-            alignRow(showAlign: true)
+            alignRow(alignEnabled: true)
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle("Position & Size")
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
@@ -241,7 +245,9 @@ struct PropertiesPanel: View {
         let vb = masked ? Compose.visibleBounds(of: l) : l.frame
         return VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Position & Size")
-            alignRow(showAlign: false)
+            alignRow(alignEnabled: store.page.map { page in
+                page.ancestors(of: l.id).contains { page.layer($0)?.isArtboard == true }
+            } ?? false)
             // Two even columns throughout, so every field lines up regardless of how
             // long its label is. A fixed label column is what stops "Opacity" wrapping
             // onto a second line and shoving its field out of alignment.

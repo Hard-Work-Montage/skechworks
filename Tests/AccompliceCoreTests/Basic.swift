@@ -1758,6 +1758,34 @@ private func pageWithArtboardAndLooseImage() -> Page {
     return page
 }
 
+@Test func aLoneLayerInAnArtboardAlignsToTheBoard() {
+    var desk = Layer(kind: .bitmap(imageRef: "desk.png"))
+    desk.name = "Desk"
+    desk.frame = CGRect(x: 300, y: 200, width: 200, height: 100)
+    var board = Layer(kind: .group([desk]))
+    board.name = "Panel"
+    board.isArtboard = true
+    board.frame = CGRect(x: 1000, y: 0, width: 800, height: 600)
+
+    var loose = Layer(kind: .bitmap(imageRef: "loose.png"))
+    loose.name = "Loose"
+    loose.frame = CGRect(x: 50, y: 50, width: 60, height: 60)
+
+    var page = Page(name: "p")
+    page.layers = [board, loose]
+
+    page.align([desk.id], to: .left)
+    #expect(page.layer(desk.id)!.frame.origin.x == 0)          // hugs the board's left
+    page.align([desk.id], to: .bottom)
+    #expect(page.layer(desk.id)!.frame.origin.y == 500)        // 600 - 100
+    page.align([desk.id], to: .horizontalCentre)
+    #expect(page.layer(desk.id)!.frame.origin.x == 300)        // (800-200)/2
+
+    // A loose layer has nothing to align to: unchanged.
+    page.align([loose.id], to: .left)
+    #expect(page.layer(loose.id)!.frame.origin == CGPoint(x: 50, y: 50))
+}
+
 @Test func aMarqueeCannotCatchArtClippedAwayByItsBoard() {
     // The bed's frame spills far outside Panel 2, across Panel 1. The board clips
     // the paint — hits have to clip the same way, or selecting in one panel grabs

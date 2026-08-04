@@ -53,6 +53,29 @@ extension Page {
     // MARK: - Align & distribute
 
     public mutating func align(_ ids: Set<String>, to edge: AlignEdge) {
+        // One layer inside an artboard aligns to the BOARD — Sketch's rule, and the
+        // only useful reading of "align left" with nothing else selected. Ancestors
+        // run outermost-first, so the last artboard on the trail is the nearest.
+        if ids.count == 1, let id = ids.first, let l = layer(id),
+           let boardID = ancestors(of: id).last(where: { layer($0)?.isArtboard == true }),
+           let board = layer(boardID),
+           let layerOrigin = absoluteOrigin(of: id),
+           let boardOrigin = absoluteOrigin(of: boardID) {
+            let bounds = CGRect(origin: boardOrigin, size: board.frame.size)
+            var abs = CGRect(origin: layerOrigin, size: l.frame.size)
+            switch edge {
+            case .left:             abs.origin.x = bounds.minX
+            case .horizontalCentre: abs.origin.x = bounds.midX - abs.width / 2
+            case .right:            abs.origin.x = bounds.maxX - abs.width
+            case .top:              abs.origin.y = bounds.minY
+            case .verticalMiddle:   abs.origin.y = bounds.midY - abs.height / 2
+            case .bottom:           abs.origin.y = bounds.maxY - abs.height
+            }
+            let dx = abs.minX - layerOrigin.x
+            let dy = abs.minY - layerOrigin.y
+            updateLayer(id) { $0.frame.origin.x += dx; $0.frame.origin.y += dy }
+            return
+        }
         forEachSiblingGroup(ids) { siblings, picked in
             guard picked.count > 1 else { return }
             let frames = picked.map { siblings[$0].frame }
