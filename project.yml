@@ -41,8 +41,8 @@ targets:
       properties:
         CFBundleDisplayName: Accomplice
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.2.1"
+        CFBundleVersion: "3"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
