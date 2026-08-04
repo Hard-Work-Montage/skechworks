@@ -293,7 +293,12 @@ final class DocumentStore: ObservableObject {
     // MARK: - Editing
 
     let undoManager = UndoManager()
-    @Published var isDirty = false
+    @Published var isDirty = false {
+        // The whole autosave contract in one place: dirty work schedules a recovery
+        // snapshot, and anything that makes the document clean — a save, Don't Save,
+        // adopting a fresh document — throws the snapshot away.
+        didSet { if isDirty { scheduleAutosave() } else { clearRecovery() } }
+    }
     /// Set when the user chooses "Don't Save", so the close can proceed.
     func discardChanges() { isDirty = false }
     @Published var canUndo = false
@@ -1523,6 +1528,119 @@ final class DocumentStore: ObservableObject {
     private func refreshUndoState() {
         canUndo = undoManager.canUndo
         canRedo = undoManager.canRedo
+    }
+
+    // MARK: - Autosave
+
+    /// Sketch-style recovery: while a document is dirty, a snapshot of it sits in
+    /// Application Support, and a launch that finds snapshots reopens them as dirty
+    /// documents. Quit without saving, crash, or get killed by a test script — the
+    /// work comes back. A clean save or an explicit Don't Save deletes the snapshot,
+    /// so recovery never argues with what the user decided.
+    static var recoveryDirOverride: URL?
+    static var recoveryDir: URL {
+        recoveryDirOverride ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Accomplice/Recovery", isDirectory: true)
+    }
+
+    /// All recovery IO goes through one serial queue, so "write the snapshot" and
+    /// "the user saved, delete it" can never land out of order.
+    private static let recoveryQueue = DispatchQueue(label: "com.accomplice.autosave", qos: .utility)
+    static func flushRecoveryQueueForTesting() { recoveryQueue.sync {} }
+
+    private let autosaveID = UUID().uuidString
+    private var autosaveTask: Task<Void, Never>?
+    /// Seconds of quiet after the last edit before a snapshot is written.
+    static var autosaveDelay: TimeInterval = 3
+
+    struct Recovery {
+        let snapshot: URL
+        let sidecar: URL
+        let original: URL?
+    }
+
+    /// Snapshots left behind by documents that never got a clean save.
+    static func pendingRecoveries() -> [Recovery] {
+        guard let entries = try? FileManager.default
+            .contentsOfDirectory(at: recoveryDir, includingPropertiesForKeys: nil) else { return [] }
+        return entries.filter { $0.lastPathComponent.hasSuffix(".acmplc.png") }.map { snap in
+            let sidecar = recoveryDir.appendingPathComponent(
+                snap.lastPathComponent.replacingOccurrences(of: ".acmplc.png", with: ".json"))
+            var original: URL?
+            if let d = try? Data(contentsOf: sidecar),
+               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let p = j["original"] as? String {
+                original = URL(fileURLWithPath: p)
+            }
+            return Recovery(snapshot: snap, sidecar: sidecar, original: original)
+        }
+    }
+
+    /// Loads a snapshot into this store as unsaved work on the original file, then
+    /// removes it — the store immediately re-snapshots under its own id, so the
+    /// safety net never has a gap.
+    func restoreFromRecovery(_ rec: Recovery) {
+        defer {
+            Self.recoveryQueue.async {
+                try? FileManager.default.removeItem(at: rec.snapshot)
+                try? FileManager.default.removeItem(at: rec.sidecar)
+            }
+        }
+        guard let (doc, images) = try? AcmplcFile.read(url: rec.snapshot) else { return }
+        adopt(doc, images: images)
+        url = rec.original
+        isDirty = true
+        // Straight away, not on the debounce: the old snapshot is deleted below, and
+        // the net must not have a three-second hole in it.
+        autosaveNow()
+        status = "Restored unsaved work"
+            + (rec.original.map { " on \($0.lastPathComponent)" } ?? "")
+    }
+
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.autosaveDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.autosaveNow()
+        }
+    }
+
+    /// Writes the recovery snapshot. Internal (not private) so a test can skip the
+    /// debounce timer.
+    func autosaveNow() {
+        guard isDirty, let src = source else { return }
+        let id = autosaveID
+        let original = url
+        var opts = AcmplcFile.Options()
+        opts.coverPage = coverPage
+        let options = opts
+        Self.recoveryQueue.async {
+            let dir = Self.recoveryDir
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                // Full document, same as a real save — untouched lazy pages included.
+                let doc = src.fullDocument()
+                let data = try AcmplcFile.write(document: doc, images: src.images, options: options)
+                try data.write(to: dir.appendingPathComponent("\(id).acmplc.png"), options: .atomic)
+                let side = try JSONSerialization.data(withJSONObject: ["original": original?.path as Any])
+                try side.write(to: dir.appendingPathComponent("\(id).json"), options: .atomic)
+            } catch {
+                // Best-effort: a failed snapshot must never interrupt the edit that
+                // triggered it. The next edit tries again.
+            }
+        }
+    }
+
+    private func clearRecovery() {
+        autosaveTask?.cancel()
+        let id = autosaveID
+        Self.recoveryQueue.async {
+            let dir = Self.recoveryDir
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).acmplc.png"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).json"))
+        }
     }
 
     func undo() { undoManager.undo(); refreshUndoState() }

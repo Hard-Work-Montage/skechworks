@@ -540,6 +540,39 @@ final class OAuthTests: XCTestCase {
         XCTAssertFalse(store.selection.contains(where: { store.page?.layer($0)?.isArtboard == true }))
     }
 
+    func testUnsavedWorkSurvivesThroughARecoverySnapshot() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recovery-\(UUID().uuidString)", isDirectory: true)
+        DocumentStore.recoveryDirOverride = dir
+        defer {
+            DocumentStore.recoveryDirOverride = nil
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        // Dirty work snapshots…
+        let (store, _, _) = loaded()
+        store.isDirty = true
+        store.autosaveNow()
+        DocumentStore.flushRecoveryQueueForTesting()
+        var found = DocumentStore.pendingRecoveries()
+        XCTAssertEqual(found.count, 1, "a dirty document leaves a snapshot behind")
+
+        // …and comes back as a dirty document with the same content.
+        let fresh = DocumentStore()
+        fresh.restoreFromRecovery(found[0])
+        DocumentStore.flushRecoveryQueueForTesting()
+        XCTAssertTrue(fresh.isDirty)
+        XCTAssertEqual(fresh.page?.layers.first?.name, "Frame")
+        XCTAssertEqual(DocumentStore.pendingRecoveries().count, 1,
+                       "the restored document immediately re-snapshots under its own id")
+
+        // A clean save-equivalent clears the net.
+        found = DocumentStore.pendingRecoveries()
+        fresh.isDirty = false
+        DocumentStore.flushRecoveryQueueForTesting()
+        XCTAssertEqual(DocumentStore.pendingRecoveries().count, 0)
+    }
+
     func testEveryVerifierIsDifferent() {
         let made = Set((0..<500).map { _ in OAuthFlow.randomVerifier() })
         XCTAssertEqual(made.count, 500, "a repeated verifier would defeat the point of PKCE")

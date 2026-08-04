@@ -329,7 +329,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quit with every tab closed and macOS restores exactly that: an app running
         // with no window and no obvious way to get one back. Open a document if the
         // restore left us with nothing.
-        DispatchQueue.main.async { [weak self] in self?.openWindowIfNoneRestored() }
+        DispatchQueue.main.async { [weak self] in
+            self?.restoreRecoveredDocuments()
+            DispatchQueue.main.async { self?.openWindowIfNoneRestored() }
+        }
+    }
+
+    /// Unsaved work from the last run — a quit without saving, a crash, a kill —
+    /// comes back as dirty documents, one window each.
+    private var pendingRecoveries: [DocumentStore.Recovery] = []
+    private func restoreRecoveredDocuments() {
+        let found = DocumentStore.pendingRecoveries()
+        guard !found.isEmpty else { return }
+        pendingRecoveries.append(contentsOf: found)
+        for _ in found { newDocumentWindow() }
+        flushPending()
     }
 
     private func openWindowIfNoneRestored() {
@@ -367,9 +381,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func flushPending() {
-        guard let store = active, let url = pendingURLs.first else { return }
-        pendingURLs.removeAll()
-        store.open(url)
+        guard let store = active else { return }
+        if let url = pendingURLs.first {
+            pendingURLs.removeAll()
+            store.open(url)
+            return
+        }
+        // One recovery per fresh window: each register() call claims the next.
+        // Only an untitled, untouched window takes one — never a document mid-edit.
+        if !pendingRecoveries.isEmpty, store.url == nil, !store.isDirty {
+            store.restoreFromRecovery(pendingRecoveries.removeFirst())
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
