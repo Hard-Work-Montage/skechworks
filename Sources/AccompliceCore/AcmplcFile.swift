@@ -303,6 +303,7 @@ public struct AcmplcFile {
         l.flipV = j["flipV"] as? Bool ?? false
         l.isVisible = j["visible"] as? Bool ?? true
         l.hasClippingMask = j["clippingMask"] as? Bool ?? false
+        l.constrainProportions = j["constrainProportions"] as? Bool ?? true
         l.breaksMaskChain = j["breaksMaskChain"] as? Bool ?? false
         l.isArtboard = j["artboard"] as? Bool ?? false
         if let bg = j["background"] as? [String: Any], let hex = bg["color"] as? String {
@@ -396,6 +397,7 @@ public struct AcmplcFile {
         if l.flipV { d["flipV"] = true }
         if l.booleanOp != .none { d["boolean"] = boolName(l.booleanOp) }
         if l.hasClippingMask { d["clippingMask"] = true }
+        if !l.constrainProportions { d["constrainProportions"] = false }
         if l.breaksMaskChain { d["breaksMaskChain"] = true }
         if l.isArtboard { d["artboard"] = true }
         if let bg = l.backgroundColor {

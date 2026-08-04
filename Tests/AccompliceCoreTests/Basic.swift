@@ -1639,6 +1639,24 @@ private func maskedGroup() -> Layer {
     #expect(abs(box.height - 200) < 1)
 }
 
+@Test func theRatioLockSurvivesSavingAndRegistersAsAnEdit() throws {
+    var l = Layer(kind: .bitmap(imageRef: "p.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 50)
+    #expect(l.constrainProportions)          // locked is the default
+
+    let before = l.contentSignature
+    l.constrainProportions = false
+    #expect(l.contentSignature != before)    // the toggle must not be discarded as a no-op
+
+    var page = Page(name: "p")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+    let data = try AcmplcFile.write(document: doc, images: ["p.png": Data([1])])
+    let (back, _) = try AcmplcFile.read(data)
+    #expect(back.pages[0].layers[0].constrainProportions == false)
+}
+
 @Test func aMixedGroupsVisibleBoundsIncludeItsBitmaps() {
     // resolvedPath only merges vector children, so a group holding a bitmap and a
     // rect measured as just the rect — the selection box ignored the picture.

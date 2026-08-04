@@ -163,6 +163,10 @@ public struct Layer: @unchecked Sendable {
     public var booleanOp: BooleanOp = .none
     public var hasClippingMask = false
     public var breaksMaskChain = false
+    /// The W/H padlock: edits and drags keep the aspect ratio while true.
+    /// Locked by default — a loose resize that squashes artwork is the mistake,
+    /// stretching on purpose is the exception you unlock for.
+    public var constrainProportions = true
 
     /// Artboards are groups with a job: they're the export unit. 70% of the artboards
     /// in the corpus carry an export preset, named `front` / `back` — they're how a

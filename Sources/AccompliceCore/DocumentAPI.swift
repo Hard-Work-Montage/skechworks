@@ -733,7 +733,7 @@ extension Layer {
         // Marking a mask changes no geometry. Left out, mutatePage sees an unchanged
         // page and throws the edit away — which it did whenever the shape was already
         // at the back, so Use as Mask worked from the layer list and not from the canvas.
-        s += "|\(hasClippingMask ? 1 : 0)\(breaksMaskChain ? 1 : 0)"
+        s += "|\(hasClippingMask ? 1 : 0)\(breaksMaskChain ? 1 : 0)\(constrainProportions ? 1 : 0)"
         // Adding a shadow moves nothing. Fourth thing to need saying here, so: if it
         // can be edited and isn't geometry, it belongs in the signature.
         // An erase moves nothing and changes no frame; without this the change detector

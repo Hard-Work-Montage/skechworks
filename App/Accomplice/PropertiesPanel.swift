@@ -105,6 +105,18 @@ struct PropertiesPanel: View {
         iconButton(symbol, "Align \(name)") { store.align(edge, name) }
     }
 
+    /// The W/H padlock. Locked keeps the aspect ratio exact through typed sizes
+    /// and canvas drags; shift inverts the mode mid-drag.
+    private func ratioLock(_ l: Layer) -> some View {
+        iconButton(l.constrainProportions ? "lock.fill" : "lock.open",
+                   l.constrainProportions ? "Unlock aspect ratio" : "Lock aspect ratio") {
+            store.edit(l.id, actionName: l.constrainProportions ? "Unlock Ratio" : "Lock Ratio") {
+                $0.constrainProportions.toggle()
+            }
+        }
+        .foregroundStyle(l.constrainProportions ? Color.accentColor : Color.secondary)
+    }
+
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -163,10 +175,16 @@ struct PropertiesPanel: View {
                     }
                     GridRow {
                         multiEditable("W", common { $0.frame.width }) { l, v in
-                            l.resize(to: CGSize(width: max(1, v), height: l.frame.height))
+                            let w = max(1, v)
+                            let h = l.constrainProportions
+                                ? l.frame.height * (w / max(l.frame.width, 0.001)) : l.frame.height
+                            l.resize(to: CGSize(width: w, height: h))
                         }
                         multiEditable("H", common { $0.frame.height }) { l, v in
-                            l.resize(to: CGSize(width: l.frame.width, height: max(1, v)))
+                            let h = max(1, v)
+                            let w = l.constrainProportions
+                                ? l.frame.width * (h / max(l.frame.height, 0.001)) : l.frame.width
+                            l.resize(to: CGSize(width: w, height: h))
                         }
                     }
                     GridRow {
@@ -260,13 +278,20 @@ struct PropertiesPanel: View {
                     editable("W", vb.width, l) { layer, v in
                         let w = masked ? layer.frame.width * (max(1, v) / max(vb.width, 0.001))
                                        : max(1, v)
-                        layer.resize(to: CGSize(width: w, height: layer.frame.height))
+                        let h = layer.constrainProportions
+                            ? layer.frame.height * (w / max(layer.frame.width, 0.001))
+                            : layer.frame.height
+                        layer.resize(to: CGSize(width: w, height: h))
                     }
                     editable("H", vb.height, l) { layer, v in
                         let h = masked ? layer.frame.height * (max(1, v) / max(vb.height, 0.001))
                                        : max(1, v)
-                        layer.resize(to: CGSize(width: layer.frame.width, height: h))
+                        let w = layer.constrainProportions
+                            ? layer.frame.width * (h / max(layer.frame.height, 0.001))
+                            : layer.frame.width
+                        layer.resize(to: CGSize(width: w, height: h))
                     }
+                    ratioLock(l)
                 }
                 GridRow {
                     editable("Opacity", l.style.opacity * 100, l, suffix: "%") { layer, v in

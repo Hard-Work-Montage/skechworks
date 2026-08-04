@@ -1942,10 +1942,19 @@ final class PageCanvas: NSView {
             let startH = handlePoint(h, in: r).y - a.y
             if abs(startW) > 0.001 { sx = (p.x - a.x) / startW }
             if abs(startH) > 0.001 { sy = (p.y - a.y) / startH }
-            // Shift constrains to the aspect ratio, as everywhere else.
-            if event.modifierFlags.contains(.shift), abs(startW) > 0.001, abs(startH) > 0.001 {
-                let s = max(abs(sx), abs(sy))
-                sx = s * (sx < 0 ? -1 : 1); sy = s * (sy < 0 ? -1 : 1)
+            // The padlock decides: locked layers resize proportionally, and shift
+            // inverts whichever mode the selection is in — so an unlocked layer
+            // constrains while shift is down, a locked one stretches free.
+            let locked = selected.allSatisfy { page?.layer($0)?.constrainProportions ?? true }
+            if locked != event.modifierFlags.contains(.shift) {
+                if abs(startW) > 0.001, abs(startH) > 0.001 {
+                    let s = max(abs(sx), abs(sy))
+                    sx = s * (sx < 0 ? -1 : 1); sy = s * (sy < 0 ? -1 : 1)
+                } else if abs(startW) > 0.001 {
+                    sy = abs(sx)               // edge drag: the other axis follows
+                } else if abs(startH) > 0.001 {
+                    sx = abs(sy)
+                }
             }
             resizeScale = CGSize(width: max(0.01, sx), height: max(0.01, sy))
             needsDisplay = true
