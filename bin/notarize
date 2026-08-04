@@ -24,8 +24,14 @@ echo "→ building (Developer ID, hardened runtime)…"
 bin/build >/dev/null
 
 echo "→ zipping…"
+# Strip machine-local metadata (com.apple.provenance, com.apple.macl) that the
+# local Gatekeeper verify stamps onto the bundle. Left in place, ditto packs
+# them as ._* AppleDouble files and every OTHER Mac that extracts the zip gets
+# this machine's security metadata glued to the signature files — Gatekeeper
+# there says "no usable signature" on a perfectly notarized app.
+xattr -cr "$APP"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" "$ZIP"
 
 echo "→ notarizing (a minute or three)…"
 # notarytool --wait exits 0 even when the verdict is Invalid, so check explicitly —
@@ -47,6 +53,7 @@ echo "→ Gatekeeper verify…"
 spctl -a -vv -t exec "$APP"
 
 # Re-zip so any copy handed to someone else carries the stapled ticket.
+xattr -cr "$APP"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP" "$ZIP"
+ditto -c -k --norsrc --noextattr --noacl --keepParent "$APP" "$ZIP"
 echo "→ done: $APP (and $ZIP for distribution)"
