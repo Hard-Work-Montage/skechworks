@@ -573,6 +573,27 @@ final class OAuthTests: XCTestCase {
         XCTAssertEqual(DocumentStore.pendingRecoveries().count, 0)
     }
 
+    func testDraggingOutOfAnArtboardEscapesToTheCanvasRoot() throws {
+        let (store, _, photo) = loaded()   // photo lives in a group inside the artboard
+        store.selection = [photo]
+        let wasAbs = store.page!.absoluteOrigin(of: photo)!
+
+        store.beginDrag(photo)
+        store.endDrag(offset: CGSize(width: 2000, height: 0))   // far off the 600pt board
+
+        let p = store.page!
+        XCTAssertTrue(p.layers.contains { $0.id == photo },
+                      "the layer sits at the canvas root now, not clipped inside the board")
+        let nowAbs = p.absoluteOrigin(of: photo)!
+        XCTAssertEqual(nowAbs.x, wasAbs.x + 2000, accuracy: 0.01)
+        XCTAssertEqual(nowAbs.y, wasAbs.y, accuracy: 0.01)
+
+        // Undo puts it back inside.
+        store.undo()
+        XCTAssertFalse(store.page!.layers.contains { $0.id == photo })
+        XCTAssertNotNil(store.page!.layer(photo))
+    }
+
     func testPasteAtSelectionLandsOnTheSelectionsTopLeft() throws {
         var a = Layer(kind: .bitmap(imageRef: "a.png"))
         a.name = "A"

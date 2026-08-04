@@ -397,9 +397,33 @@ final class DocumentStore: ObservableObject {
         dragStart = nil
         guard offset != .zero, pageIndex == start.page else { return }
         let origins = start.origins
-        edit(Array(origins.keys), actionName: "Move") { l in
-            guard let o = origins[l.id] else { return }
-            l.frame.origin = CGPoint(x: o.x + offset.width, y: o.y + offset.height)
+        mutatePage("Move") { p in
+            for (id, o) in origins {
+                p.updateLayer(id) {
+                    $0.frame.origin = CGPoint(x: o.x + offset.width, y: o.y + offset.height)
+                }
+            }
+            // The drop decides the parent, the way Sketch's frames do: a layer whose
+            // centre leaves its artboard escapes to the canvas root (otherwise the
+            // board keeps clipping it into an invisible selection box), and one
+            // dropped onto a different board moves in. Same rule paste follows.
+            for id in origins.keys {
+                guard let l = p.layer(id), !l.isArtboard else { continue }
+                let ancestors = p.ancestors(of: id)
+                // If a dragged container carries this layer, the container decides.
+                if ancestors.contains(where: { origins.keys.contains($0) }) { continue }
+                guard let abs = p.absoluteOrigin(of: id) else { continue }
+                let centre = CGPoint(x: abs.x + l.frame.width / 2, y: abs.y + l.frame.height / 2)
+                let target = p.artboard(containing: centre)
+                let current = ancestors.last(where: { p.layer($0)?.isArtboard == true })
+                if let target {
+                    if current != target.id {
+                        _ = p.reparent([id], into: target.id, at: p.children(of: target.id).count)
+                    }
+                } else if current != nil {
+                    _ = p.reparent([id], into: nil, at: p.layers.count)
+                }
+            }
         }
     }
 
