@@ -2,18 +2,18 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
-## 0.4.9 (August 5, 2026)
+## 0.1.13 (August 5, 2026)
 
 - Every number field steps with the arrow keys: 1 at a time, 10 with shift. Position, size, angle, radius, font size, kern, line height, shadow offsets, brush size, color channels and border width all behave the same way.
 - New rectangles arrive with their aspect ratio unlocked, ready to stretch into a panel or a band. Circles, images and shapes keep the padlock on.
 
-## 0.4.8 (August 5, 2026)
+## 0.1.12 (August 5, 2026)
 
 - Renaming a layer in the layer list works: double-click, type, Enter.
 - The tool keys (R, O, T, P, V, E) only fire when the canvas has focus. They no longer interrupt you while you are typing a layer name, a color value, or a message.
 - Fixed: selecting a text layer stretched the inspector wide enough to squeeze the canvas.
 
-## 0.4.7 (August 5, 2026)
+## 0.1.11 (August 5, 2026)
 
 - Perspective for images: hold command and drag a corner handle, and that corner follows the pointer. Right-click offers Flatten Distort. Chat and connected tools can set it precisely with the distort command.
 - Double-click a bitmap to select pixels, Fireworks style: drag a box, copy it, or paste over it.
@@ -26,31 +26,31 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 - Quitting can no longer lose recent work: every unsaved document snapshots before the app exits, a stale snapshot can never hide a newer save, and opening a file that is already open focuses its tab instead of duplicating it.
 - Connected tools can place an image file straight onto a named artboard.
 
-## 0.4.6 (August 4, 2026)
+## 0.1.10 (August 4, 2026)
 
 - Quit with files open, launch with the same files open.
 - The eraser edits the layer you selected, not whatever sits on top.
 - Erasing happens live under the brush instead of on release.
 
-## 0.4.5 (August 4, 2026)
+## 0.1.9 (August 4, 2026)
 
 - Arrow keys nudge the layer you picked in the layer list.
 - Shift-cmd-click steps down through overlapping layers, wrapping at the bottom.
 
-## 0.4.4 (August 4, 2026)
+## 0.1.8 (August 4, 2026)
 
 - Shift erases in a straight line, snapped to 45-degree headings.
 
-## 0.4.3 (August 4, 2026)
+## 0.1.7 (August 4, 2026)
 
 - The drop decides the parent: drag a layer fully out of its artboard and it lands on the canvas, drop it on another board and it moves in.
 
-## 0.4.2 (August 4, 2026)
+## 0.1.6 (August 4, 2026)
 
 - The W/H padlock: aspect ratio locked by default, and shift inverts the mode mid-drag. An unlocked layer constrains while shift is held.
 - A group's selection box measures everything it paints — bitmaps included, not just the vector children.
 
-## 0.4.1 (August 4, 2026)
+## 0.1.5 (August 4, 2026)
 
 - Click what you see: art an artboard clips away can't be selected, right-clicked or marqueed from a neighboring panel.
 - A lone layer inside an artboard aligns to the board — align-left hugs the board's left edge.
@@ -59,13 +59,13 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 - The app icon renders full-size on macOS Tahoe.
 - Fixed: downloads could be rejected as unverified on Macs other than the one that built them.
 
-## 0.4 (August 4, 2026)
+## 0.1.4 (August 4, 2026)
 
 - Autosave: unsaved work survives a quit, crash, or kill, and comes back on launch.
 - Paste lands in the tab you're looking at, not whichever opened last.
 - Paste at Selection (shift-cmd-V): the copy lands exactly on the selection's top-left.
 
-## 0.3 (August 4, 2026)
+## 0.1.3 (August 4, 2026)
 
 - Big files feel fast. The canvas keeps a rendered copy of the artwork and reuses it between edits, and redraws only touch what's on screen. A 5,000-path SVG now selects, hovers and marquees without a spinner.
 - Artboards are picked on purpose: click the name label or the layer list. Select All gathers the artwork, never the boards themselves.
@@ -74,13 +74,13 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 - Fixed: signing in to Accomplice could land you back on the sign-in button even after pressing Allow. The token is now stored, verified, and a real storage failure says so out loud.
 - `acmplc bench` accepts an .svg, so you can measure what a big file costs before opening it.
 
-## 0.2.1 (August 3, 2026)
+## 0.1.2 (August 3, 2026)
 
 - Fixed: opening a .sketch file showed blank pages. A .sketch is also a zip, and the importer was swallowing it as an empty document instead of handing it to the Sketch reader.
 - Sketch artboards arrive as the white cards Sketch draws, not artwork floating on the dark canvas. Exports still come out transparent unless Sketch would have included the background.
 - Sketch Frames (the artboard replacement in newer Sketch) import as artboards: card color, name label, and panels that clip their contents.
 
-## 0.2 (August 3, 2026)
+## 0.1.1 (August 3, 2026)
 
 - Remove: drag a box over anything in a photo and it gets painted out, the gap filled from its surroundings. Accomplice reads the picture and works out what you meant.
 - Vectorize: a bitmap goes out, editable paths come back, sitting exactly where the image was.
