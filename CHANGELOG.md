@@ -2,6 +2,10 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.1.17 (August 5, 2026)
+
+- Exporting one layer or artboard now asks what to call it: the name is prefilled, you can type over it, and clicking a file in the list takes that name. Exporting several at once still picks a folder.
+
 ## 0.1.16 (August 5, 2026)
 
 - Opening a file from Finder brings its window to the front. It used to load behind whatever you were already looking at, which reads as nothing happening.
