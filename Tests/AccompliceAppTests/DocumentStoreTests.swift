@@ -37,6 +37,41 @@ final class DocumentStoreTests: XCTestCase {
         return (store, group.id, photo.id)
     }
 
+    /// A layer's frame lives in its PARENT's space, so inside a flipped group
+    /// "+x" points left on screen. Pressing the right arrow has to move the art
+    /// right whatever the container is doing.
+    func testNudgingInsideAFlippedGroupGoesTheWayYouPressed() {
+        var child = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 50, height: 50),
+                                             transform: nil), closed: true))
+        child.name = "Child"
+        child.frame = CGRect(x: 10, y: 10, width: 50, height: 50)
+        var group = Layer(kind: .group([child]))
+        group.name = "Flipped"
+        group.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        group.flipH = true
+
+        var page = Page(name: "Page 1")
+        page.layers = [group]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+
+        func onScreen() -> CGPoint {
+            let g = store.page!.layers[0]
+            guard case .group(let kids) = g.kind else { return .zero }
+            return CGPoint.zero.applying(Compose.transform(kids[0])
+                .concatenating(Compose.transform(g)))
+        }
+        let before = onScreen()
+        store.selection = [child.id]
+        store.nudge(dx: 10, dy: 0)
+        let after = onScreen()
+        XCTAssertEqual(after.x, before.x + 10, accuracy: 0.01,
+                       "right arrow moves the art right, even inside a flipped group")
+        XCTAssertEqual(after.y, before.y, accuracy: 0.01)
+    }
+
     func testPasteWithALayerSelectedStacksTheCopyOnIt() {
         var a = Layer(kind: .bitmap(imageRef: "a.png"))
         a.name = "Source"

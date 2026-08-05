@@ -9,6 +9,7 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 - New text arrives with its aspect ratio unlocked, and the padlock is gone from the inspector for text. A text box is resized to change where the copy wraps, never to stretch the letters.
 - Line height is a multiplier now: 1 is single spaced and the default, 2 is airy, 0 packs the lines together. Files written before this still lay out the same.
 - Fixed: arrow keys stopped nudging the selection on the canvas in 0.1.12, when the tool keys moved off the menus and began swallowing every arrow press on their way past.
+- Fixed: nudging or dragging a layer inside a flipped group moved it the wrong way. A frame lives in its container's space, so the direction you asked for is mapped through the container first. Rotated groups behave too.
 
 ## 0.1.13 (August 5, 2026)
 

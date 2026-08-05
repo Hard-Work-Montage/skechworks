@@ -401,8 +401,9 @@ final class DocumentStore: ObservableObject {
         let origins = start.origins
         mutatePage("Move") { p in
             for (id, o) in origins {
+                let d = Self.inParentSpace(CGPoint(x: offset.width, y: offset.height), of: id, on: p)
                 p.updateLayer(id) {
-                    $0.frame.origin = CGPoint(x: o.x + offset.width, y: o.y + offset.height)
+                    $0.frame.origin = CGPoint(x: o.x + d.x, y: o.y + d.y)
                 }
             }
             // The drop decides the parent, the way Sketch's frames do: a layer whose
@@ -1714,10 +1715,37 @@ final class DocumentStore: ObservableObject {
     }
 
     /// Arrow-key nudge. Shift moves by 10 the way every design tool does.
+    /// Turns a movement seen on the page into the movement to apply to a frame,
+    /// which lives in its parent's space. Inside a flipped group "+x" points left
+    /// and inside a rotated one it points off at an angle; without this, pressing
+    /// right or dragging right moved the art the wrong way.
+    static func inParentSpace(_ delta: CGPoint, of id: String, on page: Page) -> CGPoint {
+        var toPage = CGAffineTransform.identity
+        for ancestor in page.ancestors(of: id).reversed() {
+            guard let a = page.layer(ancestor) else { continue }
+            toPage = toPage.concatenating(Compose.transform(a))
+        }
+        guard !toPage.isIdentity else { return delta }
+        let inverse = toPage.inverted()
+        // A direction, not a position: the translation has no part in it.
+        let origin = CGPoint.zero.applying(inverse)
+        let moved = delta.applying(inverse)
+        return CGPoint(x: moved.x - origin.x, y: moved.y - origin.y)
+    }
+
     func nudge(dx: CGFloat, dy: CGFloat) {
-        guard !selection.isEmpty else { return }
-        edit(Array(selection), actionName: "Nudge") {
-            $0.frame.origin = CGPoint(x: $0.frame.minX + dx, y: $0.frame.minY + dy)
+        guard !selection.isEmpty, let page else { return }
+        // A frame lives in its PARENT's space. Inside a flipped group "+x" points
+        // left on screen, and inside a rotated one it points off at an angle — so
+        // the arrow you pressed is mapped through the containers before it is
+        // applied. Press right, the art goes right, whatever it happens to sit in.
+        var deltas: [String: CGPoint] = [:]
+        for id in selection {
+            deltas[id] = Self.inParentSpace(CGPoint(x: dx, y: dy), of: id, on: page)
+        }
+        edit(Array(selection), actionName: "Nudge") { l in
+            let d = deltas[l.id] ?? CGPoint(x: dx, y: dy)
+            l.frame.origin = CGPoint(x: l.frame.minX + d.x, y: l.frame.minY + d.y)
         }
     }
 
