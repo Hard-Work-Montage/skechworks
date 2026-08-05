@@ -1112,6 +1112,85 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    // MARK: - Pixel selection (double-click a bitmap)
+
+    /// The bitmap whose pixels are being marquee-selected, Fireworks style.
+    /// Entered by double-clicking a selected bitmap; left by Escape.
+    @Published var pixelSelectID: String?
+    /// The current box, in the layer's own coordinates.
+    var pixelSelectRect: CGRect?
+
+    func enterPixelSelect(_ id: String) {
+        guard let page, let l = page.layer(id), case .bitmap = l.kind else { return }
+        pixelSelectID = id
+        pixelSelectRect = nil
+        selection = [id]
+        status = "Drag a box · ⌘C copies those pixels · ⌘V pastes over them · Esc leaves"
+    }
+
+    func exitPixelSelect() {
+        pixelSelectID = nil
+        pixelSelectRect = nil
+        status = ""
+    }
+
+    /// The boxed region as pixels, cut from the bitmap as displayed — adjustments
+    /// and crop baked, so what copies is what the user sees.
+    private func pixelRegionImage() -> CGImage? {
+        guard let id = pixelSelectID, let rect = pixelSelectRect, let page,
+              let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref],
+              let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+              l.frame.width > 0, l.frame.height > 0 else { return nil }
+        let sx = CGFloat(baked.width) / l.frame.width
+        let sy = CGFloat(baked.height) / l.frame.height
+        let px = CGRect(x: rect.minX * sx, y: rect.minY * sy,
+                        width: rect.width * sx, height: rect.height * sy).integral
+        return baked.cropping(to: px)
+    }
+
+    /// ⌘C in pixel-select mode: the boxed pixels go out as a plain image, so they
+    /// paste back here or into any other app.
+    func copyPixelSelection() -> Bool {
+        guard pixelSelectID != nil else { return false }
+        guard let cg = pixelRegionImage(), let png = Renderer.png(cg) else {
+            status = "Drag a box over the pixels first"
+            return true
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(png, forType: .png)
+        status = "Copied \(cg.width)×\(cg.height) pixels"
+        return true
+    }
+
+    /// ⌘V in pixel-select mode: clipboard pixels land as a new bitmap layer sitting
+    /// exactly on the box — paste-over, the Fireworks gesture.
+    func pastePixelSelection() -> Bool {
+        guard let id = pixelSelectID, let rect = pixelSelectRect else { return false }
+        let pb = NSPasteboard.general
+        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
+              BitmapImage.load(data) != nil,
+              let src = source, let page, let l = page.layer(id) else { return false }
+        let key = "images/\(Zip.crc32(data))-\(data.count).png"
+        source = src.adding(image: data, key: key)
+        var pasted = Layer(kind: .bitmap(imageRef: key))
+        pasted.name = "Pasted pixels"
+        // The box is layer-local; the source's frame is parent-relative, so their
+        // sum places the new layer over the box whatever container they're in.
+        pasted.frame = CGRect(x: l.frame.origin.x + rect.minX,
+                              y: l.frame.origin.y + rect.minY,
+                              width: rect.width, height: rect.height)
+        mutatePage("Paste Pixels") { p in
+            let parent = p.ancestors(of: id).last
+            let index = p.children(of: parent).firstIndex { $0.id == id }
+            p.insertLayer(pasted, parent: parent, index: (index ?? 0) + 1)
+        }
+        selection = [pasted.id]
+        status = "Pasted over the box"
+        return true
+    }
+
     /// The bitmap being cropped on canvas, if any. Entered from the inspector,
     /// left by Enter (commit) or Escape (never mind).
     @Published var croppingID: String?
@@ -1214,6 +1293,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func copySelection() {
+        if copyPixelSelection() { return }
         guard let page, !selection.isEmpty else { return }
         // Copied out in page coordinates. A frame relative to an artboard means nothing
         // once it's on the clipboard, and pasting one anywhere else threw it by that
@@ -1249,6 +1329,7 @@ final class DocumentStore: ObservableObject {
     }
 
     func paste(at targetOrigin: CGPoint? = nil) {
+        if pastePixelSelection() { return }
         let pb = NSPasteboard.general
         guard let src = source, var p = page,
               let data = pb.data(forType: Self.pasteboardType),

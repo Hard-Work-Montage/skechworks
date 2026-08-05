@@ -67,6 +67,21 @@ final class PageCanvas: NSView {
     var onCancelCrop: (() -> Void)?
     /// A remove box on a bitmap. (id, rect in the layer's own coordinates)
     var onRemoveRect: ((String, CGRect) -> Void)?
+    /// Pixel-select mode: double-click a bitmap, drag a box, copy/paste its pixels.
+    var pixelSelectID: String? {
+        didSet {
+            guard pixelSelectID != oldValue else { return }
+            pixelDrag = nil
+            pixelDraft = nil
+            needsDisplay = true
+        }
+    }
+    var onEnterPixelSelect: ((String) -> Void)?
+    var onPixelRect: ((CGRect) -> Void)?
+    var onExitPixelSelect: (() -> Void)?
+    /// The box being dragged, and the one standing after mouse-up, in page space.
+    private var pixelDrag: (t: CGAffineTransform, start: CGPoint, current: CGPoint)?
+    private var pixelDraft: CGRect?
     /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
     var onEraseRect: ((String, CGRect) -> Void)?
 
@@ -421,6 +436,10 @@ final class PageCanvas: NSView {
 
     /// Picks the cursor for wherever the pointer is.
     private func updateCursor(at p: CGPoint) {
+        if pixelSelectID != nil {
+            NSCursor.crosshair.set()
+            return
+        }
         if tool == .erase {
             // The ring IS the size control: you can see how big the brush is before
             // committing a stroke you'd have to undo to judge.
@@ -773,6 +792,19 @@ final class PageCanvas: NSView {
             ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
             ctx.stroke(r)
             ctx.setLineDash(phase: 0, lengths: [])
+        }
+        if pixelSelectID != nil {
+            let live = pixelDrag.map {
+                CGRect(x: min($0.start.x, $0.current.x), y: min($0.start.y, $0.current.y),
+                       width: abs($0.current.x - $0.start.x), height: abs($0.current.y - $0.start.y))
+            }
+            if let r = live ?? pixelDraft {
+                ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+                ctx.setLineWidth(1 / sc)
+                ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
+                ctx.stroke(r)
+                ctx.setLineDash(phase: 0, lengths: [])
+            }
         }
         ctx.restoreGState()
         drawBrush(ctx)
@@ -1491,6 +1523,16 @@ final class PageCanvas: NSView {
             return   // outside: stay in the mode; Enter and Escape are the exits
         }
 
+        // --- Pixel select swallows the mouse: every drag is a new box ---
+        if let pid = pixelSelectID {
+            if let t = transformOf(pid, in: page?.layers ?? [], base: .identity) {
+                pixelDrag = (t, p, p)
+                pixelDraft = nil
+                needsDisplay = true
+            }
+            return   // Escape is the exit, like crop
+        }
+
         // --- Erase: paint on the bitmap under the pointer ---
         if tool == .erase {
             // ⌥-drag cuts a straight-edged rectangle instead of painting.
@@ -1585,6 +1627,12 @@ final class PageCanvas: NSView {
             // Fireworks always did.
             if selected == [leaf.id], case .text(let run) = leaf.kind {
                 beginTextEdit(leaf, run)
+                return
+            }
+            // A bitmap's next step in is its pixels: marquee, copy, paste over —
+            // the other thing Fireworks always did.
+            if selected == [leaf.id], case .bitmap = leaf.kind {
+                onEnterPixelSelect?(leaf.id)
                 return
             }
             // A combined shape (Subtract, Union…) composes to one drawable, so the
@@ -1948,6 +1996,11 @@ final class PageCanvas: NSView {
             needsDisplay = true
             return
         }
+        if pixelDrag != nil {
+            pixelDrag!.current = p
+            needsDisplay = true
+            return
+        }
         if eraseRectDrag != nil {
             eraseRectDrag!.current = p
             needsDisplay = true
@@ -2106,6 +2159,19 @@ final class PageCanvas: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if cropDrag != nil { cropDrag = nil; return }
+        if let d = pixelDrag {
+            pixelDrag = nil
+            let r = CGRect(x: min(d.start.x, d.current.x), y: min(d.start.y, d.current.y),
+                           width: abs(d.current.x - d.start.x), height: abs(d.current.y - d.start.y))
+            if r.width > 1, r.height > 1 {
+                pixelDraft = r
+                onPixelRect?(r.applying(d.t.inverted()))
+            } else {
+                pixelDraft = nil
+            }
+            needsDisplay = true
+            return
+        }
         if let er = eraseRectDrag {
             eraseRectDrag = nil
             let pageRect = CGRect(x: min(er.start.x, er.current.x),
@@ -2219,6 +2285,7 @@ final class PageCanvas: NSView {
             }
         case 53:   // escape — done drawing, or abandon
             if croppingID != nil { onCancelCrop?(); return }
+            if pixelSelectID != nil { onExitPixelSelect?(); return }
             if tool == .pen {
                 // Two or more points is a drawing, not a mistake — a bare line is
                 // something Adam draws on purpose. Escape keeps it and hands the
@@ -2375,6 +2442,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onCancelCrop = { store.croppingID = nil }
         canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
         canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
+        canvas.pixelSelectID = store.pixelSelectID
+        canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
+        canvas.onPixelRect = { store.pixelSelectRect = $0 }
+        canvas.onExitPixelSelect = { store.exitPixelSelect() }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

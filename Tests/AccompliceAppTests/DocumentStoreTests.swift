@@ -37,6 +37,44 @@ final class DocumentStoreTests: XCTestCase {
         return (store, group.id, photo.id)
     }
 
+    func testPixelSelectCopiesTheBoxAndPastesOverIt() {
+        // A real 100×100 white image behind a 200×200 frame: layer units are 2×
+        // the pixels, which is exactly the scaling copy has to get right.
+        let ctx = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let png = Renderer.png(ctx.makeImage()!)!
+
+        var photo = Layer(kind: .bitmap(imageRef: "px.png"))
+        photo.name = "Photo"
+        photo.frame = CGRect(x: 40, y: 40, width: 200, height: 200)
+        var page = Page(name: "Page 1")
+        page.layers = [photo]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: ["px.png": png])
+
+        store.enterPixelSelect(photo.id)
+        XCTAssertEqual(store.pixelSelectID, photo.id)
+        store.pixelSelectRect = CGRect(x: 20, y: 20, width: 80, height: 60)
+
+        store.copySelection()
+        let copied = NSPasteboard.general.data(forType: .png)
+        XCTAssertNotNil(copied, "the boxed pixels should land on the pasteboard")
+        let cg = BitmapImage.load(copied!)!.image
+        XCTAssertEqual(cg.width, 40, "80 layer units at half scale is 40 pixels")
+        XCTAssertEqual(cg.height, 30)
+
+        store.paste()
+        let pasted = store.page!.layers.first { $0.name == "Pasted pixels" }
+        XCTAssertNotNil(pasted, "paste in pixel mode should add a bitmap over the box")
+        XCTAssertEqual(pasted!.frame, CGRect(x: 60, y: 60, width: 80, height: 60),
+                       "the paste lands exactly on the box")
+    }
+
     func testMarkingAMaskSticksEvenWhenNothingMoves() {
         let (store, _, photo) = loaded()
         store.selection = [photo]
@@ -512,6 +550,12 @@ final class OAuthTests: XCTestCase {
             XCTAssertLessThanOrEqual(v.count, 128)
         }
     }
+}
+
+// These landed inside OAuthTests at some point and stopped compiling: they
+// lean on DocumentStoreTests' private loaded() fixture, which only an
+// extension of that class in this file can reach.
+extension DocumentStoreTests {
 
     func testSelectAllGathersTheArtworkNeverTheBoards() {
         // Artboards are selected deliberately — canvas label or layer list. ⌘A
