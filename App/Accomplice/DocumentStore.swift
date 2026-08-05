@@ -2063,13 +2063,38 @@ final class DocumentStore: ObservableObject {
 
     private func exportIsolated(_ targets: [(page: Page, bounds: CGRect, rotatedAncestor: Bool)],
                                 format: ExportFormat, scale: CGFloat, what: String) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Export Here"
-        panel.message = "Export \(targets.count) \(what) as \(format.title)"
-        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let suffix = scale == 1 ? "" : "@\(Int(scale))x"
+
+        // One thing gets a SAVE panel: you can name it before it lands, and
+        // clicking a file in the list adopts that name, the way every other save
+        // does. A folder chooser can do neither — it exports whatever name the
+        // layer happened to have. Several at once still pick a folder, since
+        // there is no single name to type.
+        var dir: URL
+        var singleName: String?
+        if targets.count == 1 {
+            let panel = NSSavePanel()
+            panel.canCreateDirectories = true
+            panel.prompt = "Export"
+            panel.message = "Export \(what) as \(format.title)"
+            panel.nameFieldLabel = "Export As:"
+            panel.nameFieldStringValue = "\(slug(targets[0].page.name))\(suffix).\(format.rawValue)"
+            if let type = UTType(filenameExtension: format.rawValue) {
+                panel.allowedContentTypes = [type]
+            }
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            dir = url.deletingLastPathComponent()
+            singleName = url.lastPathComponent
+        } else {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = "Export Here"
+            panel.message = "Export \(targets.count) \(what) as \(format.title)"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            dir = url
+        }
 
         let imgs = images
         var written = 0
@@ -2077,8 +2102,8 @@ final class DocumentStore: ObservableObject {
         for t in targets {
             if t.rotatedAncestor { rotatedWarnings += 1 }
             let base = slug(t.page.name)
-            let suffix = scale == 1 ? "" : "@\(Int(scale))x"
-            let file = dir.appendingPathComponent("\(base)\(suffix).\(format.rawValue)")
+            let file = singleName.map { dir.appendingPathComponent($0) }
+                ?? dir.appendingPathComponent("\(base)\(suffix).\(format.rawValue)")
             switch format {
             case .svg:
                 let svg = SVGWriter(images: imgs).svg(page: t.page, bounds: t.bounds)
