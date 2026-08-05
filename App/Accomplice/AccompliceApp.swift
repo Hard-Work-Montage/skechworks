@@ -311,9 +311,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return stores.last
     }
 
+    /// Whether any window has registered yet. Launch accounting needs to know if
+    /// the initial SwiftUI window is still on its way: it always comes, so it can
+    /// carry one pending document — asking for a window for that document too is
+    /// exactly how the spare untitled tab got minted.
+    private var anyWindowRegistered = false
+
     func register(_ s: DocumentStore) {
         stores.removeAll { $0 === s }
         stores.append(s)
+        anyWindowRegistered = true
         flushPending()
     }
 
@@ -346,10 +353,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quit with every tab closed and macOS restores exactly that: an app running
         // with no window and no obvious way to get one back. Open a document if the
         // restore left us with nothing.
+        //
+        // Window accounting happens HERE, once, after every source of launch work
+        // (Finder opens, recoveries, session restore) has queued up. One window per
+        // job, minus the windows that already exist empty and the initial SwiftUI
+        // window if it hasn't shown up yet — it always does, and double-counting it
+        // is what used to leave a spare untitled tab behind.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let restored = self.restoreRecoveredDocuments()
             self.reopenLastSession(skipping: restored)
+            let jobs = self.pendingURLs.count + self.pendingRecoveries.count
+            let empties = self.stores.filter { $0.url == nil && !$0.isDirty }.count
+            let inevitable = self.anyWindowRegistered ? 0 : 1
+            let needed = max(0, jobs - empties - inevitable)
+            for _ in 0..<needed { self.newDocumentWindow() }
+            self.flushPending()
             DispatchQueue.main.async { self.openWindowIfNoneRestored() }
         }
     }
@@ -363,8 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let found = DocumentStore.pendingRecoveries()
         guard !found.isEmpty else { return [] }
         pendingRecoveries.append(contentsOf: found)
-        for _ in found { newDocumentWindow() }
-        flushPending()
+        // Windows are requested by the launch accounting in
+        // applicationDidFinishLaunching, which sees every job at once.
         return Set(found.compactMap { $0.original?.path })
     }
 
@@ -402,7 +421,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let paths = UserDefaults.standard.stringArray(forKey: Self.sessionKey) ?? []
         for path in paths where !restored.contains(path) {
             guard FileManager.default.fileExists(atPath: path) else { continue }
-            openInNewWindow(URL(fileURLWithPath: path))
+            // A document that arrived by double-click is in the session list too —
+            // reopening it here is how one file became two tabs.
+            guard !pendingURLs.contains(where: { $0.path == path }),
+                  !stores.contains(where: { $0.url?.path == path }) else { continue }
+            pendingURLs.append(URL(fileURLWithPath: path))
         }
         sessionRestoreComplete = true
     }
@@ -441,18 +464,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ sender: NSApplication, open urls: [URL]) {
         pendingURLs.append(contentsOf: urls)
         flushPending()
+        // Mid-session opens that found no empty window each get their own. During
+        // launch the accounting in applicationDidFinishLaunching handles it — the
+        // initial window hasn't appeared yet, and requesting one here as well is
+        // a spare untitled tab waiting to happen.
+        if sessionRestoreComplete {
+            for _ in pendingURLs { newDocumentWindow() }
+        }
     }
 
+    /// Hands queued work to empty windows only. A window showing a document keeps
+    /// it — pending files never overwrite the tab you're looking at.
     private func flushPending() {
-        guard let store = active else { return }
-        if !pendingURLs.isEmpty {
-            store.open(pendingURLs.removeFirst())
-            return
+        while !pendingURLs.isEmpty,
+              let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) {
+            empty.open(pendingURLs.removeFirst())
         }
-        // One recovery per fresh window: each register() call claims the next.
-        // Only an untitled, untouched window takes one — never a document mid-edit.
-        if !pendingRecoveries.isEmpty, store.url == nil, !store.isDirty {
-            store.restoreFromRecovery(pendingRecoveries.removeFirst())
+        // One recovery per fresh window: only an untitled, untouched window takes
+        // one — never a document mid-edit.
+        while !pendingRecoveries.isEmpty,
+              let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) {
+            empty.restoreFromRecovery(pendingRecoveries.removeFirst())
         }
     }
 
