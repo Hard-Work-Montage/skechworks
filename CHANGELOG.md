@@ -2,6 +2,10 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.1.16 (August 5, 2026)
+
+- Opening a file from Finder brings its window to the front. It used to load behind whatever you were already looking at, which reads as nothing happening.
+
 ## 0.1.15 (August 5, 2026)
 
 - Fixed: opening an SVG that uses a clip, mask or pattern drew the definition as artwork — a full-canvas rectangle over the picture, which usually meant a document that opened solid black. That covers our own exports and most files Illustrator and Figma write.
