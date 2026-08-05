@@ -424,7 +424,7 @@ final class PageCanvas: NSView {
         if tool == .erase {
             // The ring IS the size control: you can see how big the brush is before
             // committing a stroke you'd have to undo to judge.
-            brushAt = bitmapHit(p) != nil ? p : nil
+            brushAt = eraseTarget(p) != nil ? p : nil
             needsDisplay = true
             NSCursor.crosshair.set()
             return
@@ -1250,6 +1250,17 @@ final class PageCanvas: NSView {
     /// The bitmap under a point. Erasing only applies to images — there's nothing to
     /// rub out of a vector shape, and quietly doing nothing is worse than not offering
     /// the tool at all.
+    /// What the eraser and Remove act on: the SELECTED bitmap when there is one —
+    /// Photoshop's rule, so brushing over a stack edits the layer you chose, not
+    /// whatever happens to sit on top — falling back to the bitmap under the pointer.
+    private func eraseTarget(_ point: CGPoint) -> Layer? {
+        if selected.count == 1, let id = selected.first, let l = page?.layer(id),
+           case .bitmap = l.kind, !lockedDeep(id) {
+            return l
+        }
+        return bitmapHit(point)
+    }
+
     private func bitmapHit(_ point: CGPoint) -> Layer? {
         for d in composed.reversed() where d.imageRef != nil {
             let r = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
@@ -1468,13 +1479,13 @@ final class PageCanvas: NSView {
         if tool == .erase {
             // ⌥-drag cuts a straight-edged rectangle instead of painting.
             if event.modifierFlags.contains(.option),
-               let target = bitmapHit(p),
+               let target = eraseTarget(p),
                let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
                 eraseRectDrag = (target.id, t, p, p)
                 needsDisplay = true
                 return
             }
-            if let target = bitmapHit(p), let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
+            if let target = eraseTarget(p), let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
                 erasing = (target.id, [p.applying(t.inverted())], t)
                 needsDisplay = true
             }
@@ -1483,7 +1494,7 @@ final class PageCanvas: NSView {
 
         // --- Remove: box the thing on the bitmap that should go ---
         if tool == .remove {
-            if let target = bitmapHit(p),
+            if let target = eraseTarget(p),
                let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
                 eraseRectDrag = (target.id, t, p, p)
                 needsDisplay = true
