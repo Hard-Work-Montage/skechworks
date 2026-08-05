@@ -82,6 +82,31 @@ final class InteractionTests: XCTestCase {
                           "selecting text must not resize the window")
     }
 
+    /// The bare tool keys belong to the canvas, not the menus. As menu key
+    /// equivalents they fired no matter what had focus, which is why renaming a
+    /// layer inserted rectangles instead of typing letters.
+    func testBareToolKeysOnlyFireOnTheCanvas() {
+        let outline = row("Photo")
+        XCTAssertTrue(outline.waitForExistence(timeout: 5))
+
+        // Renaming: every letter is text, including R and T.
+        outline.doubleClick()
+        app.typeText("Art")
+        app.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(row("Art").waitForExistence(timeout: 3),
+                      "typing a name must not trigger tool shortcuts")
+        XCTAssertFalse(row("Rect").exists, "no rectangle should have been inserted")
+
+        // On the canvas the same key still works.
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        if canvas.exists {
+            canvas.click()
+            app.typeText("r")
+            XCTAssertTrue(row("Rect").waitForExistence(timeout: 3),
+                          "R on the canvas should insert a rectangle")
+        }
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")

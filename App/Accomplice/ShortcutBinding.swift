@@ -10,9 +10,22 @@ import SwiftUI
 
 extension View {
     /// Applies the registered shortcut for an action id.
+    ///
+    /// A canvas shortcut with no modifiers — the bare tool keys R, O, T, P, V, E —
+    /// is deliberately NOT registered as a menu key equivalent. AppKit offers menu
+    /// equivalents every keystroke before the focused view sees it, so a bare letter
+    /// in a menu fires while you are renaming a layer, typing a hex value or writing
+    /// in the chat box. The canvas handles those keys itself, by key code, when it
+    /// has focus (`Shortcut.keyCodes`). Modified shortcuts stay on the menu, which
+    /// is where ⌘S and friends belong.
+    @ViewBuilder
     func shortcut(_ id: String) -> some View {
         let s = Shortcuts[id]
-        return keyboardShortcut(KeyEquivalent(Character(s.key)), modifiers: s.swiftUIModifiers)
+        if s.context == .canvas, s.modifiers.isEmpty {
+            self
+        } else {
+            keyboardShortcut(KeyEquivalent(Character(s.key)), modifiers: s.swiftUIModifiers)
+        }
     }
 }
 

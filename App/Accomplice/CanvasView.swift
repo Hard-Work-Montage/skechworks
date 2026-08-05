@@ -56,6 +56,8 @@ final class PageCanvas: NSView {
     /// "I'm done with this tool" — the canvas can end a drawing mode, but only the
     /// store owns which tool is current, so finishing has to travel back up.
     var onExitTool: (() -> Void)?
+    /// A bare canvas key (tool switch, insert) by registry id.
+    var onCanvasShortcut: ((String) -> Void)?
     /// Which point is under the cursor's attention, for the Point Type control.
     var onPointSelected: ((Int?, CurveMode?) -> Void)?
     /// Inline rename, from double-clicking an artboard label. (id, new name)
@@ -2301,6 +2303,18 @@ final class PageCanvas: NSView {
 
     override func keyDown(with event: NSEvent) {
         let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+
+        // The bare tool keys live here rather than on the menus, so they can only
+        // fire while the canvas has focus. Modified presses fall through to the
+        // menus untouched.
+        if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let hit = Shortcuts.all.first(where: {
+               $0.context == .canvas && $0.modifiers.isEmpty && $0.keyCodes.contains(event.keyCode)
+           }), onCanvasShortcut != nil {
+            onCanvasShortcut?(hit.id)
+            return
+        }
+
         switch event.keyCode {
         case 36:   // return — finish an open path, or step into the selected path
             if let id = croppingID {
@@ -2512,6 +2526,17 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
         canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
         canvas.onExitTool = { store.tool = .select }
+        canvas.onCanvasShortcut = { id in
+            switch id {
+            case "select": store.tool = .select
+            case "vector": store.tool = .pen
+            case "erase":  store.tool = .erase
+            case "insertRect": store.insertRectangle()
+            case "insertOval": store.insertOval()
+            case "insertText": store.insertText()
+            default: break
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

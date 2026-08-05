@@ -100,12 +100,18 @@ public enum Shortcuts {
 
         // Insert
         .init(id: "insertArtboard", title: "Artboard", key: "A", modifiers: [.command, .shift], group: "Insert"),
-        .init(id: "insertRect", title: "Rectangle", key: "R", context: .canvas, group: "Insert"),
-        .init(id: "insertOval", title: "Oval", key: "O", context: .canvas, group: "Insert"),
-        .init(id: "insertText", title: "Text", key: "T", context: .canvas, group: "Insert"),
-        .init(id: "vector", title: "Vector", key: "P", context: .canvas, group: "Insert"),
-        .init(id: "select", title: "Select", key: "V", context: .canvas, group: "Insert"),
-        .init(id: "erase", title: "Erase", key: "E", context: .canvas, group: "Insert"),
+        .init(id: "insertRect", title: "Rectangle", key: "R", context: .canvas, keyCodes: [15],
+               group: "Insert"),
+        .init(id: "insertOval", title: "Oval", key: "O", context: .canvas, keyCodes: [31],
+               group: "Insert"),
+        .init(id: "insertText", title: "Text", key: "T", context: .canvas, keyCodes: [17],
+               group: "Insert"),
+        .init(id: "vector", title: "Vector", key: "P", context: .canvas, keyCodes: [35],
+               group: "Insert"),
+        .init(id: "select", title: "Select", key: "V", context: .canvas, keyCodes: [9],
+               group: "Insert"),
+        .init(id: "erase", title: "Erase", key: "E", context: .canvas, keyCodes: [14],
+               group: "Insert"),
 
         // Arrange
         .init(id: "bringForward", title: "Bring Forward", key: "]", modifiers: .command, group: "Arrange"),
