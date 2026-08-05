@@ -2,6 +2,11 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.1.15 (August 5, 2026)
+
+- Fixed: opening an SVG that uses a clip, mask or pattern drew the definition as artwork — a full-canvas rectangle over the picture, which usually meant a document that opened solid black. That covers our own exports and most files Illustrator and Figma write.
+- SVG gradient fills are read at last. The gradient handler had never once matched, so every gradient came in unpainted.
+
 ## 0.1.14 (August 5, 2026)
 
 - Text wraps inside its box. A sentence used to run straight off the layer however narrow the box was drawn.
