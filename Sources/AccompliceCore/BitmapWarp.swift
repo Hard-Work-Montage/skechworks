@@ -24,7 +24,49 @@ public enum BitmapWarp {
     public static func key(ref: String, _ l: Layer) -> NSString? {
         guard let w = l.warpCorners, w.count == 4 else { return nil }
         let c = w.map { "\($0.x),\($0.y)" }.joined(separator: "|")
-        return "\(ref)|warp|\(c)|\(BitmapAdjust.key(ref: ref, l))" as NSString
+        // Erase strokes are cut before the warp, so they belong in the cache key —
+        // a cheap signature beats hashing every dab.
+        var e: CGFloat = 0
+        for s in l.erased {
+            e += (s.rect?.minX ?? 0) + (s.rect?.minY ?? 0) + s.radius
+            for p in s.points { e += p.x + p.y }
+        }
+        return "\(ref)|warp|\(c)|e\(l.erased.count),\(e)|\(BitmapAdjust.key(ref: ref, l))" as NSString
+    }
+
+    /// The full pipeline for a warped bitmap: bake the display image, cut the
+    /// erase holes in flat space, then project — so erases travel with the
+    /// picture instead of being lost the moment a corner moves.
+    public static func warpedDisplayImage(data: Data, ref: String,
+                                          layer l: Layer) -> (image: CGImage, unitBox: CGRect)? {
+        guard let corners = l.warpCorners, corners.count == 4,
+              let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: l) else { return nil }
+        let cacheKey = key(ref: ref, l)
+        if let cacheKey, let hit = cache.object(forKey: cacheKey) {
+            return (hit.image, hit.box)
+        }
+        var source = baked
+        if !l.erased.isEmpty, l.frame.width > 0,
+           let mask = EraseMask.image(strokes: l.erased, size: l.frame.size),
+           let cut = masked(baked, with: mask) {
+            source = cut
+        }
+        return image(source, corners: corners, cacheKey: cacheKey)
+    }
+
+    /// Applies an erase mask (built in layer units) to a pixel-sized image.
+    /// clip(to:mask:) stretches the mask to the rect, which also absorbs any
+    /// difference between the frame's aspect and the pixels'.
+    private static func masked(_ src: CGImage, with mask: CGImage) -> CGImage? {
+        guard let ctx = CGContext(data: nil, width: src.width, height: src.height,
+                                  bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        let r = CGRect(x: 0, y: 0, width: src.width, height: src.height)
+        ctx.clip(to: r, mask: mask)
+        ctx.draw(src, in: r)
+        return ctx.makeImage()
     }
 
     /// The warped image and its bounding box in unit coordinates of the frame.

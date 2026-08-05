@@ -73,3 +73,26 @@ private func whitePNG(width: Int, height: Int) -> Data {
     #expect(page.layers[0].warpCorners == nil)
     #expect(run.report.contains("Flatten"))
 }
+
+@Test func eraseHolesSurviveAWarpAndStayWhereTheyWereCut() throws {
+    // Hole near the TOP of a flat-corner (identity) warp: if the mask is applied
+    // with the wrong orientation the hole mirrors to the bottom, and if erase is
+    // skipped entirely the hole never appears. Red background shows through.
+    let png = whitePNG(width: 128, height: 72)
+
+    var l = Layer(kind: .bitmap(imageRef: "w.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 128, height: 72)
+    l.erased = [EraseStroke(points: [CGPoint(x: 64, y: 9)], radius: 12, softness: 0)]
+    l.warpCorners = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
+                     CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)]
+    var page = Page(name: "p")
+    page.layers = [l]
+
+    let img = Renderer(images: ["w.png": png],
+                       background: Color(r: 1, g: 0, b: 0, a: 1)).render(page: page, maxDimension: 128)!
+    let data = img.dataProvider!.data! as Data
+    func green(_ x: Int, _ y: Int) -> UInt8 { data[y * img.bytesPerRow + x * 4 + 1] }
+    let x = img.width / 2
+    #expect(green(x, img.height * 9 / 72) < 60, "the hole is where the stroke was")
+    #expect(green(x, img.height * 63 / 72) > 200, "the mirrored spot is untouched")
+}

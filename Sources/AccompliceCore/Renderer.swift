@@ -163,10 +163,8 @@ public struct Renderer {
             // Perspective warp: bake the display image (orientation, adjustments,
             // crop) and project it onto the corner quad. The warped picture can
             // spill outside the frame — that's the point of dragging a corner out.
-            if let corners = d.layer.warpCorners, corners.count == 4,
-               let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer),
-               let (warped, unitBox) = BitmapWarp.image(baked, corners: corners,
-                                                        cacheKey: BitmapWarp.key(ref: ref, d.layer)) {
+            if d.layer.warpCorners != nil,
+               let (warped, unitBox) = BitmapWarp.warpedDisplayImage(data: data, ref: ref, layer: d.layer) {
                 let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
                                  width: unitBox.width * r.width, height: unitBox.height * r.height)
                 ctx.translateBy(x: box.minX, y: box.minY)

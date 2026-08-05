@@ -82,10 +82,8 @@ public struct SVGWriter {
                 // SVG has no perspective transform for images at all, so a warped
                 // bitmap is projected first and the warped raster is embedded at
                 // its bounding box.
-                if let corners = d.layer.warpCorners, corners.count == 4,
-                   let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer),
-                   let (warped, unitBox) = BitmapWarp.image(baked, corners: corners,
-                                                            cacheKey: BitmapWarp.key(ref: ref, d.layer)),
+                if d.layer.warpCorners != nil,
+                   let (warped, unitBox) = BitmapWarp.warpedDisplayImage(data: data, ref: ref, layer: d.layer),
                    let png = Renderer.png(warped) {
                     let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
                                      width: unitBox.width * r.width, height: unitBox.height * r.height)
