@@ -28,13 +28,16 @@ final class DocumentStore: ObservableObject {
     }
 
     enum Tool: String, CaseIterable {
-        case select, pen, erase, remove
+        case select, pen, erase, remove, rect, oval, text
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
             case .erase: return "eraser"
             case .remove: return "wand.and.stars"
+            case .rect: return "rectangle"
+            case .oval: return "circle"
+            case .text: return "textformat"
             }
         }
         var title: String {
@@ -43,10 +46,30 @@ final class DocumentStore: ObservableObject {
             case .pen: return "Vector"
             case .erase: return "Erase"
             case .remove: return "Remove"
+            case .rect: return "Rectangle"
+            case .oval: return "Oval"
+            case .text: return "Text"
+            }
+        }
+
+        /// Tools that make something new where you put it, rather than acting on
+        /// artwork that's already there.
+        var draws: Bool { self == .rect || self == .oval || self == .text }
+
+        /// The word `add` knows this shape by.
+        var kind: String {
+            switch self {
+            case .oval: return "ellipse"
+            case .text: return "text"
+            default: return "rect"
             }
         }
     }
     @Published var tool: Tool = .select
+    /// A text layer that was just placed and should open for typing as soon as the
+    /// canvas has it. Set here, consumed by the canvas on its next update — the
+    /// layer doesn't exist in the view's copy of the page until then.
+    @Published var pendingTextEdit: String?
     /// Brush settings, kept across strokes and documents — you pick a size once.
     /// UserDefaults directly rather than @AppStorage: this is a store, not a view.
     var eraseRadius: Double {
@@ -1586,6 +1609,41 @@ final class DocumentStore: ObservableObject {
     /// The insert menu and the chat create layers the same way — Page.add is the
     /// single implementation, so an artboard made by asking for one is identical to
     /// an artboard made from the menu.
+    /// Puts a new shape exactly where it was drawn, then hands the pointer back.
+    ///
+    /// The key arms the tool and the drag says where and how big, which is what
+    /// every drawing app has done since Fireworks and what dropping one in the
+    /// middle of the canvas can't be: every shape used to start life needing to be
+    /// moved somewhere else.
+    ///
+    /// Coordinates are page space. Adoption converts them if the shape lands on an
+    /// artboard, so a rectangle drawn on a board keeps the corner it was drawn at.
+    @discardableResult
+    func placeShape(_ tool: Tool, in frame: CGRect) -> String? {
+        var spec = AddSpec()
+        spec.kind = tool.kind
+        spec.x = Double(frame.minX)
+        spec.y = Double(frame.minY)
+        // A click with no drag takes the shape's own default size rather than a
+        // number repeated here, so there stays one answer to how big a new
+        // rectangle is. Clicking is how you place text; dragging is how you draw.
+        if frame.width >= 2, frame.height >= 2 {
+            spec.width = Double(frame.width)
+            spec.height = Double(frame.height)
+        }
+        var made: String?
+        mutatePage("Insert \(tool.title)") { made = $0.add(spec) }
+        if let made { selection = [made] }
+        // Text arrives ready to be typed into. Placing a box that says "Type
+        // something" and making the user find it again is the friction this whole
+        // change is about.
+        if tool == .text { pendingTextEdit = made }
+        // Back to the pointer, so the next click selects rather than drawing a
+        // second one. Sketch does this and the muscle memory is universal.
+        self.tool = .select
+        return made
+    }
+
     private func insert(_ kind: String, _ actionName: String) {
         var spec = AddSpec()
         spec.kind = kind

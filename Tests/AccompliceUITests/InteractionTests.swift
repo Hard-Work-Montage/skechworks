@@ -97,13 +97,18 @@ final class InteractionTests: XCTestCase {
                       "typing a name must not trigger tool shortcuts")
         XCTAssertFalse(row("Rect").exists, "no rectangle should have been inserted")
 
-        // On the canvas the same key still works.
+        // On the canvas the same key still works. It arms the rectangle tool now
+        // rather than dropping a shape in the middle, so the drag is what makes it.
         let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
         if canvas.exists {
             canvas.click()
             app.typeText("r")
+            XCTAssertFalse(row("Rect").exists, "R arms the tool; it must not draw anything on its own")
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.35))
+                .press(forDuration: 0.1,
+                       thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.55)))
             XCTAssertTrue(row("Rect").waitForExistence(timeout: 3),
-                          "R on the canvas should insert a rectangle")
+                          "dragging with the rectangle tool should draw one")
         }
     }
 

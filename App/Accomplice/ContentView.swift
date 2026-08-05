@@ -81,13 +81,13 @@ struct ContentView: View {
                     Divider()
                     Button("Vector") { store.tool = .pen }
                         .shortcut("vector")
-                    Button("Text") { store.insertText() }
+                    Button("Text") { store.tool = .text }
                         .shortcut("insertText")
                     Button("Image…") { store.insertImage() }
                     Divider()
-                    Button("Rectangle") { store.insertRectangle() }
+                    Button("Rectangle") { store.tool = .rect }
                         .shortcut("insertRect")
-                    Button("Oval") { store.insertOval() }
+                    Button("Oval") { store.tool = .oval }
                         .shortcut("insertOval")
                     Button("Star") { store.insertStar() }
                     Button("Polygon") { store.insertPolygon() }

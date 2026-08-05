@@ -87,6 +87,9 @@ final class PageCanvas: NSView {
     private var pixelDraft: CGRect?
     /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
     var onEraseRect: ((String, CGRect) -> Void)?
+    /// A new shape was dragged out. The rect is page coordinates; an empty one
+    /// means a plain click, which takes the shape's own default size.
+    var onPlaceShape: ((CGRect) -> Void)?
 
     /// The bitmap being cropped; the inspector drives it through the store.
     var croppingID: String? {
@@ -102,6 +105,22 @@ final class PageCanvas: NSView {
     private var cropDrag: (handle: Handle?, start: CGPoint, rect: CGRect)?
     /// A marquee erase in flight: layer, its transform, and the drag in page coords.
     private var eraseRectDrag: (id: String, t: CGAffineTransform, start: CGPoint, current: CGPoint)?
+    /// Where a new shape is being dragged out, in page coordinates.
+    private var shapeDrag: (start: CGPoint, current: CGPoint)?
+
+    /// The box a drag describes. Shift squares it off — the same modifier that
+    /// constrains a resize, so it means the same thing in both places.
+    private func shapeRect(_ d: (start: CGPoint, current: CGPoint)) -> CGRect {
+        var w = d.current.x - d.start.x
+        var h = d.current.y - d.start.y
+        if NSEvent.modifierFlags.contains(.shift) {
+            let side = max(abs(w), abs(h))
+            w = side * (w < 0 ? -1 : 1)
+            h = side * (h < 0 ? -1 : 1)
+        }
+        return CGRect(x: min(d.start.x, d.start.x + w), y: min(d.start.y, d.start.y + h),
+                      width: abs(w), height: abs(h))
+    }
 
     private func beginCropDraft() {
         guard let id = croppingID, let page,
@@ -450,6 +469,12 @@ final class PageCanvas: NSView {
             NSCursor.crosshair.set()
             return
         }
+        // An armed drawing tool has to look armed. Otherwise pressing R and seeing
+        // nothing happen reads as the key not having landed.
+        if tool.draws {
+            NSCursor.crosshair.set()
+            return
+        }
         if tool == .erase {
             // The ring IS the size control: you can see how big the brush is before
             // committing a stroke you'd have to undo to judge.
@@ -505,6 +530,7 @@ final class PageCanvas: NSView {
         window?.invalidateCursorRects(for: self)
         guard let p = hoverPoint else {
             if tool == .pen { VectorCursors.pen(.add).set() }
+            if tool.draws { NSCursor.crosshair.set() }
             return
         }
         // Entering point editing happens with the pointer already sitting on the shape,
@@ -804,6 +830,14 @@ final class PageCanvas: NSView {
         drawPenPreview(ctx)
         drawArtboardLabels()
         drawCropOverlay(ctx)
+        if let sd = shapeDrag {
+            let r = shapeRect(sd)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(1 / sc)
+            ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
+            if tool == .oval { ctx.strokeEllipse(in: r) } else { ctx.stroke(r) }
+            ctx.setLineDash(phase: 0, lengths: [])
+        }
         if let er = eraseRectDrag {
             let r = CGRect(x: min(er.start.x, er.current.x), y: min(er.start.y, er.current.y),
                            width: abs(er.current.x - er.start.x), height: abs(er.current.y - er.start.y))
@@ -1051,6 +1085,13 @@ final class PageCanvas: NSView {
     private var labelEditIsText = false
 
     /// Edit a text layer's words right where they sit.
+    /// Opens a text layer for typing by id. The placement path has an id and no
+    /// layer yet; everything else already holds both.
+    func beginTextEdit(_ id: String) {
+        guard let l = page?.layer(id), case .text(let run) = l.kind else { return }
+        beginTextEdit(l, run)
+    }
+
     private func beginTextEdit(_ l: Layer, _ run: TextRun) {
         endLabelEdit(commit: true)
         guard let page,
@@ -1587,6 +1628,13 @@ final class PageCanvas: NSView {
         }
 
         // --- Erase: paint on the bitmap under the pointer ---
+        // --- Drawing tools: the drag says where and how big ---
+        if tool.draws {
+            shapeDrag = (p, p)
+            needsDisplay = true
+            return
+        }
+
         if tool == .erase {
             // ⌥-drag cuts a straight-edged rectangle instead of painting.
             if event.modifierFlags.contains(.option),
@@ -2075,6 +2123,11 @@ final class PageCanvas: NSView {
             }
             return
         }
+        if shapeDrag != nil {
+            shapeDrag!.current = p
+            needsDisplay = true
+            return
+        }
         if eraseRectDrag != nil {
             eraseRectDrag!.current = p
             needsDisplay = true
@@ -2248,6 +2301,12 @@ final class PageCanvas: NSView {
             } else {
                 pixelDraft = nil
             }
+            needsDisplay = true
+            return
+        }
+        if let sd = shapeDrag {
+            shapeDrag = nil
+            onPlaceShape?(shapeRect(sd))
             needsDisplay = true
             return
         }
@@ -2450,8 +2509,22 @@ extension PageCanvas: NSTextFieldDelegate {
 
     func control(_ control: NSControl, textView: NSTextView,
                  doCommandBy sel: Selector) -> Bool {
+        // Return makes a new line in artwork text, the way it does in every other
+        // text tool. The renderer has always laid out explicit breaks; only the
+        // editor refused to let one be typed. So a caption could never be two
+        // lines, and worse, Return ended the edit and handed the next keystroke
+        // back to the menus — where T obligingly started another text layer on top
+        // of the one just finished.
+        if sel == #selector(NSResponder.insertNewline(_:)), labelEditIsText {
+            textView.insertNewlineIgnoringFieldEditor(nil)
+            return true
+        }
         guard sel == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        endLabelEdit(commit: false)   // Escape: the edit never happened
+        // Escape keeps artwork text as typed. Now that Return builds lines instead
+        // of finishing, throwing the words away would leave clicking elsewhere as
+        // the only way out. A layer NAME still cancels: one line is all it has, so
+        // Return finishes it and Escape means "forget it".
+        endLabelEdit(commit: labelEditIsText)
         return true
     }
 }
@@ -2485,6 +2558,16 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.tool = tool
         canvas.croppingID = cropping
         wire(canvas)
+        // A text layer placed a moment ago exists in the store before it exists in
+        // the copy of the page this view holds. Now it's here, so open it.
+        if let id = store.pendingTextEdit, canvas.page?.layer(id) != nil {
+            // Next turn of the loop: clearing it here is a state change inside a
+            // view update, which SwiftUI rightly complains about.
+            DispatchQueue.main.async {
+                store.pendingTextEdit = nil
+                canvas.beginTextEdit(id)
+            }
+        }
         if let req = pointMode, context.coordinator.lastPointModeSerial != req.serial {
             context.coordinator.lastPointModeSerial = req.serial
             canvas.applyPointMode(req.mode)
@@ -2535,6 +2618,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onCommitCrop = { id, unit in store.applyCrop(id, unit: unit) }
         canvas.onCancelCrop = { store.croppingID = nil }
         canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
+        canvas.onPlaceShape = { [weak store] r in store?.placeShape(store?.tool ?? .rect, in: r) }
         canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
         canvas.pixelSelectID = store.pixelSelectID
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
@@ -2570,9 +2654,9 @@ struct CanvasRepresentable: NSViewRepresentable {
             case "select": store.tool = .select
             case "vector": store.tool = .pen
             case "erase":  store.tool = .erase
-            case "insertRect": store.insertRectangle()
-            case "insertOval": store.insertOval()
-            case "insertText": store.insertText()
+            case "insertRect": store.tool = .rect
+            case "insertOval": store.tool = .oval
+            case "insertText": store.tool = .text
             default: return false      // the arrows and delete are handled on the canvas
             }
             return true
