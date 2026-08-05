@@ -331,6 +331,17 @@ public struct AddSpec: Sendable, Equatable {
     public var sides: Int?
     /// Star only: inner radius as a fraction of the outer.
     public var innerRatio: Double?
+    /// SVG path data for kind "path", in the parent's coordinates — the same
+    /// numbers you'd write in a `d` attribute, y pointing down.
+    ///
+    /// The one primitive a model couldn't reach before this. Rects, ellipses and
+    /// stars are recipes it picks from; a curve it has measured off an image is
+    /// arbitrary, and without this it had to approximate everything as boxes.
+    public var d: String?
+    /// Border colour. Given without a fill on a path, the shape is drawn as a
+    /// stroke only, which is what line art wants.
+    public var stroke: String?
+    public var strokeWidth: Double?
     public init() {}
 }
 
@@ -382,7 +393,13 @@ extension Page {
     /// anyone asks it.
     @discardableResult
     public mutating func add(_ spec: AddSpec) -> String? {
-        let kind = spec.kind.lowercased()
+        // Path data means a path. The kind defaults to "rect", so a caller that
+        // gives the curve and leaves the kind alone would otherwise get a plain
+        // box — silently, with the data it measured thrown away.
+        var kind = spec.kind.lowercased()
+        if kind == "rect", let d = spec.d, !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            kind = "path"
+        }
         let d = Page.defaultSize(kind)
         let size = CGSize(width: max(1, spec.width.map { CGFloat($0) } ?? d.width),
                           height: max(1, spec.height.map { CGFloat($0) } ?? d.height))
@@ -404,7 +421,8 @@ extension Page {
             origin = CGPoint(x: spec.x.map { CGFloat($0) } ?? fallback.x,
                              y: spec.y.map { CGFloat($0) } ?? fallback.y)
         }
-        let frame = CGRect(origin: origin, size: size)
+        // Path data carries its own position and size, so that kind replaces this.
+        var frame = CGRect(origin: origin, size: size)
         let local = CGRect(origin: .zero, size: size)
 
         var l: Layer
@@ -422,6 +440,29 @@ extension Page {
             run.fontSize = spec.fontSize.map { CGFloat($0) } ?? 48
             run.alignment = .center
             l = Layer(kind: .text(run))
+        case "path", "curve", "outline":
+            // Nothing sensible to draw without the data, and a silent fallback to a
+            // 200×200 rectangle would look like the curve landed and went wrong.
+            guard let d = spec.d, !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            let parsed = PathParser.path(from: d)
+            let box = parsed.boundingBoxOfPath
+            guard !box.isNull, !box.isInfinite,
+                  box.width.isFinite, box.height.isFinite,
+                  box.width > 0 || box.height > 0 else { return nil }
+
+            // A layer holds its outline with the origin at its own corner, so the
+            // parsed coordinates become the frame and the path keeps only its shape.
+            let sx = spec.width.map { CGFloat($0) / max(box.width, 0.0001) } ?? 1
+            let sy = spec.height.map { CGFloat($0) / max(box.height, 0.0001) } ?? 1
+            var t = CGAffineTransform(translationX: -box.minX, y: -box.minY)
+                .concatenating(CGAffineTransform(scaleX: sx, y: sy))
+            let shaped = parsed.copy(using: &t) ?? parsed
+            l = Layer(kind: .path(shaped, closed: d.lowercased().contains("z")))
+            frame = CGRect(x: spec.x.map { CGFloat($0) } ?? box.minX,
+                           y: spec.y.map { CGFloat($0) } ?? box.minY,
+                           width: max(1, box.width * sx),
+                           height: max(1, box.height * sy))
         case "line":
             let p = CGMutablePath()
             p.move(to: .zero)
@@ -452,13 +493,23 @@ extension Page {
         }
         if kind != "artboard" {
             let colour = spec.fill.flatMap { SVGReader.color($0, alpha: 1) } ?? .black
-            if kind == "line" {
+            // Line art is strokes, not filled regions: a path given a stroke and no
+            // fill stays hollow, which is the whole point of tracing an outline
+            // drawing rather than flooding it black.
+            let strokeOnly = spec.fill == nil && (spec.stroke != nil || spec.strokeWidth != nil)
+            if kind == "line" || strokeOnly {
                 var b = Border()
-                b.color = colour
-                b.thickness = 1
+                b.color = spec.stroke.flatMap { SVGReader.color($0, alpha: 1) } ?? colour
+                b.thickness = spec.strokeWidth.map { CGFloat($0) } ?? 1
                 l.style.borders = [b]
             } else {
                 l.style.fills = [Fill(paint: .color(colour))]
+                if let hex = spec.stroke, let c = SVGReader.color(hex, alpha: 1) {
+                    var b = Border()
+                    b.color = c
+                    b.thickness = spec.strokeWidth.map { CGFloat($0) } ?? 1
+                    l.style.borders = [b]
+                }
             }
         } else if let hex = spec.fill, let c = SVGReader.color(hex, alpha: 1) {
             l.backgroundColor = c

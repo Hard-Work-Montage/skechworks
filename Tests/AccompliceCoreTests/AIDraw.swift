@@ -1,0 +1,177 @@
+import CoreGraphics
+import Foundation
+import Testing
+@testable import AccompliceCore
+
+// The two things a model needs before it can trace anything: a way to draw a
+// curve, and a way to see how close it got.
+
+// MARK: - Drawing a curve
+
+@Test func pathDataBecomesALayerWhereItWasDrawn() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec()
+        s.kind = "path"
+        s.d = "M 100 200 C 100 100 300 100 300 200 Z"
+        return s
+    }())
+    let layer = try! #require(id.flatMap { page.layer($0) })
+    // The frame comes from the data, not from a default size dropped in the
+    // middle of the page — a model that measured a curve off an image means
+    // exactly those coordinates.
+    #expect(layer.frame.minX == 100)
+    #expect(layer.frame.width == 200)
+    guard case .path(let p, let closed) = layer.kind else { Issue.record("not a path"); return }
+    #expect(closed)
+    // Stored in the layer's own space, so the outline starts at its corner.
+    #expect(p.boundingBoxOfPath.minX == 0)
+    #expect(p.boundingBoxOfPath.minY == 0)
+}
+
+@Test func pathDataNeedsNoKindToBeUnderstood() {
+    var page = Page(name: "P")
+    let id = page.add({ var s = AddSpec(); s.d = "M 0 0 L 50 50"; return s }())
+    let layer = try! #require(id.flatMap { page.layer($0) })
+    // A default rectangle is a .path too, so the kind alone proves nothing. The
+    // frame is the tell: data means these coordinates, not a 200×200 default.
+    #expect(layer.frame == CGRect(x: 0, y: 0, width: 50, height: 50))
+}
+
+@Test func aPathWithNoDataIsRefusedRatherThanGuessed() {
+    var page = Page(name: "P")
+    #expect(page.add({ var s = AddSpec(); s.kind = "path"; return s }()) == nil)
+    #expect(page.add({ var s = AddSpec(); s.kind = "path"; s.d = "  "; return s }()) == nil)
+    #expect(page.layers.isEmpty)
+}
+
+@Test func givingASizeScalesTheDataToFitIt() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec()
+        s.d = "M 0 0 L 10 0 L 10 10 Z"
+        s.width = 100; s.height = 50
+        return s
+    }())
+    let layer = try! #require(id.flatMap { page.layer($0) })
+    #expect(layer.frame.width == 100)
+    #expect(layer.frame.height == 50)
+    guard case .path(let p, _) = layer.kind else { Issue.record("not a path"); return }
+    #expect(p.boundingBoxOfPath.width == 100)
+}
+
+@Test func aStrokeWithoutAFillDrawsHollow() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec()
+        s.d = "M 0 0 L 100 0"
+        s.stroke = "#FF0000"; s.strokeWidth = 12
+        return s
+    }())
+    let layer = try! #require(id.flatMap { page.layer($0) })
+    #expect(layer.style.fills.isEmpty)
+    #expect(layer.style.borders.first?.thickness == 12)
+}
+
+@Test func aFillAndAStrokeTogetherKeepBoth() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec()
+        s.d = "M 0 0 L 100 0 L 100 100 Z"
+        s.fill = "#00FF00"; s.stroke = "#000000"; s.strokeWidth = 4
+        return s
+    }())
+    let layer = try! #require(id.flatMap { page.layer($0) })
+    #expect(layer.style.fills.count == 1)
+    #expect(layer.style.borders.first?.thickness == 4)
+}
+
+@Test func theWholeThingArrivesAsACommand() {
+    var page = Page(name: "P")
+    let json = ##"{"commands":[{"op":"add","kind":"path","name":"Thumb","d":"M 10 10 C 10 40 60 40 60 10","stroke":"#111111","strokeWidth":8}]}"##
+    _ = page.run(DocumentCommand.decodeList(Data(json.utf8)))
+    let layer = try! #require(page.layers.first)
+    #expect(layer.name == "Thumb")
+    #expect(layer.style.borders.first?.thickness == 8)
+}
+
+// MARK: - Seeing how close it got
+
+private func swatch(_ r: Double, _ g: Double, _ b: Double, side: Int = 64,
+                    patch: CGRect? = nil) -> CGImage {
+    let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                        bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
+    ctx.setFillColor(CGColor(srgbRed: r, green: g, blue: b, alpha: 1))
+    ctx.fill(patch ?? CGRect(x: 0, y: 0, width: side, height: side))
+    return ctx.makeImage()!
+}
+
+@Test func identicalRendersScorePerfectly() {
+    let a = swatch(0.2, 0.4, 0.6)
+    #expect(Compare.score(a, a) > 0.999)
+}
+
+@Test func blackAgainstWhiteScoresNothing() {
+    #expect(Compare.score(swatch(0, 0, 0), swatch(1, 1, 1)) < 0.01)
+}
+
+@Test func aMistakeInOneCornerOnlyLightsThatCorner() {
+    let clean = swatch(1, 1, 1)
+    // Bottom-right eighth painted black.
+    let smudged = swatch(0, 0, 0, patch: CGRect(x: 48, y: 48, width: 16, height: 16))
+    let grid = Compare.errors(clean, smudged, cells: 4)
+    // Row 0 is the top. CoreGraphics draws from the bottom, so the patch at y=48
+    // lands in the TOP row of the image as it reads.
+    #expect(grid[0][3] > 0.5)
+    #expect(grid[2][1] < 0.01)
+}
+
+@Test func theWorstAreaComesBackInPageCoordinates() {
+    let clean = swatch(1, 1, 1)
+    let smudged = swatch(0, 0, 0, patch: CGRect(x: 48, y: 48, width: 16, height: 16))
+    let bounds = CGRect(x: 0, y: 0, width: 400, height: 400)
+    let spot = try! #require(Compare.hotspots(clean, smudged, in: bounds, cells: 4).first)
+    #expect(spot.minX == 300)
+    #expect(spot.minY == 0)
+    #expect(spot.width == 100)
+}
+
+@Test func transparencyIsNotAFreePerfectScore() {
+    // An empty page renders to nothing. Compared against real artwork it has to
+    // score badly, or every trace passes by drawing nothing at all.
+    let ctx = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
+                        bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    let empty = ctx.makeImage()!
+    #expect(Compare.score(empty, swatch(0, 0, 0)) < 0.05)
+}
+
+@Test func theReportReadsAsAGridAModelCanActdOn() {
+    let clean = swatch(1, 1, 1)
+    let smudged = swatch(0, 0, 0, patch: CGRect(x: 48, y: 48, width: 16, height: 16))
+    let text = Compare.report(clean, against: smudged,
+                              bounds: CGRect(x: 0, y: 0, width: 400, height: 400), cells: 4)
+    #expect(text.contains("match "))
+    #expect(text.contains("9 0 0 0") || text.contains("0 0 0 9"))
+    #expect(text.contains("worst areas"))
+}
+
+@Test func aDrawingIsScoredAgainstThePictureItCameFrom() {
+    // The loop end to end, without a model: draw the wrong thing, score it, draw
+    // the right thing, score better.
+    let reference = swatch(0, 0, 0, patch: CGRect(x: 0, y: 0, width: 32, height: 64))
+    let bounds = CGRect(x: 0, y: 0, width: 64, height: 64)
+
+    var wrong = Page(name: "W")
+    _ = wrong.add({ var s = AddSpec(); s.d = "M 40 0 L 64 0 L 64 64 L 40 64 Z"; s.fill = "#000000"; return s }())
+    var right = Page(name: "R")
+    _ = right.add({ var s = AddSpec(); s.d = "M 0 0 L 32 0 L 32 64 L 0 64 Z"; s.fill = "#000000"; return s }())
+
+    let a = try! #require(Compare.render(wrong, bounds: bounds, matching: reference))
+    let b = try! #require(Compare.render(right, bounds: bounds, matching: reference))
+    #expect(Compare.score(b, reference) > Compare.score(a, reference))
+    #expect(Compare.score(b, reference) > 0.9)
+}

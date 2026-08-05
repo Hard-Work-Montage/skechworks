@@ -443,6 +443,9 @@ extension DocumentCommand {
             spec.fontSize = n("fontSize", "size")
             spec.sides = n("sides", "points").map(Int.init)
             spec.innerRatio = n("innerRatio", "inner")
+            spec.d = s("d", "path", "pathData", "data")
+            spec.stroke = s("stroke", "strokeColor", "strokeColour", "border")
+            spec.strokeWidth = n("strokeWidth", "thickness", "weight", "borderWidth")
             return .add(spec)
         case "addartboard", "newartboard", "createartboard":
             var spec = AddSpec()
@@ -591,9 +594,15 @@ extension DocumentCommand {
                        selects and moves.
           group        name (optional)
           ungroup
-          add          kind: artboard|rect|ellipse|text|line|star|polygon,
+          add          kind: artboard|rect|ellipse|text|line|star|polygon|path,
                        star/polygon take sides (star points) and innerRatio
-                       (star spike depth, 0-1); plus any of
+                       (star spike depth, 0-1); path takes d, SVG path data in
+                       THIS page's coordinates (y down, same as an SVG "d"
+                       attribute) — use it for any curve that isn't one of the
+                       shapes above, and give width/height only if you want the
+                       data scaled to fit them; plus any of
+                       stroke and strokeWidth (a path with a stroke and no fill
+                       draws hollow, which is what outline drawings want), and
                        name, x, y, width, height, fill, text, font, fontSize,
                        and parent (the name of an artboard to put it inside).
                        Everything is optional — omit what you don't care about and

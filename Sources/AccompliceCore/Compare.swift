@@ -1,0 +1,133 @@
+import CoreGraphics
+import Foundation
+
+/// Scoring a drawing against the picture it was drawn from.
+///
+/// The point of this is not to grade the result for a human. It's to close the
+/// loop for a model: a vision model asked to trace an image is poor at emitting
+/// coordinates in one shot and good at correcting them when told which way it's
+/// wrong. One number says whether the last edit helped; the error map says where
+/// to look next. Without both, a trace is a single blind guess.
+public enum Compare {
+
+    /// How alike two renders are, 1 being identical.
+    ///
+    /// Mean per-channel distance rather than anything perceptual. A drawing that's
+    /// the right shape in the wrong grey should score close, and a shape in the
+    /// wrong PLACE should score badly, which plain distance gets right and most
+    /// clever metrics soften.
+    public static func score(_ a: CGImage, _ b: CGImage, resolution: Int = 240) -> Double {
+        let cells = errors(a, b, cells: 1, resolution: resolution)
+        return 1 - (cells.first?.first ?? 1)
+    }
+
+    /// Error per cell of a `cells`×`cells` grid, row 0 at the top, 0 perfect and
+    /// 1 completely wrong.
+    public static func errors(_ a: CGImage, _ b: CGImage,
+                              cells: Int = 6, resolution: Int = 240) -> [[Double]] {
+        let n = max(1, cells)
+        let side = max(n, (resolution / n) * n)
+        guard let pa = sample(a, side: side), let pb = sample(b, side: side) else {
+            return Array(repeating: Array(repeating: 1.0, count: n), count: n)
+        }
+        let step = side / n
+        var out = Array(repeating: Array(repeating: 0.0, count: n), count: n)
+        for row in 0..<n {
+            for col in 0..<n {
+                var total = 0.0
+                for y in (row * step)..<((row + 1) * step) {
+                    for x in (col * step)..<((col + 1) * step) {
+                        let i = (y * side + x) * 4
+                        let dr = abs(Int(pa[i]) - Int(pb[i]))
+                        let dg = abs(Int(pa[i + 1]) - Int(pb[i + 1]))
+                        let db = abs(Int(pa[i + 2]) - Int(pb[i + 2]))
+                        total += Double(dr + dg + db) / 3.0
+                    }
+                }
+                out[row][col] = total / Double(step * step) / 255.0
+            }
+        }
+        return out
+    }
+
+    /// The regions that differ most, worst first, in the coordinates of `bounds`.
+    ///
+    /// What a model does with a bad score is look closer, and this is the crop to
+    /// ask for.
+    public static func hotspots(_ a: CGImage, _ b: CGImage, in bounds: CGRect,
+                                cells: Int = 6, limit: Int = 3) -> [CGRect] {
+        let grid = errors(a, b, cells: cells)
+        let n = grid.count
+        let w = bounds.width / CGFloat(n), h = bounds.height / CGFloat(n)
+        var ranked: [(Double, CGRect)] = []
+        for row in 0..<n {
+            for col in 0..<n where grid[row][col] > 0.02 {
+                ranked.append((grid[row][col], CGRect(x: bounds.minX + CGFloat(col) * w,
+                                                      y: bounds.minY + CGFloat(row) * h,
+                                                      width: w, height: h)))
+            }
+        }
+        return ranked.sorted { $0.0 > $1.0 }.prefix(limit).map(\.1)
+    }
+
+    /// The comparison written for a model to read back.
+    ///
+    /// A grid of digits rather than a list of numbers because the shape of the
+    /// mistake is the useful part — a whole edge lit up reads as "everything is
+    /// shifted", one hot cell reads as "one shape is wrong" — and that pattern
+    /// survives being flattened into text where a table of decimals doesn't.
+    public static func report(_ drawing: CGImage, against reference: CGImage,
+                              bounds: CGRect? = nil, cells: Int = 6) -> String {
+        let grid = errors(drawing, reference, cells: cells)
+        let overall = grid.flatMap { $0 }.reduce(0, +) / Double(cells * cells)
+        var lines = ["match \(Int(((1 - overall) * 100).rounded()))%",
+                     "\(cells)×\(cells) error map over the compared area, 0 best 9 worst:"]
+        for row in grid {
+            lines.append(row.map { String(min(9, Int(($0 * 10).rounded()))) }.joined(separator: " "))
+        }
+        if let bounds {
+            let spots = hotspots(drawing, reference, in: bounds, cells: cells)
+            if spots.isEmpty {
+                lines.append("nothing stands out — the remaining error is spread thin.")
+            } else {
+                lines.append("worst areas, x y w h: " + spots.map {
+                    "(\(Int($0.minX)) \(Int($0.minY)) \(Int($0.width)) \(Int($0.height)))"
+                }.joined(separator: ", "))
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Renders part of a page at the same pixel size as something to compare it
+    /// against, so the two line up without either being rescaled first.
+    public static func render(_ page: Page, bounds: CGRect, matching reference: CGImage,
+                             images: [String: Data] = [:]) -> CGImage? {
+        let target = CGFloat(max(reference.width, reference.height))
+        return Renderer(images: images, background: Color(r: 1, g: 1, b: 1, a: 1))
+            .render(page: page, maxDimension: max(32, target), bounds: bounds)
+    }
+
+    /// Both images flattened onto white at a common size.
+    ///
+    /// Compositing matters: a traced shape sitting on transparency and no shape at
+    /// all are the same pixels once alpha is ignored, and every trace would score
+    /// perfectly against an empty page.
+    private static func sample(_ image: CGImage, side: Int) -> [UInt8]? {
+        let bytesPerRow = side * 4
+        var buffer = [UInt8](repeating: 0, count: bytesPerRow * side)
+        let ok = buffer.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress,
+                  let ctx = CGContext(data: base, width: side, height: side,
+                                      bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            ctx.interpolationQuality = .high
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        return ok ? buffer : nil
+    }
+}
