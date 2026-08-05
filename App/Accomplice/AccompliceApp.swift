@@ -319,6 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func unregister(_ s: DocumentStore) {
         stores.removeAll { $0 === s }
+        recordSession()
     }
 
     /// Opens a document in a fresh window (which macOS turns into a tab), leaving
@@ -346,20 +347,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // with no window and no obvious way to get one back. Open a document if the
         // restore left us with nothing.
         DispatchQueue.main.async { [weak self] in
-            self?.restoreRecoveredDocuments()
-            DispatchQueue.main.async { self?.openWindowIfNoneRestored() }
+            guard let self else { return }
+            let restored = self.restoreRecoveredDocuments()
+            self.reopenLastSession(skipping: restored)
+            DispatchQueue.main.async { self.openWindowIfNoneRestored() }
         }
     }
 
     /// Unsaved work from the last run — a quit without saving, a crash, a kill —
-    /// comes back as dirty documents, one window each.
+    /// comes back as dirty documents, one window each. Returns the original file
+    /// paths those recoveries carry, so session reopen doesn't double them.
     private var pendingRecoveries: [DocumentStore.Recovery] = []
-    private func restoreRecoveredDocuments() {
+    @discardableResult
+    private func restoreRecoveredDocuments() -> Set<String> {
         let found = DocumentStore.pendingRecoveries()
-        guard !found.isEmpty else { return }
+        guard !found.isEmpty else { return [] }
         pendingRecoveries.append(contentsOf: found)
         for _ in found { newDocumentWindow() }
         flushPending()
+        return Set(found.compactMap { $0.original?.path })
+    }
+
+    // MARK: - Session restore
+
+    /// Which files were open, refreshed as documents open, close and save, and
+    /// snapshotted again at quit. Launch reopens them, so quitting with three
+    /// files up brings the same three back.
+    private static let sessionKey = "session.openDocuments"
+    private var sessionRestoreComplete = false
+
+    func recordSession() {
+        guard sessionRestoreComplete else { return }   // never clobber the list mid-launch
+        UserDefaults.standard.set(stores.compactMap { $0.url?.path }, forKey: Self.sessionKey)
+    }
+
+    private func reopenLastSession(skipping restored: Set<String>) {
+        let paths = UserDefaults.standard.stringArray(forKey: Self.sessionKey) ?? []
+        for path in paths where !restored.contains(path) {
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            openInNewWindow(URL(fileURLWithPath: path))
+        }
+        sessionRestoreComplete = true
+    }
+
+    func applicationWillTerminate(_ n: Notification) {
+        recordSession()
     }
 
     private func openWindowIfNoneRestored() {
@@ -398,9 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func flushPending() {
         guard let store = active else { return }
-        if let url = pendingURLs.first {
-            pendingURLs.removeAll()
-            store.open(url)
+        if !pendingURLs.isEmpty {
+            store.open(pendingURLs.removeFirst())
             return
         }
         // One recovery per fresh window: each register() call claims the next.

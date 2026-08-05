@@ -11,7 +11,9 @@ import UniformTypeIdentifiers
 final class DocumentStore: ObservableObject {
 
     @Published var source: DocumentSource?
-    @Published var url: URL?
+    @Published var url: URL? {
+        didSet { AppDelegate.shared?.recordSession() }
+    }
     /// The window this document lives in, set by WindowTabbing. How menu commands
     /// find the document the user is actually looking at.
     weak var window: NSWindow?
