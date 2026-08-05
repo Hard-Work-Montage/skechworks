@@ -63,3 +63,6 @@ echo "built $APP"
 rm -rf /Applications/Accomplice.app
 ditto "$APP" /Applications/Accomplice.app
 echo "installed /Applications/Accomplice.app"
+
+# Only the installed copy should be launchable — see bin/lsclean.
+bin/lsclean >/dev/null 2>&1 || true

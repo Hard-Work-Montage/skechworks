@@ -536,10 +536,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let existing = stores.last(where: { $0.url == next }) {
                 pendingURLs.removeFirst()
                 existing.window?.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
                 continue
             }
             guard let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) else { break }
             empty.open(pendingURLs.removeFirst())
+            // Opening a file from Finder should put you in front of it. Without
+            // this the document loaded into a tab behind whatever you were
+            // looking at, and nothing appeared to happen.
+            empty.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
         // One recovery per fresh window: only an untitled, untouched window takes
         // one — never a document mid-edit.

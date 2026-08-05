@@ -1,0 +1,23 @@
+#!/bin/sh
+# Keep exactly one Accomplice in Finder's Open With menu.
+#
+# LaunchServices registers every app bundle it finds, and a build leaves several
+# behind: the build products copy, a Debug copy from each test run, and anything
+# unzipped while testing a release. They pile up as extra Accomplices, one per
+# version, in every Open With menu. Only /Applications should be launchable.
+set -e
+cd "$(dirname "$0")/.."
+
+LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSR" ] || exit 0
+
+for stale in \
+  build/Build/Products/*/Accomplice.app \
+  "$HOME"/Library/Developer/Xcode/DerivedData/Accomplice-*/Build/Products/*/Accomplice.app
+do
+  [ -d "$stale" ] || continue
+  case "$stale" in /Applications/*) continue ;; esac
+  "$LSR" -u "$stale" >/dev/null 2>&1 || true
+done
+
+echo "registered: $("$LSR" -dump 2>/dev/null | grep -oE '/[^ ]*Accomplice\.app' | sort -u | tr '\n' ' ')"
