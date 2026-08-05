@@ -376,9 +376,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let sessionKey = "session.openDocuments"
     private var sessionRestoreComplete = false
 
+    private var terminating = false
+
     func recordSession() {
-        guard sessionRestoreComplete else { return }   // never clobber the list mid-launch
+        // Never clobber the list mid-launch, and never during quit — windows
+        // unregister one by one on the way out, and each rewrite emptied the
+        // list before termination could snapshot it.
+        guard sessionRestoreComplete, !terminating else { return }
+        writeSession()
+    }
+
+    private func writeSession() {
         UserDefaults.standard.set(stores.compactMap { $0.url?.path }, forKey: Self.sessionKey)
+    }
+
+    /// Quit begins: freeze the list and snapshot it while every window is
+    /// still standing.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminating = true
+        writeSession()
+        return .terminateNow
     }
 
     private func reopenLastSession(skipping restored: Set<String>) {
@@ -390,9 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sessionRestoreComplete = true
     }
 
-    func applicationWillTerminate(_ n: Notification) {
-        recordSession()
-    }
+
 
     private func openWindowIfNoneRestored() {
         let hasDocument = NSApp.windows.contains {
