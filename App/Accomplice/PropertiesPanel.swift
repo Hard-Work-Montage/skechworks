@@ -735,21 +735,10 @@ struct PropertiesPanel: View {
             Text("Font")
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(width: FieldMetrics.labelWidth, alignment: .leading)
-            Menu {
-                ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { fam in
-                    Button {
-                        store.editText(l.id, "Change Font") { $0.fontName = fam }
-                    } label: {
-                        if fam == t.fontName { Label(fam, systemImage: "checkmark") }
-                        else { Text(fam) }
-                    }
-                }
-            } label: {
-                Text(t.fontName)
-                    .font(.callout).lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            FontFamilyPicker(current: t.fontName) { fam in
+                store.editText(l.id, "Change Font") { $0.fontName = fam }
             }
-            .menuStyle(.button).buttonStyle(.bordered)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -1120,5 +1109,49 @@ private struct NumberField: View {
     private func format(_ v: CGFloat?) -> String {
         guard let v else { return "" }            // mixed: empty, the prompt says why
         return v == v.rounded() ? String(Int(v)) : String(format: "%.1f", v)
+    }
+}
+
+/// The font menu with every family previewing itself — the way every design app
+/// since Fireworks has shown fonts. An NSPopUpButton underneath, because
+/// SwiftUI's Menu ignores per-item fonts on macOS; symbol fonts whose names
+/// would render as dingbats fall back to the system face.
+private struct FontFamilyPicker: NSViewRepresentable {
+    var current: String
+    var onPick: (String) -> Void
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.picked(_:))
+        button.bezelStyle = .rounded
+        button.font = NSFont.systemFont(ofSize: 12)
+        let menu = NSMenu()
+        for fam in NSFontManager.shared.availableFontFamilies {
+            let item = NSMenuItem(title: fam, action: nil, keyEquivalent: "")
+            if let f = NSFont(name: fam, size: 13) {
+                item.attributedTitle = NSAttributedString(string: fam, attributes: [.font: f])
+            }
+            menu.addItem(item)
+        }
+        button.menu = menu
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.onPick = onPick
+        button.selectItem(withTitle: current)
+        // A font the document names but the machine lacks still shows its name.
+        if button.titleOfSelectedItem != current { button.setTitle(current) }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject {
+        var onPick: (String) -> Void
+        init(onPick: @escaping (String) -> Void) { self.onPick = onPick }
+        @objc func picked(_ sender: NSPopUpButton) {
+            if let choice = sender.titleOfSelectedItem { onPick(choice) }
+        }
     }
 }
