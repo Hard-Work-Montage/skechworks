@@ -332,6 +332,13 @@ final class PageCanvas: NSView {
     private var resizeScale = CGSize(width: 1, height: 1)
     private var resizeAnchor: CGPoint = .zero
 
+    /// A ⌘-drag on a bitmap's corner handle: perspective, not resize. The corner
+    /// index follows warpCorners order — 0 nw, 1 ne, 2 se, 3 sw.
+    private var warpDrag: (id: String, corner: Int, t: CGAffineTransform)?
+    var onWarpCorner: ((String, Int, CGPoint) -> Void)?
+    var onWarpEnd: (() -> Void)?
+    var onFlattenDistort: (() -> Void)?
+
     /// A rotate drag in flight: where it turns about, and the pointer angle it began at.
     private var rotating: (centre: CGPoint, startAngle: CGFloat)?
     private var rotationDelta: CGFloat = 0
@@ -1486,6 +1493,10 @@ final class PageCanvas: NSView {
                 self?.onToggleLock?()
             })
             menu.addItem(menuItem("Hide") { [weak self] in self?.onToggleHide?() })
+            if selected.count == 1, let id = selected.first,
+               let l = page?.layer(id), case .bitmap = l.kind, l.warpCorners != nil {
+                menu.addItem(menuItem("Flatten Distort") { [weak self] in self?.onFlattenDistort?() })
+            }
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete") { [weak self] in self?.onDelete?() })
         }
@@ -1749,6 +1760,17 @@ final class PageCanvas: NSView {
         // Handles win over everything: they sit on the selection's edge, which is
         // usually on top of the art you'd otherwise hit.
         if let handle = handleUnder(p), let r = selectionBounds {
+            // ⌘ on a corner of a bitmap is Fireworks' free transform: that corner
+            // follows the pointer into perspective instead of resizing the frame.
+            let cornerIndex: [Handle: Int] = [.nw: 0, .ne: 1, .se: 2, .sw: 3]
+            if event.modifierFlags.contains(.command),
+               let corner = cornerIndex[handle],
+               selected.count == 1, let id = selected.first,
+               let l = page?.layer(id), case .bitmap = l.kind,
+               let t = transformOf(id, in: page?.layers ?? [], base: .identity) {
+                warpDrag = (id, corner, t)
+                return
+            }
             activeHandle = handle
             resizeAnchor = anchorPoint(handle, in: r)
             resizeScale = CGSize(width: 1, height: 1)
@@ -2001,6 +2023,16 @@ final class PageCanvas: NSView {
             needsDisplay = true
             return
         }
+        if let wd = warpDrag {
+            if let l = page?.layer(wd.id), l.frame.width > 0, l.frame.height > 0 {
+                let local = p.applying(wd.t.inverted())
+                onWarpCorner?(wd.id, wd.corner,
+                              CGPoint(x: local.x / l.frame.width,
+                                      y: local.y / l.frame.height))
+                needsDisplay = true
+            }
+            return
+        }
         if eraseRectDrag != nil {
             eraseRectDrag!.current = p
             needsDisplay = true
@@ -2159,6 +2191,11 @@ final class PageCanvas: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if cropDrag != nil { cropDrag = nil; return }
+        if warpDrag != nil {
+            warpDrag = nil
+            onWarpEnd?()
+            return
+        }
         if let d = pixelDrag {
             pixelDrag = nil
             let r = CGRect(x: min(d.start.x, d.current.x), y: min(d.start.y, d.current.y),
@@ -2446,6 +2483,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
         canvas.onPixelRect = { store.pixelSelectRect = $0 }
         canvas.onExitPixelSelect = { store.exitPixelSelect() }
+        canvas.onWarpCorner = { id, corner, unit in store.warpCorner(id, corner: corner, to: unit) }
+        canvas.onWarpEnd = { store.endCoalescing() }
+        canvas.onFlattenDistort = { store.flattenDistort() }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)

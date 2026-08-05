@@ -1112,6 +1112,25 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    // MARK: - Perspective (⌘-drag a bitmap's corner handle)
+
+    /// Moves one warp corner to a unit-space point, coalesced so the whole drag
+    /// is a single undo step.
+    func warpCorner(_ id: String, corner: Int, to unit: CGPoint) {
+        guard (0...3).contains(corner) else { return }
+        edit(id, actionName: "Distort", coalescingAs: "warp-\(id)") { l in
+            guard case .bitmap = l.kind else { return }
+            var c = l.warpCorners ?? [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
+                                      CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)]
+            c[corner] = unit
+            l.warpCorners = c
+        }
+    }
+
+    func flattenDistort() {
+        edit(Array(selection), actionName: "Flatten Distort") { $0.warpCorners = nil }
+    }
+
     // MARK: - Pixel selection (double-click a bitmap)
 
     /// The bitmap whose pixels are being marquee-selected, Fireworks style.
