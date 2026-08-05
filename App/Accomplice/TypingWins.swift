@@ -28,6 +28,15 @@ enum TypingWins {
                 // how capitals are typed.
                 guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty
                 else { return false }
+                // Arrows are not letters and no menu claims them, so there is
+                // nothing here to protect them from. Swallowing them was the whole
+                // story behind "up and down sometimes don't step the inspector":
+                // a focused number field steps on its own monitor, this one handed
+                // the same key to the caret and consumed it, and AppKit does not
+                // define which local monitor runs first. The order is settled once
+                // per launch, so stepping worked or didn't for as long as the app
+                // stayed open, and clicking about never rescued it.
+                guard !(123...126).contains(event.keyCode) else { return false }
                 guard let editor = (event.window ?? NSApp.keyWindow)?.firstResponder as? NSTextView,
                       editor.isEditable else { return false }
                 editor.keyDown(with: event)
