@@ -13,6 +13,13 @@ enum TestFixture {
         ProcessInfo.processInfo.arguments.contains("--ui-test-fixture")
     }
 
+    /// Adds a text layer, for the one test that needs the inspector's TEXT
+    /// section. Opt-in because a loose layer changes the page's bounds, and
+    /// every canvas-click test derives its coordinates from zoom-to-fit.
+    static var includesText: Bool {
+        ProcessInfo.processInfo.arguments.contains("--ui-test-text")
+    }
+
     /// Artboard ▸ (Backdrop, Group ▸ (Circle, Photo)) — the shape of Adam's coin file,
     /// which is where the selection and drag bugs kept showing up.
     static func document() -> Document {
@@ -44,19 +51,21 @@ enum TestFixture {
         art.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
         art.frame = CGRect(x: 0, y: 0, width: 500, height: 500)
 
-        // A text layer, loose at the root so the artboard's rows keep their order.
+        var page = Page(name: "Page 1")
+        page.layers = [art]
+
         // Its only job is to make the inspector show the TEXT section — the font
         // picker there once stretched the whole panel to its widest menu item.
-        var run = TextRun()
-        run.string = "Caption"
-        run.fontName = "Helvetica"
-        run.fontSize = 24
-        var caption = Layer(kind: .text(run))
-        caption.name = "Caption"
-        caption.frame = CGRect(x: 600, y: 40, width: 220, height: 40)
-
-        var page = Page(name: "Page 1")
-        page.layers = [art, caption]
+        if includesText {
+            var run = TextRun()
+            run.string = "Caption"
+            run.fontName = "Helvetica"
+            run.fontSize = 24
+            var caption = Layer(kind: .text(run))
+            caption.name = "Caption"
+            caption.frame = CGRect(x: 600, y: 40, width: 220, height: 40)
+            page.layers.append(caption)
+        }
         var doc = Document()
         doc.pages = [page]
         return doc

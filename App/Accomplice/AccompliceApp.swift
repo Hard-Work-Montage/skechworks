@@ -359,6 +359,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // job, minus the windows that already exist empty and the initial SwiftUI
         // window if it hasn't shown up yet — it always does, and double-counting it
         // is what used to leave a spare untitled tab behind.
+        // A UI test launches into the fixture and nothing else: restoring the real
+        // session would drop the last-open document on top of it (which is exactly
+        // how the fixture "failed to load"), and a test's autosaves must never land
+        // in the real recovery folder where they could hijack the next launch.
+        if TestFixture.requested {
+            DocumentStore.recoveryDirOverride = FileManager.default.temporaryDirectory
+                .appendingPathComponent("AccompliceUITestRecovery", isDirectory: true)
+            sessionRestoreComplete = true
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let restored = self.restoreRecoveredDocuments()
@@ -440,6 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func writeSession() {
+        // A test run must not rewrite what the person had open.
+        guard !TestFixture.requested else { return }
         UserDefaults.standard.set(stores.compactMap { $0.url?.path }, forKey: Self.sessionKey)
     }
 
