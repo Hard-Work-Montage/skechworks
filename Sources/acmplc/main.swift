@@ -68,6 +68,8 @@ func load() -> (Document, [String: Data]) {
     }
 }
 
+func flag(_ name: String) -> Bool { args.contains(name) }
+
 func outDir(_ fallback: String) -> URL {
     let u = URL(fileURLWithPath: value("-o") ?? fallback)
     try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
@@ -234,9 +236,20 @@ case "artboards":
     for page in doc.pages {
         for board in page.artboards {
             guard let iso = page.isolate(board.id) else { continue }
-            let svg = SVGWriter(images: images).svg(page: iso.page, bounds: iso.bounds)
-            let f = dir.appendingPathComponent("\(board.name.replacingOccurrences(of: " ", with: "-")).svg")
-            try? Data(svg.utf8).write(to: f)
+            let base = board.name.replacingOccurrences(of: " ", with: "-")
+            // --png renders instead of writing SVG: the same artboard, rasterised
+            // at --size, which is what a website wants.
+            if flag("--png") {
+                let px = value("--size").flatMap { CGFloat(Double($0) ?? 0) } ?? 1024
+                if let img = Renderer(images: images).render(page: iso.page, maxDimension: px,
+                                                            bounds: iso.bounds),
+                   let d = Renderer.png(img) {
+                    try? d.write(to: dir.appendingPathComponent("\(base).png"))
+                }
+            } else {
+                let svg = SVGWriter(images: images).svg(page: iso.page, bounds: iso.bounds)
+                try? Data(svg.utf8).write(to: dir.appendingPathComponent("\(base).svg"))
+            }
             print(String(format: "  %-16s %.0fx%.0f", (board.name as NSString).utf8String!,
                          iso.bounds.width, iso.bounds.height))
             n += 1

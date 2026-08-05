@@ -741,7 +741,11 @@ final class PageCanvas: NSView {
         } else {
             let bs = window?.backingScaleFactor ?? 2
             let appearance = effectiveAppearance.name.rawValue
-            let key = "\(composedGen)|\(scale)|\(origin.x),\(origin.y)|\(bounds.size)|\(bs)|\(images.count)|\(appearance)"
+            // The layer being text-edited is left out of the drawing, so it has to
+            // be part of the cache's identity too — otherwise the backdrop keeps
+            // painting the old words underneath the editor and you see both.
+            let hidden = labelEditIsText ? (labelEditingID ?? "") : ""
+            let key = "\(composedGen)|\(scale)|\(origin.x),\(origin.y)|\(bounds.size)|\(bs)|\(images.count)|\(appearance)|\(hidden)"
             if backdrop == nil || backdropKey != key {
                 let w = max(1, Int(bounds.width * bs)), h = max(1, Int(bounds.height * bs))
                 if let bctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
@@ -1080,7 +1084,22 @@ final class PageCanvas: NSView {
         tf.delegate = self
         addSubview(tf)
         window?.makeFirstResponder(tf)
-        tf.selectText(nil)
+        // Select through the field editor: selectText(nil) ends the editing session
+        // it just started, which is what made renaming in the layer list look dead.
+        if let editor = tf.currentEditor() as? NSTextView {
+            editor.selectAll(nil)
+            // Match the artwork's leading so the lines sit where they will sit once
+            // committed. lineHeightMultiple takes the same ratio the layer stores.
+            let style = NSMutableParagraphStyle()
+            style.lineHeightMultiple = max(0.01, run.lineHeight)
+            style.alignment = tf.alignment
+            editor.defaultParagraphStyle = style
+            editor.typingAttributes[.paragraphStyle] = style
+            if let storage = editor.textStorage {
+                storage.addAttribute(.paragraphStyle, value: style,
+                                     range: NSRange(location: 0, length: storage.length))
+            }
+        }
         labelEditor = tf
         labelEditingID = l.id
         labelNameBeforeEdit = run.string
