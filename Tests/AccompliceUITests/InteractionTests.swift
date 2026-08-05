@@ -133,6 +133,34 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(d2, 10, accuracy: 0.001, "shift steps by 10")
     }
 
+    /// Arrows nudge the selected layer, 1 point at a time and 10 with shift. The
+    /// canvas tool keys briefly swallowed every arrow press on their way past.
+    func testArrowKeysNudgeTheSelectionOnCanvas() {
+        row("Photo").click()
+        let x = app.windows.firstMatch.descendants(matching: .any)["field-X"]
+        XCTAssertTrue(x.waitForExistence(timeout: 5))
+        func value() -> Double { Double((x.value as? String) ?? "") ?? .nan }
+        let start = value()
+
+        app.typeKey(.rightArrow, modifierFlags: [])
+        var moved = start
+        for _ in 0..<20 {
+            moved = value()
+            if moved != start { break }
+            usleep(120_000)
+        }
+        XCTAssertEqual(moved, start + 1, accuracy: 0.001, "a plain arrow nudges by 1")
+
+        app.typeKey(.rightArrow, modifierFlags: .shift)
+        var far = moved
+        for _ in 0..<20 {
+            far = value()
+            if far != moved { break }
+            usleep(120_000)
+        }
+        XCTAssertEqual(far, moved + 10, accuracy: 0.001, "shift nudges by 10")
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")

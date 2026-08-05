@@ -56,8 +56,9 @@ final class PageCanvas: NSView {
     /// "I'm done with this tool" — the canvas can end a drawing mode, but only the
     /// store owns which tool is current, so finishing has to travel back up.
     var onExitTool: (() -> Void)?
-    /// A bare canvas key (tool switch, insert) by registry id.
-    var onCanvasShortcut: ((String) -> Void)?
+    /// A bare canvas key (tool switch, insert) by registry id. Returns true when
+    /// it took the key; anything else falls through to the handling below.
+    var onCanvasShortcut: ((String) -> Bool)?
     /// Which point is under the cursor's attention, for the Point Type control.
     var onPointSelected: ((Int?, CurveMode?) -> Void)?
     /// Inline rename, from double-clicking an artboard label. (id, new name)
@@ -2323,11 +2324,14 @@ final class PageCanvas: NSView {
         // The bare tool keys live here rather than on the menus, so they can only
         // fire while the canvas has focus. Modified presses fall through to the
         // menus untouched.
+        // Only swallow the key if the handler actually took it. The registry's
+        // canvas shortcuts include the nudge arrows, which are handled further
+        // down — matching on key code alone ate every arrow press and layers
+        // stopped moving.
         if event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
            let hit = Shortcuts.all.first(where: {
                $0.context == .canvas && $0.modifiers.isEmpty && $0.keyCodes.contains(event.keyCode)
-           }), onCanvasShortcut != nil {
-            onCanvasShortcut?(hit.id)
+           }), onCanvasShortcut?(hit.id) == true {
             return
         }
 
@@ -2550,8 +2554,9 @@ struct CanvasRepresentable: NSViewRepresentable {
             case "insertRect": store.insertRectangle()
             case "insertOval": store.insertOval()
             case "insertText": store.insertText()
-            default: break
+            default: return false      // the arrows and delete are handled on the canvas
             }
+            return true
         }
     }
 

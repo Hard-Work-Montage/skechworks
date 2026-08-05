@@ -2,6 +2,14 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.1.14 (August 5, 2026)
+
+- Text wraps inside its box. A sentence used to run straight off the layer however narrow the box was drawn.
+- Editing text happens in place: the words you type sit where the artwork sits, in its own face and colour, instead of a white field laid over the top.
+- New text arrives with its aspect ratio unlocked, and the padlock is gone from the inspector for text. A text box is resized to change where the copy wraps, never to stretch the letters.
+- Line height is a multiplier now: 1 is single spaced and the default, 2 is airy, 0 packs the lines together. Files written before this still lay out the same.
+- Fixed: arrow keys stopped nudging the selection on the canvas in 0.1.12, when the tool keys moved off the menus and began swallowing every arrow press on their way past.
+
 ## 0.1.13 (August 5, 2026)
 
 - Every number field steps with the arrow keys: 1 at a time, 10 with shift. Position, size, angle, radius, font size, kern, line height, shadow offsets, brush size, color channels and border width all behave the same way.
