@@ -2,6 +2,11 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.5 (August 4, 2026)
+
+- Arrow keys nudge the layer you picked in the layer list.
+- Shift-cmd-click steps down through overlapping layers, wrapping at the bottom.
+
 ## 0.4.4 (August 4, 2026)
 
 - Shift erases in a straight line, snapped to 45-degree headings.
