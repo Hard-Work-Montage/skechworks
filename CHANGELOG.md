@@ -4,13 +4,13 @@ Short notes on every release. Also published at [accomplice.ai/whats-new](https:
 
 ## 0.4.9 (August 5, 2026)
 
-- Every number field steps with the arrow keys: 1 at a time, 10 with shift. Position, size, angle, radius, font size, kern, line height, shadow offsets, brush size, colour channels and border width all behave the same way.
+- Every number field steps with the arrow keys: 1 at a time, 10 with shift. Position, size, angle, radius, font size, kern, line height, shadow offsets, brush size, color channels and border width all behave the same way.
 - New rectangles arrive with their aspect ratio unlocked, ready to stretch into a panel or a band. Circles, images and shapes keep the padlock on.
 
 ## 0.4.8 (August 5, 2026)
 
 - Renaming a layer in the layer list works: double-click, type, Enter.
-- The tool keys (R, O, T, P, V, E) only fire when the canvas has focus. They no longer interrupt you while you are typing a layer name, a colour value, or a message.
+- The tool keys (R, O, T, P, V, E) only fire when the canvas has focus. They no longer interrupt you while you are typing a layer name, a color value, or a message.
 - Fixed: selecting a text layer stretched the inspector wide enough to squeeze the canvas.
 
 ## 0.4.7 (August 5, 2026)
