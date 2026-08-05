@@ -2,6 +2,12 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.6 (August 4, 2026)
+
+- Quit with files open, launch with the same files open.
+- The eraser edits the layer you selected, not whatever sits on top.
+- Erasing happens live under the brush instead of on release.
+
 ## 0.4.5 (August 4, 2026)
 
 - Arrow keys nudge the layer you picked in the layer list.
