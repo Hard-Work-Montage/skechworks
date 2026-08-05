@@ -692,7 +692,13 @@ final class PageCanvas: NSView {
         ctx.translateBy(x: -origin.x, y: -origin.y)
         let visible = CGRect(x: origin.x, y: origin.y,
                              width: viewSize.width / scale, height: viewSize.height / scale)
-        Renderer(images: images).draw(drawables: drawables ?? composed, in: ctx, visible: visible)
+        var toDraw = drawables ?? composed
+        // The text layer under edit is hidden while its editor stands in its
+        // place, so the words never appear twice.
+        if labelEditIsText, let editing = labelEditingID {
+            toDraw = toDraw.filter { $0.layer.id != editing }
+        }
+        Renderer(images: images).draw(drawables: toDraw, in: ctx, visible: visible)
 
         // A hairline round each artboard. On a light canvas a white board has no edge
         // of its own, and knowing where the page stops is most of what an artboard is
@@ -1048,16 +1054,26 @@ final class PageCanvas: NSView {
                   return CGRect(origin: .zero, size: l.frame.size).applying(t)
               }() else { return }
         let v = viewPoint(f.origin)
-        let frame = CGRect(x: v.x - 2, y: v.y - 2,
-                           width: max(160, f.width * scale + 8),
-                           height: max(24, f.height * scale + 6))
+        // Exactly the layer's box: the editor stands in for the artwork rather
+        // than floating over it.
+        let frame = CGRect(x: v.x, y: v.y, width: f.width * scale, height: f.height * scale)
         let tf = NSTextField(frame: frame)
         tf.stringValue = run.string
-        // Match the artwork's size on screen so the words don't jump scale mid-edit.
-        tf.font = NSFont(name: run.fontName, size: max(9, min(64, run.fontSize * scale)))
-            ?? .systemFont(ofSize: 13)
-        tf.isBordered = true
-        tf.bezelStyle = .roundedBezel
+        // Dressed as the artwork — same face, size, colour and alignment, no bezel
+        // and no background. With the layer's own text hidden while editing, what
+        // you type is what you see, in place, instead of white words laid over the
+        // old ones.
+        tf.font = NSFont(name: run.fontName, size: max(4, run.fontSize * scale))
+            ?? .systemFont(ofSize: max(4, run.fontSize * scale))
+        tf.textColor = NSColor(cgColor: run.color.cg) ?? .labelColor
+        tf.alignment = switch run.alignment {
+        case .center: .center
+        case .right: .right
+        default: .left
+        }
+        tf.isBordered = false
+        tf.drawsBackground = false
+        tf.focusRingType = .none
         tf.usesSingleLineMode = false
         tf.cell?.wraps = true
         tf.delegate = self

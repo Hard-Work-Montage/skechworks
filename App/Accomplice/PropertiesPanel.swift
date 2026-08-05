@@ -107,7 +107,13 @@ struct PropertiesPanel: View {
 
     /// The W/H padlock. Locked keeps the aspect ratio exact through typed sizes
     /// and canvas drags; shift inverts the mode mid-drag.
+    @ViewBuilder
     private func ratioLock(_ l: Layer) -> some View {
+        // Type has no aspect ratio worth keeping: a text box is resized to change
+        // where the copy wraps, never to stretch the letters.
+        if case .text = l.kind {
+            EmptyView()
+        } else {
         iconButton(l.constrainProportions ? "lock.fill" : "lock.open",
                    l.constrainProportions ? "Unlock aspect ratio" : "Lock aspect ratio") {
             store.edit(l.id, actionName: l.constrainProportions ? "Unlock Ratio" : "Lock Ratio") {
@@ -115,6 +121,7 @@ struct PropertiesPanel: View {
             }
         }
         .foregroundStyle(l.constrainProportions ? Color.accentColor : Color.secondary)
+        }
     }
 
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {

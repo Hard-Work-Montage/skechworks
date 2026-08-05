@@ -122,3 +122,25 @@ private func whitePNG(width: Int, height: Int) -> Data {
     let star = try #require(starID)
     #expect(page.layer(star)?.constrainProportions == true)
 }
+
+@Test func textWrapsInsideItsBoxAndNewTextArrivesUnlocked() throws {
+    // A paragraph far wider than its frame has to come back taller than one
+    // line: before wrapping existed it ran straight off the layer.
+    var run = TextRun()
+    run.string = "A months worth of work in an afternoon, still not done"
+    run.fontName = "Helvetica"
+    run.fontSize = 20
+    let narrow = try #require(TextOutline.path(run, in: CGRect(x: 0, y: 0, width: 160, height: 200)))
+    let wide = try #require(TextOutline.path(run, in: CGRect(x: 0, y: 0, width: 2000, height: 200)))
+    #expect(narrow.boundingBoxOfPath.height > wide.boundingBoxOfPath.height * 2,
+            "the narrow box should wrap onto several lines")
+    #expect(narrow.boundingBoxOfPath.width <= 170, "wrapped text stays inside its box")
+
+    var page = Page(name: "p")
+    var spec = AddSpec()
+    spec.kind = "text"
+    spec.text = "Hello"
+    let id = page.add(spec)
+    let text = try #require(id)
+    #expect(page.layer(text)?.constrainProportions == false, "text stretches freely")
+}

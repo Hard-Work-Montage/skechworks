@@ -37,13 +37,37 @@ public enum TextOutline {
         let out = CGMutablePath()
         var y = ascent
 
+        // Each hard line is a paragraph; a paragraph wider than the box wraps into
+        // as many lines as it needs. Without this a text layer ran off its own
+        // frame however narrow the box was drawn.
+        var wrapped: [CTLine] = []
         for line in lines {
             // CoreText keys directly — AppKit's NSAttributedString.Key isn't available
             // in a Foundation-only target, and we want this to stay UI-framework free.
             var attrs: [CFString: Any] = [kCTFontAttributeName: ctFont]
             if run.kerning != 0 { attrs[kCTKernAttributeName] = run.kerning }
             let astr = CFAttributedStringCreate(nil, line as CFString, attrs as CFDictionary)!
-            let ct = CTLineCreateWithAttributedString(astr)
+            let length = CFAttributedStringGetLength(astr)
+            guard length > 0 else {
+                wrapped.append(CTLineCreateWithAttributedString(
+                    CFAttributedStringCreate(nil, "" as CFString, attrs as CFDictionary)!))
+                continue
+            }
+            guard frame.width > 1 else {
+                wrapped.append(CTLineCreateWithAttributedString(astr))
+                continue
+            }
+            let typesetter = CTTypesetterCreateWithAttributedString(astr)
+            var start = 0
+            while start < length {
+                var count = CTTypesetterSuggestLineBreak(typesetter, start, Double(frame.width))
+                if count <= 0 { count = length - start }   // never loop on an unbreakable word
+                wrapped.append(CTTypesetterCreateLine(typesetter, CFRangeMake(start, count)))
+                start += count
+            }
+        }
+
+        for ct in wrapped {
             let width = CGFloat(CTLineGetTypographicBounds(ct, nil, nil, nil))
 
             var x: CGFloat = 0
