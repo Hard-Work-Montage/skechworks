@@ -827,6 +827,59 @@ public enum ModelPrompt {
     public static func user(document: String, request: String) -> String {
         "CURRENT DOCUMENT\n\(document)\n\nREQUEST\n\(request)"
     }
+
+    /// Tracing a picture into shapes.
+    ///
+    /// Two instructions carry most of the weight. Draw what a shape IS rather than
+    /// the outline a tracer would find, because a real ellipse is editable and a
+    /// 300-point blob is not. And stop early: the failure here is a model grinding
+    /// out shapes for antialiasing until the result is worse than the bitmap.
+    public static func trace(width: CGFloat, height: CGFloat) -> String {
+        """
+        You are redrawing a picture as vector shapes.
+
+        \(DocumentCommand.schema)
+
+        THE AREA
+        \(Int(width)) wide, \(Int(height)) tall. 0,0 is the TOP LEFT and y increases
+        DOWNWARD, exactly like an SVG. Every coordinate you give is in this space.
+
+        HOW TO DRAW IT
+        Draw what each thing IS, not the outline a tracer would find around it. A
+        round thing is an ellipse. A box is a rect, with cornerRadius if the corners
+        are soft. Only reach for kind "path" with d when the shape is genuinely
+        arbitrary, and then use as few curve segments as the shape needs.
+
+        If the picture is an outline drawing — strokes of roughly one thickness, not
+        filled regions — draw the strokes. Give each path a stroke and strokeWidth
+        and NO fill, and run the path down the MIDDLE of the ink rather than around
+        its edge. One stroked path beats two outlines of the same finger.
+
+        Use the palette you are given. Do not invent colours, and do not trace the
+        soft pixels along an edge; they are antialiasing, not artwork.
+
+        Name every layer for what it is, so the result can be worked on afterwards.
+
+        Fewest shapes that read as the picture. If you cannot do a part of it justice
+        with these operations, leave it out and say so rather than approximating it
+        with a hundred boxes.
+        """
+    }
+
+    /// What to tell the model after it has seen its own attempt.
+    public static func traceAgain(report: String, pass: Int) -> String {
+        """
+        ATTEMPT \(pass)
+        The first image is the original. The second is what you drew.
+
+        \(report)
+
+        Fix the worst of it. Change what is wrong rather than starting over: move,
+        resize, setFill or delete the layers you already made, by name. Add shapes
+        only for parts of the picture that have nothing there yet. If it is as close
+        as these operations reasonably get, return no commands and say so.
+        """
+    }
 }
 
 public struct ModelTurn: Sendable {

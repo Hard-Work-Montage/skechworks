@@ -52,6 +52,21 @@ struct ModelConnector {
         /// at once and no key sits in memory longer than a request.
         var openRouterKey: String { Credentials.get(.openRouterKey) ?? "" }
         var accompliceToken: String { Credentials.get(.accompliceToken) ?? "" }
+
+        /// What's configured, straight from defaults.
+        ///
+        /// The chat panel holds these as @AppStorage so its view updates, but a menu
+        /// command has no view to read them from. Same keys, so the two can't
+        /// disagree about which backend is in use.
+        static var current: Settings {
+            let defaults = UserDefaults.standard
+            var s = Settings()
+            s.backend = Backend(rawValue: defaults.string(forKey: "ai.backend") ?? "") ?? s.backend
+            s.ollamaHost = defaults.string(forKey: "ai.ollamaHost") ?? s.ollamaHost
+            s.model = defaults.string(forKey: "ai.model") ?? s.model
+            s.openRouterModel = defaults.string(forKey: "ai.openRouterModel") ?? s.openRouterModel
+            return s
+        }
     }
 
     enum Failure: LocalizedError {
@@ -60,6 +75,7 @@ struct ModelConnector {
         case unreachable(String)
         case badResponse(String)
         case noCommands(String)
+        case cannotSee
 
         var errorDescription: String? {
             switch self {
@@ -68,11 +84,43 @@ struct ModelConnector {
             case .unreachable(let s): return "Couldn't reach the model: \(s)"
             case .badResponse(let s): return "The model's reply couldn't be read: \(s)"
             case .noCommands(let s): return "No commands in the reply.\n\n\(s)"
+            case .cannotSee:
+                return "A model on this Mac can't be shown a picture. Switch to OpenRouter or your Accomplice account in Settings."
             }
         }
     }
 
     var settings: Settings
+
+    /// One thing said to the model, with anything it needs to look at.
+    ///
+    /// Pictures ride along with the words rather than in a separate field because
+    /// that's the shape every provider takes, and because the two belong together:
+    /// "this is what you drew, this is what it should look like" is one thought.
+    struct Message {
+        var role: String
+        var text: String
+        var images: [Data] = []      // PNG
+
+        static func user(_ text: String, images: [Data] = []) -> Message {
+            Message(role: "user", text: text, images: images)
+        }
+        static func system(_ text: String) -> Message { Message(role: "system", text: text) }
+        static func assistant(_ text: String) -> Message { Message(role: "assistant", text: text) }
+
+        /// Plain content when there's nothing to see, blocks when there is. Sending
+        /// blocks unconditionally works with the big providers and breaks smaller
+        /// ones, and the overwhelming majority of turns carry no picture at all.
+        var payload: [String: Any] {
+            guard !images.isEmpty else { return ["role": role, "content": text] }
+            var blocks: [[String: Any]] = [["type": "text", "text": text]]
+            for png in images {
+                blocks.append(["type": "image_url",
+                               "image_url": ["url": "data:image/png;base64,\(png.base64EncodedString())"]])
+            }
+            return ["role": role, "content": blocks]
+        }
+    }
 
     /// One turn of a conversation.
     ///
@@ -81,13 +129,19 @@ struct ModelConnector {
     func converse(request: String,
                   document: String,
                   history: [(role: String, content: String)]) async throws -> (turn: ModelTurn, raw: String) {
-        let system = ModelPrompt.system
-        var messages: [[String: String]] = [["role": "system", "content": system]]
-        for h in history { messages.append(["role": h.role, "content": h.content]) }
-        messages.append(["role": "user",
-                         "content": ModelPrompt.user(document: document, request: request)])
+        var messages: [Message] = [.system(ModelPrompt.system)]
+        for h in history { messages.append(Message(role: h.role, text: h.content)) }
+        messages.append(.user(ModelPrompt.user(document: document, request: request)))
+        return try await respond(to: messages)
+    }
 
-        let raw = try await complete(messages: messages)
+    /// A turn built by hand, for the jobs that aren't chat — tracing shows the model
+    /// a picture, its own attempt, and where the two differ.
+    func respond(to messages: [Message]) async throws -> (turn: ModelTurn, raw: String) {
+        if settings.backend == .ollama, messages.contains(where: { !$0.images.isEmpty }) {
+            throw Failure.cannotSee
+        }
+        let raw = try await complete(messages: messages.map(\.payload))
         let cleaned = ModelConnector.stripFences(raw)
         let turn = ModelTurn.decode(Data(cleaned.utf8))
         guard !turn.say.isEmpty || !turn.commands.isEmpty else { throw Failure.noCommands(raw) }
@@ -96,7 +150,7 @@ struct ModelConnector {
 
     // MARK: - Transport
 
-    private func complete(messages: [[String: String]]) async throws -> String {
+    private func complete(messages: [[String: Any]]) async throws -> String {
         switch settings.backend {
         case .ollama: return try await ollama(messages)
         case .openRouter: return try await openRouter(messages)
@@ -108,7 +162,7 @@ struct ModelConnector {
     /// signed-in account. Deliberately the same OpenAI-shaped request as OpenRouter,
     /// so the only thing that differs between "your key" and "our tokens" is where
     /// it's addressed and who pays.
-    private func accomplice(_ messages: [[String: String]]) async throws -> String {
+    private func accomplice(_ messages: [[String: Any]]) async throws -> String {
         let token = settings.accompliceToken
         guard !token.isEmpty else { throw Failure.notSignedIn }
         guard let url = URL(string: settings.accompliceHost + "/api/v1/chat/completions") else {
@@ -131,7 +185,7 @@ struct ModelConnector {
         return content
     }
 
-    private func ollama(_ messages: [[String: String]]) async throws -> String {
+    private func ollama(_ messages: [[String: Any]]) async throws -> String {
         guard let url = URL(string: settings.ollamaHost + "/api/chat") else {
             throw Failure.unreachable("bad host")
         }
@@ -151,7 +205,7 @@ struct ModelConnector {
         return content
     }
 
-    private func openRouter(_ messages: [[String: String]]) async throws -> String {
+    private func openRouter(_ messages: [[String: Any]]) async throws -> String {
         guard !settings.openRouterKey.isEmpty else { throw Failure.noKey }
         guard let url = URL(string: "https://openrouter.ai/api/v1/chat/completions") else {
             throw Failure.unreachable("bad url")

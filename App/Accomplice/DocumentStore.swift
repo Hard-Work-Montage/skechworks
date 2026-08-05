@@ -1057,6 +1057,79 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Tools ▸ AI Draw: the selected bitmap is looked at and redrawn as shapes.
+    ///
+    /// Sibling of Vectorize rather than a replacement. Vectorize is a hammer and
+    /// gives correct pixels as hundreds of paths; this gives a few named shapes
+    /// that are still real ellipses and strokes. Which one you want depends on
+    /// whether you intend to edit the result.
+    func aiDrawSelection() {
+        guard let id = selectedLayerID, let page,
+              let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref] else {
+            status = "Select one image layer to draw"
+            return
+        }
+        // Redraw what the user SEES, the same rule Vectorize learned: a cropped or
+        // adjusted bitmap has to go out as its baked rendition.
+        let data: Data
+        if l.hasBitmapAdjustments,
+           let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+           let png = Renderer.png(baked) {
+            data = png
+        } else {
+            data = raw
+        }
+        guard let source = BitmapImage.load(data)?.image else {
+            status = "That image can't be read"
+            return
+        }
+        let connector = ModelConnector(settings: .current)
+        guard connector.settings.backend != .ollama else {
+            status = "AI Draw needs OpenRouter or your Accomplice account — a model on this Mac can't see the picture"
+            return
+        }
+
+        let frame = l.frame
+        let name = l.name
+        status = "Looking at the picture…"
+        Task { @MainActor in
+            do {
+                let outcome = try await AIDraw.trace(source: source, size: frame.size,
+                                                     connector: connector) { self.status = $0 }
+                var kids = outcome.layers
+                let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+                guard !bounds.isNull else {
+                    status = "AI Draw produced no shapes"
+                    return
+                }
+                for i in kids.indices {
+                    kids[i].frame.origin.x -= bounds.minX
+                    kids[i].frame.origin.y -= bounds.minY
+                }
+                var group = Layer(kind: .group(kids))
+                group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
+                group.frame = CGRect(origin: .zero, size: bounds.size)
+                // It drew in the bitmap's own space, so the group lands where the
+                // bitmap sits, offset by wherever inside it the drawing ended up.
+                group.frame.origin = CGPoint(x: frame.minX + bounds.minX, y: frame.minY + bounds.minY)
+
+                mutatePage("AI Draw") { p in
+                    let parent = p.ancestors(of: id).last
+                    let index = p.children(of: parent).firstIndex { $0.id == id }
+                    p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                }
+                selection = [group.id]
+                let match = Int((outcome.score * 100).rounded())
+                let shapes = kids.count == 1 ? "1 shape" : "\(kids.count) shapes"
+                status = "Drew \(shapes), \(match)% match after \(outcome.passes) passes"
+                    + (outcome.say.isEmpty ? "" : " · \(outcome.say)")
+            } catch {
+                status = "AI Draw: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// Tools ▸ Remove: the boxed part of a bitmap goes to the account service
     /// with the whole image; the service works out what the box means to remove
     /// and sends the image back with it painted out. Only the boxed region can

@@ -175,3 +175,75 @@ private func swatch(_ r: Double, _ g: Double, _ b: Double, side: Int = 64,
     #expect(Compare.score(b, reference) > Compare.score(a, reference))
     #expect(Compare.score(b, reference) > 0.9)
 }
+
+// MARK: - Knowing what kind of picture it is
+
+private func canvas(_ side: Int = 128, _ draw: (CGContext) -> Void) -> CGImage {
+    let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                        bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
+    draw(ctx)
+    return ctx.makeImage()!
+}
+
+@Test func blackOnWhiteReadsAsLineArt() {
+    let icon = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 20, y: 20, width: 40, height: 88))
+        ctx.fill(CGRect(x: 70, y: 20, width: 40, height: 88))
+    }
+    let stats = ImageStats.measure(icon)
+    #expect(stats.verdict == .lineArt)
+    #expect(stats.verdict.traceable)
+    // The palette is the point: told, not guessed.
+    #expect(stats.palette.map(\.hex).contains("#FFFFFF"))
+    #expect(stats.palette.map(\.hex).contains("#000000"))
+}
+
+@Test func aHandfulOfFlatColoursReadsAsFlat() {
+    let logo = canvas { ctx in
+        let colours: [(Double, Double, Double)] = [(1, 0, 0), (0, 0.6, 0), (0, 0, 1), (1, 0.8, 0), (0.5, 0, 0.5)]
+        for (i, c) in colours.enumerated() {
+            ctx.setFillColor(CGColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: i * 25, width: 128, height: 25))
+        }
+    }
+    #expect(ImageStats.measure(logo).verdict == .flat)
+}
+
+@Test func continuousToneIsRefusedRatherThanTraced() {
+    let photo = canvas { ctx in
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let gradient = CGGradient(colorsSpace: space, colors: [
+            CGColor(srgbRed: 0.1, green: 0.2, blue: 0.6, alpha: 1),
+            CGColor(srgbRed: 0.9, green: 0.7, blue: 0.2, alpha: 1),
+        ] as CFArray, locations: [0, 1])!
+        ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 128, y: 128), options: [])
+    }
+    let stats = ImageStats.measure(photo)
+    #expect(stats.verdict == .photographic)
+    #expect(!stats.verdict.traceable)
+}
+
+@Test func theShareOfEachColourIsRoughlyRight() {
+    let half = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 128))
+    }
+    let stats = ImageStats.measure(half)
+    let black = try! #require(stats.palette.first { $0.hex == "#000000" })
+    #expect(black.share > 0.45 && black.share < 0.55)
+}
+
+@Test func theSummaryTellsTheModelWhatItWouldOtherwiseGuess() {
+    let icon = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 30, y: 30, width: 60, height: 60))
+    }
+    let text = ImageStats.measure(icon).summary
+    #expect(text.contains("lineArt"))
+    #expect(text.contains("#000000"))
+    #expect(text.contains("palette"))
+}
