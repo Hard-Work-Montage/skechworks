@@ -357,7 +357,8 @@ public struct SketchReader {
         if let c = color(attrs?["MSAttributedStringColorAttribute"]) { t.color = c }
         if let k = num(attrs?["kerning"]) { t.kerning = k }
         if let para = attrs?["paragraphStyle"] as? [String: Any] {
-            t.lineHeight = num(para["maximumLineHeight"]) ?? 0
+            // Sketch stores points; we keep a ratio.
+            t.lineHeight = (num(para["maximumLineHeight"]).map { $0 / max(1, t.fontSize * 1.2) }) ?? 1
             switch para["alignment"] as? Int ?? 0 {
             case 1: t.alignment = .right
             case 2: t.alignment = .center

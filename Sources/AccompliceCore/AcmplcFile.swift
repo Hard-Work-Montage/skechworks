@@ -238,7 +238,12 @@ public struct AcmplcFile {
             run.fontName = t["font"] as? String ?? run.fontName
             run.fontSize = dbl(t["size"]) ?? run.fontSize
             run.kerning = dbl(t["kerning"]) ?? 0
-            run.lineHeight = dbl(t["lineHeight"]) ?? 0
+            // Line height used to be stored in points. A value that large can only
+            // be the old absolute kind, so it converts to the ratio it stood for;
+            // 0 meant "use the natural leading", which is exactly 1.
+            let storedLine = dbl(t["lineHeight"]) ?? 0
+            run.lineHeight = storedLine <= 0 ? 1
+                : (storedLine > 3 ? storedLine / max(1, run.fontSize * 1.2) : storedLine)
             if let hex = t["color"] as? String, let c = colorFrom(hex, 1) { run.color = c }
             if let d = t["onPath"] as? String { run.onPath = PathParser.path(from: d) }
             if let a = t["arc"] as? [String: Any], let r = dbl(a["radius"]) {

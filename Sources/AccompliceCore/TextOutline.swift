@@ -32,7 +32,10 @@ public enum TextOutline {
         let ascent = CTFontGetAscent(ctFont)
         let descent = CTFontGetDescent(ctFont)
         let leading = CTFontGetLeading(ctFont)
-        let step = run.lineHeight > 0 ? run.lineHeight : (ascent + descent + leading)
+        // A ratio of the natural leading. Zero is legal and means the lines sit
+        // right on top of each other, which is occasionally what a designer wants.
+        let natural = ascent + descent + leading
+        let step = natural * max(0, run.lineHeight)
 
         let out = CGMutablePath()
         var y = ascent

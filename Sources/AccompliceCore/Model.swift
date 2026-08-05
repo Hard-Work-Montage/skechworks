@@ -374,7 +374,6 @@ public struct Layer: @unchecked Sendable {
             // does — an uneven drag resizes the text box and lets the copy re-wrap.
             if abs(sx - sy) < 0.0001 {
                 t.fontSize *= sx
-                t.lineHeight *= sx
                 t.kerning *= sx
                 kind = .text(t)
             }
@@ -556,7 +555,11 @@ public struct TextRun: @unchecked Sendable {
     public var fontSize: CGFloat = 12
     public var color: Color = .black
     public var kerning: CGFloat = 0
-    public var lineHeight: CGFloat = 0      // 0 == use the font's natural leading
+    /// Multiplier on the font's natural line height: 1 is single spaced, 1.5 is
+    /// airy, 0 packs the lines on top of each other. Stored as a ratio rather
+    /// than points so it survives a resize and reads the way CSS taught
+    /// everyone to expect.
+    public var lineHeight: CGFloat = 1
     public var alignment: CTTextAlignment = .left
     /// Straight text when nil, which is nearly all of it.
     public var arc: TextArc?

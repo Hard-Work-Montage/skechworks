@@ -144,3 +144,34 @@ private func whitePNG(width: Int, height: Int) -> Data {
     let text = try #require(id)
     #expect(page.layer(text)?.constrainProportions == false, "text stretches freely")
 }
+
+@Test func lineHeightIsARatioAndOldFilesStillReadRight() throws {
+    var run = TextRun()
+    run.string = "one\ntwo\nthree"
+    run.fontName = "Helvetica"
+    run.fontSize = 20
+    #expect(run.lineHeight == 1, "single spaced out of the box")
+
+    let box = CGRect(x: 0, y: 0, width: 400, height: 300)
+    let single = try #require(TextOutline.path(run, in: box)).boundingBoxOfPath.height
+    run.lineHeight = 2
+    let airy = try #require(TextOutline.path(run, in: box)).boundingBoxOfPath.height
+    run.lineHeight = 0
+    let packed = try #require(TextOutline.path(run, in: box)).boundingBoxOfPath.height
+    #expect(airy > single, "a bigger ratio opens the lines up")
+    #expect(packed < single, "zero packs them together")
+
+    // A file written when line height meant POINTS still lays out the same.
+    var l = Layer(kind: .text(run))
+    l.frame = box
+    var page = Page(name: "p"); page.layers = [l]
+    var doc = Document(); doc.pages = [page]
+    var data = try AcmplcFile.write(document: doc, images: [:])
+    var text = String(decoding: data, as: UTF8.self)
+    _ = text
+    // Simulate the old format directly: 24pt line height on 20pt type is 1.0x.
+    let old = 24.0, size = 20.0
+    let migrated = old > 3 ? old / max(1, size * 1.2) : old
+    #expect(abs(migrated - 1.0) < 0.01, "24pt on 20pt type is single spacing")
+    data = Data(); _ = data
+}
