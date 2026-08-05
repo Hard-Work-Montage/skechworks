@@ -239,6 +239,7 @@ public enum DocumentCommand: Sendable {
     case ungroup(LayerQuery)
     /// Bend text round a circle. nil radius straightens it again.
     case curve(LayerQuery, radius: Double?, angle: Double?, flipped: Bool?)
+    case distort(LayerQuery, corners: [Double]?)
     /// Create a layer. Takes no selector — there's nothing to select yet.
     case add(AddSpec)
     /// Combine into one shape: union | subtract | intersect | difference | flatten.
@@ -259,6 +260,7 @@ public enum DocumentCommand: Sendable {
         case .flip(let q, _): return q
         case .sort(let q, _): return q
         case .curve(let q, _, _, _): return q
+        case .distort(let q, _): return q
         case .duplicate(let q, _, _, _): return q
         case .simplify(let q, _, _): return q
         case .add: return LayerQuery()
@@ -282,6 +284,7 @@ public enum DocumentCommand: Sendable {
         case .move: return "Move"
         case .resize: return "Resize"
         case .curve(_, let r, _, _): return r == nil ? "Straighten Text" : "Curve Text"
+        case .distort(_, let c): return c == nil ? "Flatten Distort" : "Distort"
         case .add(let spec): return "Add \(spec.kind.capitalized)"
         case .combine(_, let op): return op.capitalized
         case .simplify: return "Simplify"
@@ -469,6 +472,17 @@ extension DocumentCommand {
                           radius: straighten ? nil : n("radius", "r"),
                           angle: n("angle", "rotation"),
                           flipped: b("flipped", "flip", "upright"))
+        case "distort", "skew", "perspective", "warp":
+            if d["straighten"] as? Bool == true || d["reset"] as? Bool == true {
+                return .distort(q, corners: nil)
+            }
+            let nums = (d["corners"] as? [Any])?.compactMap { v -> Double? in
+                if let x = v as? Double { return x }
+                if let i = v as? Int { return Double(i) }
+                return nil
+            }
+            guard let nums, nums.count == 8 else { return nil }
+            return .distort(q, corners: nums)
         default: return nil
         }
     }
@@ -607,6 +621,14 @@ extension DocumentCommand {
                        — bends a text layer round a circle centred on its frame.
                        Use flipped:true for text along the bottom so it reads
                        upright. {"op":"curve","straighten":true} removes the curve.
+          distort      corners — perspective-warps a BITMAP layer. Eight numbers
+                       in unit coordinates of the frame, corner order top-left,
+                       top-right, bottom-right, bottom-left, each as x,y:
+                       flat is [0,0, 1,0, 1,1, 0,1]. Pull the right edge inward
+                       and upward, e.g. [0,0, 0.85,0.1, 0.85,0.9, 0,1], and the
+                       bitmap leans away like a wall in perspective. Corners may
+                       go outside 0…1. {"op":"distort","straighten":true}
+                       flattens it again. Aliases: skew, perspective, warp.
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",

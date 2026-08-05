@@ -283,6 +283,13 @@ public struct AcmplcFile {
            let x = dbl(c[0]), let y = dbl(c[1]), let w = dbl(c[2]), let h = dbl(c[3]) {
             l.cropRect = CGRect(x: x, y: y, width: w, height: h)
         }
+        if let w = j["warp"] as? [Any], w.count == 8 {
+            let nums = w.compactMap { dbl($0) }
+            if nums.count == 8 {
+                l.warpCorners = stride(from: 0, to: 8, by: 2)
+                    .map { CGPoint(x: nums[$0], y: nums[$0 + 1]) }
+            }
+        }
         if let a = j["autoShape"] as? [String: Any],
            let kindName = a["kind"] as? String,
            let kind = AutoShape.Kind(rawValue: kindName),
@@ -462,6 +469,9 @@ public struct AcmplcFile {
         if l.contrast != 1 { d["contrast"] = l.contrast }
         if l.saturation != 1 { d["saturation"] = l.saturation }
         if let c = l.cropRect { d["crop"] = [c.minX, c.minY, c.width, c.height] }
+        if let w = l.warpCorners, w.count == 4 {
+            d["warp"] = w.flatMap { [$0.x, $0.y] }
+        }
         return d
     }
 

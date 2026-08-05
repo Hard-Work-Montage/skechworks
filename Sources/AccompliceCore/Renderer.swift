@@ -160,6 +160,25 @@ public struct Renderer {
             ctx.concatenate(d.transform)
             let r = CGRect(origin: .zero, size: d.layer.frame.size)
 
+            // Perspective warp: bake the display image (orientation, adjustments,
+            // crop) and project it onto the corner quad. The warped picture can
+            // spill outside the frame — that's the point of dragging a corner out.
+            if let corners = d.layer.warpCorners, corners.count == 4,
+               let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer),
+               let (warped, unitBox) = BitmapWarp.image(baked, corners: corners,
+                                                        cacheKey: BitmapWarp.key(ref: ref, d.layer)) {
+                let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
+                                 width: unitBox.width * r.width, height: unitBox.height * r.height)
+                ctx.translateBy(x: box.minX, y: box.minY)
+                ctx.scaleBy(x: box.width / max(1, CGFloat(warped.width)),
+                            y: box.height / max(1, CGFloat(warped.height)))
+                ctx.translateBy(x: 0, y: CGFloat(warped.height))
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(warped, in: CGRect(x: 0, y: 0, width: warped.width, height: warped.height))
+                ctx.restoreGState()
+                return
+            }
+
             // Erase strokes clip the image rather than altering it. Built at twice the
             // layer size so a soft edge stays soft when you zoom in.
             //

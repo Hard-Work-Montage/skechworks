@@ -258,6 +258,22 @@ extension Page {
             }
             return "\(ids.count) shapes into one"
 
+        case .distort(_, let corners):
+            var touched = 0
+            for id in ids {
+                p.updateLayer(id) { l in
+                    guard case .bitmap = l.kind else { return }
+                    if let corners, corners.count == 8 {
+                        l.warpCorners = stride(from: 0, to: 8, by: 2)
+                            .map { CGPoint(x: corners[$0], y: corners[$0 + 1]) }
+                    } else {
+                        l.warpCorners = nil
+                    }
+                    touched += 1
+                }
+            }
+            return touched == 0 ? "only bitmaps distort" : "\(touched) bitmap\(touched == 1 ? "" : "s")"
+
         case .curve(_, let radius, let angle, let flipped):
             for id in ids {
                 // A ring inside an artboard should be concentric with it. Curving in

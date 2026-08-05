@@ -216,6 +216,12 @@ public struct Layer: @unchecked Sendable {
     /// Nil shows everything. Cropping is a window, not a knife.
     public var cropRect: CGRect?
 
+    /// Perspective warp for a bitmap: where the four corners of the frame have
+    /// been dragged to, in unit coordinates of the frame (top-left, top-right,
+    /// bottom-right, bottom-left; y down). Nil means flat. Like every bitmap
+    /// treatment here it's a stored decision — the pixels are never touched.
+    public var warpCorners: [CGPoint]?
+
     /// True when any bitmap adjustment departs from neutral.
     public var hasBitmapAdjustments: Bool {
         brightness != 0 || contrast != 1 || saturation != 1 || cropRect != nil

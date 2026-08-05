@@ -79,6 +79,25 @@ public struct SVGWriter {
 
             if let ref = d.imageRef, let data = images[ref] {
                 let r = d.layer.frame
+                // SVG has no perspective transform for images at all, so a warped
+                // bitmap is projected first and the warped raster is embedded at
+                // its bounding box.
+                if let corners = d.layer.warpCorners, corners.count == 4,
+                   let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer),
+                   let (warped, unitBox) = BitmapWarp.image(baked, corners: corners,
+                                                            cacheKey: BitmapWarp.key(ref: ref, d.layer)),
+                   let png = Renderer.png(warped) {
+                    let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
+                                     width: unitBox.width * r.width, height: unitBox.height * r.height)
+                    var m = CGAffineTransform(translationX: box.minX, y: box.minY)
+                        .scaledBy(x: box.width / max(1, CGFloat(warped.width)),
+                                  y: box.height / max(1, CGFloat(warped.height)))
+                    m = m.concatenating(d.transform)
+                    let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
+                    body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(warped.width)\" height=\"\(warped.height)\" "
+                    body += "xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/>\n"
+                    continue
+                }
                 // Adjustments and crops can't be expressed portably in SVG, so a
                 // touched bitmap is baked and embedded — the untouched path below
                 // keeps original bytes exactly as they were.
