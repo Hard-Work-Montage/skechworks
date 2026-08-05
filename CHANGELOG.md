@@ -2,6 +2,19 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.7 (August 5, 2026)
+
+- Perspective for images: hold command and drag a corner handle, and that corner follows the pointer. Right-click offers Flatten Distort. Chat and connected tools can set it precisely with the distort command.
+- Double-click a bitmap to select pixels, Fireworks style: drag a box, copy it, or paste over it.
+- Paste puts the copy on whatever you have selected, centered and stacked directly above it.
+- Thin lines are clickable along their stroke, not just inside a fill they don't have.
+- Escape keeps a drawn line instead of discarding it. A single stranded point still gets dropped.
+- Erased areas stay put through resizes and perspective warps.
+- The font menu shows every family in its own face.
+- Launch opens exactly the windows it needs, with no spare untitled tab.
+- Quitting can no longer lose recent work: every unsaved document snapshots before the app exits, a stale snapshot can never hide a newer save, and opening a file that is already open focuses its tab instead of duplicating it.
+- Connected tools can place an image file straight onto a named artboard.
+
 ## 0.4.6 (August 4, 2026)
 
 - Quit with files open, launch with the same files open.
