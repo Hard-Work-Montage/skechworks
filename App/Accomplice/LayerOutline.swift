@@ -390,15 +390,34 @@ struct LayerOutline: NSViewRepresentable {
                   let tf = cell.textField else { return }
             renamingID = item.id
             nameBeforeEdit = tf.stringValue
+            // The cell's field is built with NSTextField(labelWithString:), which
+            // is NOT selectable — and AppKit won't install a field editor on an
+            // unselectable field. Dress it as an editable field for the duration.
             tf.isEditable = true
+            tf.isSelectable = true
+            tf.isBordered = true
+            tf.drawsBackground = true
+            tf.backgroundColor = .textBackgroundColor
             tf.delegate = self
             outline.window?.makeFirstResponder(tf)
-            tf.selectText(nil)
+            // Select through the FIELD EDITOR, not selectText(nil): that call ends
+            // the editing session it just started, and our own delegate then
+            // dutifully tore the edit down — the field kept focus with editing
+            // switched off, so the name highlighted and typing did nothing.
+            tf.currentEditor()?.selectAll(nil)
+        }
+
+        /// Back to a plain label — the look and the behaviour.
+        private func stopEditing(_ tf: NSTextField) {
+            tf.isEditable = false
+            tf.isSelectable = false
+            tf.isBordered = false
+            tf.drawsBackground = false
         }
 
         func controlTextDidEndEditing(_ n: Notification) {
             guard let tf = n.object as? NSTextField else { return }
-            tf.isEditable = false
+            stopEditing(tf)
             guard let id = renamingID else { return }
             renamingID = nil
             let name = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -416,7 +435,7 @@ struct LayerOutline: NSViewRepresentable {
             // Escape: the edit never happened.
             renamingID = nil
             tf.stringValue = nameBeforeEdit
-            tf.isEditable = false
+            stopEditing(tf)
             control.window?.makeFirstResponder(outline)
             return true
         }
@@ -481,3 +500,4 @@ extension LayerOutline.Coordinator: NSMenuDelegate {
         (sender.representedObject as? Action)?.run()
     }
 }
+

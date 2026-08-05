@@ -267,23 +267,21 @@ final class InteractionTests: XCTestCase {
                         .waitForExistence(timeout: 2))
     }
 
-    /// KNOWN FAILING, and honestly marked rather than deleted. Renaming moved
-    /// in place on July 30 (d9a68e3) and this test was never updated; driving
-    /// the row's field from XCUITest types into it but the new name never
-    /// commits, which needs a session with the running app to sort out. The
-    /// app-level behaviour is covered by testUndoAfterRenamingAPagePutsTheOldNameBack
-    /// and by daily use.
+    /// This was the canary. It failed because renaming was genuinely broken:
+    /// the canvas shortcuts are bare letters, SwiftUI made them menu key
+    /// equivalents, and menus get every keystroke before a field editor does —
+    /// so typing a name inserted rectangles instead. TypingWins fixed it.
     func testDoubleClickingALayerRenamesIt() {
-        XCTExpectFailure("in-place rename needs a UI-test rework — see comment")
-        let photo = app.windows.firstMatch.textFields["layer-Photo"]
+        let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5))
         photo.doubleClick()
 
-        // In place since July 30: the row's own field turns editable with its
-        // text selected, so typing replaces the name. A window-wide textFields
-        // lookup finds the chat box instead — scope it to the row.
-        photo.typeText("Coin front")
-        photo.typeKey(.enter, modifierFlags: [])
+        // In place since July 30: the row's field turns editable with its text
+        // selected, so typing replaces the name. Type at the app, not at an
+        // element — exactly what a person does, and the only way to prove the
+        // keystrokes reach the field instead of the menus.
+        app.typeText("Coin front")
+        app.typeKey(.enter, modifierFlags: [])
 
         XCTAssertTrue(row("Coin front").waitForExistence(timeout: 3))
     }

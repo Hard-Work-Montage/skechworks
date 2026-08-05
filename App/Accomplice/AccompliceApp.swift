@@ -347,6 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // so the choice only exists at runtime.
         AppIconTheme.current.apply()
         ClickModifiers.start()
+        TypingWins.start()
         if UserDefaults.standard.object(forKey: "mcp.enabled") as? Bool ?? true {
             MCPServer.shared.start()
         }
