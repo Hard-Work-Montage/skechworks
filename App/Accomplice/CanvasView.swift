@@ -1699,8 +1699,42 @@ final class PageCanvas: NSView {
            !page.isInside(leaf.id, entered) {
             enteredGroup = nil
         }
-        // ⇧⌘ drills past the group to the layer actually under the pointer.
+        // ⇧⌘ drills past the group to the layer actually under the pointer — and
+        // clicking AGAIN steps to the next layer down the stack, wrapping at the
+        // bottom. That's how you reach the mug the laptop's frame is covering.
         let drill = event.modifierFlags.contains(.command) && event.modifierFlags.contains(.shift)
+        if drill {
+            var stack: [Layer] = []
+            var seen = Set<String>()
+            for d in composed.reversed() {
+                if lockedDeep(d.layer.id) { continue }
+                if let c = d.clip, !c.contains(p) { continue }
+                let contains: Bool
+                if let path = d.path { contains = path.contains(p) }
+                else if d.text != nil || d.imageRef != nil {
+                    contains = CGRect(origin: .zero, size: d.layer.frame.size)
+                        .applying(d.transform).contains(p)
+                } else { contains = false }
+                guard contains else { continue }
+                let t = selectionTarget(d.layer, drill: true)
+                if seen.insert(t.id).inserted { stack.append(t) }
+            }
+            if !stack.isEmpty {
+                var idx = 0
+                if selected.count == 1, let cur = selected.first,
+                   let i = stack.firstIndex(where: { $0.id == cur }) {
+                    idx = (i + 1) % stack.count
+                }
+                let h = stack[idx]
+                onSelect?(h.id, false)
+                dragging = true
+                onDragBegin?(h.id)
+                var moving = selected
+                moving.insert(h.id)
+                snapTargets = page?.snapTargets(excluding: moving) ?? []
+                return
+            }
+        }
         let h = selectionTarget(leaf, drill: drill)
         if !selected.contains(h.id) || extend { onSelect?(h.id, extend && !drill) }
         if !extend || drill {

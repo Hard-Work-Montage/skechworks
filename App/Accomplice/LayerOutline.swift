@@ -31,6 +31,19 @@ final class DeletableOutlineView: NSOutlineView {
             onDelete?()
             return
         }
+        // Arrows nudge the selected layers, exactly as they do with the canvas
+        // focused. The outline's own arrow behavior (walking rows) loses to this
+        // deliberately: you just picked a layer, so arrows should MOVE it.
+        if !selectedRowIndexes.isEmpty {
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            switch event.keyCode {
+            case 123: AppDelegate.shared?.active?.nudge(dx: -step, dy: 0); return
+            case 124: AppDelegate.shared?.active?.nudge(dx: step, dy: 0); return
+            case 125: AppDelegate.shared?.active?.nudge(dx: 0, dy: step); return
+            case 126: AppDelegate.shared?.active?.nudge(dx: 0, dy: -step); return
+            default: break
+            }
+        }
         super.keyDown(with: event)
     }
 }
