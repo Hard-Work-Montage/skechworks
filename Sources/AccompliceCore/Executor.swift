@@ -443,6 +443,13 @@ extension Page {
 
         l.name = spec.name ?? kind.prefix(1).uppercased() + kind.dropFirst()
         l.frame = frame
+        // A rectangle is nearly always about to become a panel, a band or a
+        // backdrop, so it arrives with its ratio UNLOCKED and stretches freely.
+        // Circles, images and everything else keep the padlock on: squashing
+        // those is almost always a mistake. Shift inverts either way.
+        if ["rect", "rectangle", "square"].contains(kind) || kind.isEmpty {
+            l.constrainProportions = false
+        }
         if kind != "artboard" {
             let colour = spec.fill.flatMap { SVGReader.color($0, alpha: 1) } ?? .black
             if kind == "line" {

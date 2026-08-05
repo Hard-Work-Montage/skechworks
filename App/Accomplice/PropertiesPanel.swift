@@ -573,16 +573,11 @@ struct PropertiesPanel: View {
             .buttonStyle(.plain).foregroundStyle(.tertiary).help(help)
     }
 
+    /// Border width and anything else that used to roll its own field: one
+    /// component, so the arrow keys behave the same everywhere.
     private func numberField(_ label: String, _ value: CGFloat,
                              _ set: @escaping (CGFloat) -> Void) -> some View {
-        HStack(spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-            TextField("", value: Binding(get: { Double(value) }, set: { set(CGFloat($0)) }),
-                      format: .number.precision(.fractionLength(0...2)))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 52)
-                .multilineTextAlignment(.trailing)
-        }
+        NumberField(label: label, value: value) { set($0) }
     }
 
     /// Shadows, editable, and reachable on anything — including a group, where the
@@ -1055,6 +1050,7 @@ private struct NumberField: View {
 
     @State private var text: String = ""
     @FocusState private var focused: Bool
+    @State private var stepMonitor: Any?
 
     init(label: String, value: CGFloat?, suffix: String = "",
          onCommit: @escaping (CGFloat) -> Void) {
@@ -1078,23 +1074,20 @@ private struct NumberField: View {
                 .font(.system(.callout, design: .monospaced))
                 .focused($focused)
                 .onSubmit(commit)
-                .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+                .onChange(of: focused) { _, isFocused in
+                    if isFocused { startStepping() } else { stopStepping(); commit() }
+                }
+                .onDisappear { stopStepping() }
                 .onChange(of: value) { _, _ in if !focused { text = format(value) } }
                 .onAppear { text = format(value) }
                 // Arrow keys nudge the number the way they nudge a layer: 1 at a
-                // time, 10 with shift. Committed immediately, so the canvas moves
+                // time, 10 with shift, committed immediately so the canvas moves
                 // with each press instead of waiting for Return.
-                .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                    let step: CGFloat = press.modifiers.contains(.shift) ? 10 : 1
-                    let direction: CGFloat = press.key == .upArrow ? 1 : -1
-                    let typed = Double(text.replacingOccurrences(of: suffix, with: "")
-                        .trimmingCharacters(in: .whitespaces))
-                    let base: CGFloat = typed.map { CGFloat($0) } ?? value ?? 0
-                    let v = base + direction * step
-                    text = format(v)
-                    onCommit(v)
-                    return .handled
-                }
+                //
+                // Via an event monitor rather than .onKeyPress, which never fires
+                // here: the focused text field swallows the arrows to move its own
+                // caret, so the modifier below it is never consulted. This looked
+                // right in the source and did nothing for weeks.
         }
     }
 
@@ -1105,6 +1098,34 @@ private struct NumberField: View {
         }
         if CGFloat(v) != value { onCommit(CGFloat(v)) }
         text = format(CGFloat(v))
+    }
+
+    /// Up and down step the value while this field has focus: 1, or 10 with shift.
+    private func startStepping() {
+        guard stepMonitor == nil else { return }
+        stepMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+            // NSEvent isn't Sendable, so only the verdict crosses back.
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard focused, event.keyCode == 125 || event.keyCode == 126,
+                      event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+                else { return false }
+                let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+                let direction: CGFloat = event.keyCode == 126 ? 1 : -1
+                let typed = Double(text.replacingOccurrences(of: suffix, with: "")
+                    .trimmingCharacters(in: .whitespaces))
+                let base: CGFloat = typed.map { CGFloat($0) } ?? value ?? 0
+                let v = base + direction * step
+                text = format(v)
+                onCommit(v)
+                return true
+            }
+            return handled ? nil : event
+        }
+    }
+
+    private func stopStepping() {
+        if let m = stepMonitor { NSEvent.removeMonitor(m) }
+        stepMonitor = nil
     }
 
     private func format(_ v: CGFloat?) -> String {

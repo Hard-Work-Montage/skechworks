@@ -101,3 +101,24 @@ private func whitePNG(width: Int, height: Int) -> Data {
     #expect(green(x, img.height * 9 / 72) < 60, "the hole is where the stroke was")
     #expect(green(x, img.height * 63 / 72) > 200, "the mirrored spot is untouched")
 }
+
+@Test func aNewRectangleArrivesUnlockedAndEverythingElseDoesNot() throws {
+    // A rectangle is nearly always a panel, band or backdrop about to be
+    // stretched; a circle or an image being squashed is nearly always a slip.
+    var page = Page(name: "p")
+    var spec = AddSpec()
+    spec.kind = "rect"
+    let rectID = page.add(spec)
+    let rect = try #require(rectID)
+    #expect(page.layer(rect)?.constrainProportions == false)
+
+    spec.kind = "ellipse"
+    let ovalID = page.add(spec)
+    let oval = try #require(ovalID)
+    #expect(page.layer(oval)?.constrainProportions == true)
+
+    spec.kind = "star"
+    let starID = page.add(spec)
+    let star = try #require(starID)
+    #expect(page.layer(star)?.constrainProportions == true)
+}

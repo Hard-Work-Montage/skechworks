@@ -107,10 +107,8 @@ private struct ColorPickerPane: View {
                             .font(.callout.monospacedDigit())
                             .multilineTextAlignment(.trailing)
                             .frame(width: 30)
-                            .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                                let step = press.modifiers.contains(.shift) ? 10 : 1
-                                boundAlpha.wrappedValue += press.key == .upArrow ? step : -step
-                                return .handled
+                            .stepsWithArrows { delta in
+                                boundAlpha.wrappedValue = min(100, max(0, boundAlpha.wrappedValue + Int(delta)))
                             }
                         Text("%").foregroundStyle(.tertiary).font(.callout)
                     }
@@ -208,10 +206,8 @@ private struct ColorPickerPane: View {
                 .textFieldStyle(.plain)
                 .font(.callout.monospacedDigit())
                 .multilineTextAlignment(.trailing)
-                .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-                    let step = press.modifiers.contains(.shift) ? 10 : 1
-                    bound.wrappedValue += press.key == .upArrow ? step : -step
-                    return .handled
+                .stepsWithArrows { delta in
+                    bound.wrappedValue = min(255, max(0, bound.wrappedValue + Int(delta)))
                 }
         }
         .padding(.horizontal, 6).padding(.vertical, 4)

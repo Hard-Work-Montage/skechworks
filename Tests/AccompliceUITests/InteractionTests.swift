@@ -107,6 +107,32 @@ final class InteractionTests: XCTestCase {
         }
     }
 
+    /// Every numeric field steps by 1 on the arrows and 10 with shift. This is a
+    /// standing rule, so it is pinned rather than trusted.
+    func testNumberFieldsStepWithTheArrows() {
+        row("Circle").click()
+        let w = app.windows.firstMatch.descendants(matching: .any)["field-W"]
+        XCTAssertTrue(w.waitForExistence(timeout: 5), "the W field should be there")
+        w.click()
+
+        func value() -> String { (w.value as? String) ?? "" }
+        let start = value()
+
+        w.typeKey(.upArrow, modifierFlags: [])
+        XCTAssertNotEqual(value(), start, "up arrow should step the number")
+        let afterUp = value()
+
+        w.typeKey(.upArrow, modifierFlags: .shift)
+        let afterShift = value()
+        XCTAssertNotEqual(afterShift, afterUp, "shift-up should step it further")
+
+        // 1 then 10 from the same start: the second step is the bigger one.
+        let d1 = abs((Double(afterUp) ?? 0) - (Double(start) ?? 0))
+        let d2 = abs((Double(afterShift) ?? 0) - (Double(afterUp) ?? 0))
+        XCTAssertEqual(d1, 1, accuracy: 0.001, "plain arrow steps by 1")
+        XCTAssertEqual(d2, 10, accuracy: 0.001, "shift steps by 10")
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")
