@@ -40,6 +40,10 @@ public final class SVGReader: NSObject {
     private var pendingGradientKind: GradientKind = .linear
     private var pendingGradientPoints: (from: CGPoint, to: CGPoint) = (.init(x: 0, y: 0), .init(x: 1, y: 0))
     private var depthSkipped = 0
+    /// Depth inside <defs>. Definitions are referenced, never drawn — but gradients
+    /// live in there too, so the subtree is walked rather than skipped and only the
+    /// shape-emitting parts are held back.
+    private var defsDepth = 0
 
     private struct Frame {
         var transform: CGAffineTransform
@@ -96,10 +100,10 @@ public final class SVGReader: NSObject {
         case "g":
             push(attrs, name: attrs["id"] ?? "Group")
 
-        case "linearGradient", "radialGradient":
+        case "lineargradient", "radialgradient":
             pendingGradientID = attrs["id"]
             pendingStops = []
-            pendingGradientKind = name == "radialGradient" ? .radial : .linear
+            pendingGradientKind = name == "radialgradient" ? .radial : .linear
             let from = CGPoint(x: SVGReader.length(attrs["x1"]) ?? SVGReader.length(attrs["cx"]) ?? 0,
                                y: SVGReader.length(attrs["y1"]) ?? SVGReader.length(attrs["cy"]) ?? 0)
             let to = CGPoint(x: SVGReader.length(attrs["x2"]) ?? 1,
@@ -160,6 +164,16 @@ public final class SVGReader: NSObject {
             if name == "text" { warnings.append("Text was skipped — SVG text needs fonts the file doesn't carry.") }
             depthSkipped = 1
 
+        case "defs":
+            defsDepth += 1
+
+        // Shapes inside these are DEFINITIONS: the outline of a clip, the shape of a
+        // mask, a tile, a template. Drawing them is how our own exported SVG came
+        // back in with its clip rectangle painted over the artwork as a solid black
+        // page — and every Illustrator or Figma file with a clip did the same.
+        case "clippath", "mask", "pattern", "symbol", "marker":
+            depthSkipped = 1
+
         case "use":
             warnings.append("<use> references were skipped.")
 
@@ -170,6 +184,7 @@ public final class SVGReader: NSObject {
 
     fileprivate func end(_ name: String) {
         if depthSkipped > 0 { depthSkipped -= 1; return }
+        if name == "defs" { defsDepth = max(0, defsDepth - 1); return }
         switch name {
         case "svg", "g":
             guard stack.count > 1 else { return }
@@ -190,7 +205,7 @@ public final class SVGReader: NSObject {
                 stack[stack.count - 1].children.append(g)
             }
 
-        case "linearGradient", "radialGradient":
+        case "lineargradient", "radialgradient":
             if let id = pendingGradientID, !pendingStops.isEmpty {
                 var g = Gradient()
                 g.kind = pendingGradientKind
@@ -242,6 +257,8 @@ public final class SVGReader: NSObject {
 
     private func emit(_ path: CGPath, _ attrs: [String: String],
                       defaultName: String, closed: Bool = true) {
+        // A shape sitting loose in <defs> is a template for <use>, not artwork.
+        guard defsDepth == 0 else { return }
         let parent = stack[stack.count - 1]
         var t = parent.transform
         if let s = attrs["transform"] { t = SVGReader.transform(s).concatenating(t) }

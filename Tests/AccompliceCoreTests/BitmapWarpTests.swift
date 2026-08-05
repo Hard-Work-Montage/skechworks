@@ -175,3 +175,31 @@ private func whitePNG(width: Int, height: Int) -> Data {
     #expect(abs(migrated - 1.0) < 0.01, "24pt on 20pt type is single spacing")
     data = Data(); _ = data
 }
+
+@Test func definitionsAreNotArtwork() throws {
+    // Our own exported SVG carries the artboard's clip in <defs>. Reading that
+    // clip as a shape put a full-canvas rectangle over the picture — a document
+    // that opened solid black. Gradients live in <defs> too and must survive.
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <clipPath id="c1"><path d="M0 0L100 0L100 100L0 100Z"/></clipPath>
+        <path id="tile" d="M0 0L10 0L10 10L0 10Z"/>
+        <linearGradient id="g1" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#ff0000"/>
+          <stop offset="1" stop-color="#0000ff"/>
+        </linearGradient>
+      </defs>
+      <path clip-path="url(#c1)" fill="url(#g1)" d="M20 20L80 20L80 80L20 80Z"/>
+    </svg>
+    """
+    let read = try SVGReader().read(data: Data(svg.utf8))
+    let layers = try #require(read.document.pages.first?.layers)
+    #expect(layers.count == 1, "only the drawn path is artwork, not the clip or the tile")
+
+    // The gradient still reached the shape it paints.
+    let fill = try #require(layers.first?.style.fills.first)
+    if case .gradient = fill.paint {} else {
+        Issue.record("the gradient defined in <defs> should still paint the shape")
+    }
+}
