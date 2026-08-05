@@ -2217,13 +2217,19 @@ final class PageCanvas: NSView {
                 editingLayerID = id
                 return
             }
-        case 53:   // escape — abandon
-            // Escape drops whatever is half-drawn *and* hands the cursor back. Staying
-            // in the pen after cancelling was the trap: nothing on screen changed, so
-            // the tool read as stuck.
+        case 53:   // escape — done drawing, or abandon
             if croppingID != nil { onCancelCrop?(); return }
             if tool == .pen {
-                penPoints = []; penCursor = nil; needsDisplay = true
+                // Two or more points is a drawing, not a mistake — a bare line is
+                // something Adam draws on purpose. Escape keeps it and hands the
+                // cursor back; only a single stranded point gets dropped. A kept
+                // line the user didn't want is one undo away, a dropped one is
+                // gone.
+                if penPoints.count >= 2 {
+                    finishPen(close: false)
+                } else {
+                    penPoints = []; penCursor = nil; needsDisplay = true
+                }
                 onExitTool?()
                 return
             }
