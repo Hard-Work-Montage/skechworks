@@ -29,3 +29,19 @@ import Foundation
     #expect(green(x, img.height * 9 / 72) < 60, "the hole is where the stroke was")
     #expect(green(x, img.height * 63 / 72) > 200, "the mirrored spot is untouched")
 }
+
+@Test func resizingABitmapScalesItsEraseStrokes() throws {
+    // The hole was cut at one size; resizing the bitmap must carry it along, or
+    // the erase lands on art it never touched.
+    var l = Layer(kind: .bitmap(imageRef: "w.png"))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    l.erased = [EraseStroke(rect: CGRect(x: 10, y: 20, width: 30, height: 40)),
+                EraseStroke(points: [CGPoint(x: 50, y: 50)], radius: 10, softness: 0)]
+
+    l.resize(to: CGSize(width: 200, height: 50))
+
+    let rect = try #require(l.erased[0].rect)
+    #expect(rect == CGRect(x: 20, y: 10, width: 60, height: 20))
+    #expect(l.erased[1].points[0] == CGPoint(x: 100, y: 25))
+    #expect(abs(l.erased[1].radius - 12.5) < 0.001, "radius scales by the average axis")
+}

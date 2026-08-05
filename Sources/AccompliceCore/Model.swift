@@ -342,6 +342,21 @@ public struct Layer: @unchecked Sendable {
         guard sx != 1 || sy != 1 else { return }
         let scale = CGAffineTransform(scaleX: sx, y: sy)
 
+        // Erase strokes live in layer units, so they scale with the art. Leaving
+        // them put is how a resized bitmap's holes drifted off their targets.
+        if !erased.isEmpty {
+            erased = erased.map { s in
+                var t = s
+                t.points = s.points.map { CGPoint(x: $0.x * sx, y: $0.y * sy) }
+                t.radius = s.radius * (sx + sy) / 2
+                if let r = s.rect {
+                    t.rect = CGRect(x: r.minX * sx, y: r.minY * sy,
+                                    width: r.width * sx, height: r.height * sy)
+                }
+                return t
+            }
+        }
+
         switch kind {
         case .path(let p, let closed):
             kind = .path(p.transformed(by: scale), closed: closed)
