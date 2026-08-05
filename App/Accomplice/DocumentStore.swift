@@ -1841,11 +1841,23 @@ final class DocumentStore: ObservableObject {
     }
 
     private func scheduleAutosave() {
-        autosaveTask?.cancel()
+        // A THROTTLE, not a debounce. Cancelling and re-arming on every edit meant
+        // continuous work pushed the snapshot forever into the future — minutes of
+        // editing with the net never once touching the ground.
+        guard autosaveTask == nil else { return }
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.autosaveDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
+            self?.autosaveTask = nil
             self?.autosaveNow()
+        }
+    }
+
+    /// Removes a snapshot that will never be restored.
+    static func discardRecovery(_ rec: Recovery) {
+        recoveryQueue.async {
+            try? FileManager.default.removeItem(at: rec.snapshot)
+            try? FileManager.default.removeItem(at: rec.sidecar)
         }
     }
 
@@ -1877,6 +1889,7 @@ final class DocumentStore: ObservableObject {
 
     private func clearRecovery() {
         autosaveTask?.cancel()
+        autosaveTask = nil
         let id = autosaveID
         Self.recoveryQueue.async {
             let dir = Self.recoveryDir

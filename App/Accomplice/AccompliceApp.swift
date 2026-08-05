@@ -381,10 +381,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func restoreRecoveredDocuments() -> Set<String> {
         let found = DocumentStore.pendingRecoveries()
         guard !found.isEmpty else { return [] }
-        pendingRecoveries.append(contentsOf: found)
+        // Two hard-won rules, from the night three stale snapshots of one document
+        // hijacked a launch and hid a save that was already on disk:
+        //
+        // 1. A snapshot no newer than its original's last save is SUPERSEDED — the
+        //    save won. Restoring it replaced good on-disk work with a stale copy.
+        // 2. Several snapshots of the same original (duplicate tabs) collapse to
+        //    the newest one; restoring all three made three windows of one file.
+        let fm = FileManager.default
+        func mtime(_ u: URL?) -> Date {
+            (u.flatMap { try? fm.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date })
+                ?? .distantPast
+        }
+        var newestByOriginal: [String: DocumentStore.Recovery] = [:]
+        var untitled: [DocumentStore.Recovery] = []
+        for r in found {
+            guard let key = r.original?.path else { untitled.append(r); continue }
+            if mtime(r.original) >= mtime(r.snapshot) {
+                DocumentStore.discardRecovery(r)
+                continue
+            }
+            if let prev = newestByOriginal[key] {
+                if mtime(r.snapshot) > mtime(prev.snapshot) {
+                    DocumentStore.discardRecovery(prev)
+                    newestByOriginal[key] = r
+                } else {
+                    DocumentStore.discardRecovery(r)
+                }
+            } else {
+                newestByOriginal[key] = r
+            }
+        }
+        let kept = untitled + Array(newestByOriginal.values)
+        pendingRecoveries.append(contentsOf: kept)
         // Windows are requested by the launch accounting in
-        // applicationDidFinishLaunching, which sees every job at once.
-        return Set(found.compactMap { $0.original?.path })
+        // applicationDidFinishLaunching, which sees every job at once. Only KEPT
+        // recoveries suppress the session reopen — a superseded snapshot must not
+        // stop the real file from opening.
+        return Set(kept.compactMap { $0.original?.path })
     }
 
     // MARK: - Session restore
@@ -414,6 +448,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         terminating = true
         writeSession()
+        // The recovery net writes on a background queue; quitting killed whatever
+        // was still queued, and the throttle meant the last edits might not even
+        // be queued yet. Snapshot every dirty document NOW and wait for the disk.
+        for s in stores where s.isDirty { s.autosaveNow() }
+        DocumentStore.flushRecoveryQueueForTesting()
         return .terminateNow
     }
 
@@ -476,8 +515,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Hands queued work to empty windows only. A window showing a document keeps
     /// it — pending files never overwrite the tab you're looking at.
     private func flushPending() {
-        while !pendingURLs.isEmpty,
-              let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) {
+        while !pendingURLs.isEmpty {
+            let next = pendingURLs[0]
+            // Already open: focus that window instead of minting a duplicate tab.
+            // Duplicate tabs of one file are how three competing recovery
+            // snapshots of the same document came to exist.
+            if let existing = stores.last(where: { $0.url == next }) {
+                pendingURLs.removeFirst()
+                existing.window?.makeKeyAndOrderFront(nil)
+                continue
+            }
+            guard let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) else { break }
             empty.open(pendingURLs.removeFirst())
         }
         // One recovery per fresh window: only an untitled, untouched window takes
