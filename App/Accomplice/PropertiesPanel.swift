@@ -739,6 +739,7 @@ struct PropertiesPanel: View {
                 store.editText(l.id, "Change Font") { $0.fontName = fam }
             }
             .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("font-picker")
         }
     }
 
@@ -1121,11 +1122,13 @@ private struct FontFamilyPicker: NSViewRepresentable {
     var onPick: (String) -> Void
 
     func makeNSView(context: Context) -> NSPopUpButton {
-        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        let button = CompressiblePopUpButton(frame: .zero, pullsDown: false)
         button.target = context.coordinator
         button.action = #selector(Coordinator.picked(_:))
         button.bezelStyle = .rounded
         button.font = NSFont.systemFont(ofSize: 12)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let menu = NSMenu()
         for fam in NSFontManager.shared.availableFontFamilies {
             let item = NSMenuItem(title: fam, action: nil, keyEquivalent: "")
@@ -1145,6 +1148,15 @@ private struct FontFamilyPicker: NSViewRepresentable {
         if button.titleOfSelectedItem != current { button.setTitle(current) }
     }
 
+    /// SwiftUI sizes a representable from the view's intrinsic size, and a
+    /// popup's intrinsic width is its WIDEST MENU ITEM. With every family
+    /// previewing itself one of those items is a billboard, and the inspector
+    /// column stretched to fit it. Take the proposed width instead.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton,
+                      context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 120, height: nsView.fittingSize.height)
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     final class Coordinator: NSObject {
@@ -1153,5 +1165,13 @@ private struct FontFamilyPicker: NSViewRepresentable {
         @objc func picked(_ sender: NSPopUpButton) {
             if let choice = sender.titleOfSelectedItem { onPick(choice) }
         }
+    }
+}
+
+/// A popup that doesn't insist on being as wide as its widest menu item — the
+/// belt to `sizeThatFits`'s braces, since AppKit consults this directly too.
+private final class CompressiblePopUpButton: NSPopUpButton {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: super.intrinsicContentSize.height)
     }
 }

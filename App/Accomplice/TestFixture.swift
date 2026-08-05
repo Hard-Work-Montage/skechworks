@@ -44,8 +44,19 @@ enum TestFixture {
         art.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
         art.frame = CGRect(x: 0, y: 0, width: 500, height: 500)
 
+        // A text layer, loose at the root so the artboard's rows keep their order.
+        // Its only job is to make the inspector show the TEXT section — the font
+        // picker there once stretched the whole panel to its widest menu item.
+        var run = TextRun()
+        run.string = "Caption"
+        run.fontName = "Helvetica"
+        run.fontSize = 24
+        var caption = Layer(kind: .text(run))
+        caption.name = "Caption"
+        caption.frame = CGRect(x: 600, y: 40, width: 220, height: 40)
+
         var page = Page(name: "Page 1")
-        page.layers = [art]
+        page.layers = [art, caption]
         var doc = Document()
         doc.pages = [page]
         return doc

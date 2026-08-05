@@ -56,6 +56,23 @@ final class InteractionTests: XCTestCase {
 
     // MARK: -
 
+    /// A popup's intrinsic width is its widest menu item, and every font family
+    /// previews itself — so selecting text once stretched the inspector until the
+    /// canvas was a sliver. Shipped that way in 0.4.7; pinned here.
+    func testSelectingTextDoesNotStretchTheInspector() {
+        let window = app.windows.firstMatch
+        let canvasBefore = window.frame.width
+
+        row("Caption").click()
+        let picker = window.descendants(matching: .any)["font-picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "the text section should show a font picker")
+
+        XCTAssertLessThan(picker.frame.width, 320,
+                          "the font popup must compress to the panel, not stretch it")
+        XCTAssertLessThan(window.frame.width, canvasBefore + 1,
+                          "selecting text must not resize the window")
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")

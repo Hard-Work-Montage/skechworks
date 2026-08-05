@@ -36,7 +36,12 @@ private func whitePNG(width: Int, height: Int) -> Data {
 }
 
 @Test func warpCornersSurviveTheFileFormat() throws {
-    var l = Layer(kind: .bitmap(imageRef: "w.png"))
+    // Refs differ per test on purpose: BitmapAdjust and BitmapWarp cache by ref,
+    // and a real document's refs are content-addressed, so one ref never names
+    // two different pictures. Sharing "w.png" across tests broke that and the
+    // suite served a 4x4 image to a test expecting 128x72 — only when the
+    // parallel ordering fell a certain way.
+    var l = Layer(kind: .bitmap(imageRef: "warp-file.png"))
     l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
     l.warpCorners = [CGPoint(x: 0, y: 0), CGPoint(x: 0.8, y: 0.15),
                      CGPoint(x: 0.8, y: 0.85), CGPoint(x: 0, y: 1)]
@@ -45,7 +50,7 @@ private func whitePNG(width: Int, height: Int) -> Data {
     var doc = Document()
     doc.pages = [page]
 
-    let data = try AcmplcFile.write(document: doc, images: ["w.png": whitePNG(width: 4, height: 4)])
+    let data = try AcmplcFile.write(document: doc, images: ["warp-file.png": whitePNG(width: 4, height: 4)])
     let (readDoc, _) = try AcmplcFile.read(data)
     let back = try #require(readDoc.pages.first?.layers.first?.warpCorners)
     #expect(back.count == 4)
@@ -53,7 +58,7 @@ private func whitePNG(width: Int, height: Int) -> Data {
 }
 
 @Test func theDistortCommandSetsAndClearsTheWarp() throws {
-    var l = Layer(kind: .bitmap(imageRef: "w.png"))
+    var l = Layer(kind: .bitmap(imageRef: "warp-cmd.png"))
     l.name = "Window"
     l.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
     var page = Page(name: "p")
@@ -80,7 +85,7 @@ private func whitePNG(width: Int, height: Int) -> Data {
     // skipped entirely the hole never appears. Red background shows through.
     let png = whitePNG(width: 128, height: 72)
 
-    var l = Layer(kind: .bitmap(imageRef: "w.png"))
+    var l = Layer(kind: .bitmap(imageRef: "warp-erase.png"))
     l.frame = CGRect(x: 0, y: 0, width: 128, height: 72)
     l.erased = [EraseStroke(points: [CGPoint(x: 64, y: 9)], radius: 12, softness: 0)]
     l.warpCorners = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
@@ -88,7 +93,7 @@ private func whitePNG(width: Int, height: Int) -> Data {
     var page = Page(name: "p")
     page.layers = [l]
 
-    let img = Renderer(images: ["w.png": png],
+    let img = Renderer(images: ["warp-erase.png": png],
                        background: Color(r: 1, g: 0, b: 0, a: 1)).render(page: page, maxDimension: 128)!
     let data = img.dataProvider!.data! as Data
     func green(_ x: Int, _ y: Int) -> UInt8 { data[y * img.bytesPerRow + x * 4 + 1] }
