@@ -2,6 +2,12 @@
 
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
 
+## 0.4.8 (August 5, 2026)
+
+- Renaming a layer in the layer list works: double-click, type, Enter.
+- The tool keys (R, O, T, P, V, E) only fire when the canvas has focus. They no longer interrupt you while you are typing a layer name, a colour value, or a message.
+- Fixed: selecting a text layer stretched the inspector wide enough to squeeze the canvas.
+
 ## 0.4.7 (August 5, 2026)
 
 - Perspective for images: hold command and drag a corner handle, and that corner follows the pointer. Right-click offers Flatten Distort. Chat and connected tools can set it precisely with the distort command.
