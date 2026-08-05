@@ -1383,6 +1383,22 @@ final class DocumentStore: ObservableObject {
                                 y: board.frame.midY - bounds.midY)
             }
         }
+        // A plain layer selected means "put it on this": the copy centres on the
+        // selection and stacks directly above it. Identical bounds mean the copy
+        // IS the selection (that's what duplicate does), so the visible nudge
+        // stays — a paste-in-place would vanish into its original.
+        var stackTarget: String?
+        if targetOrigin == nil, targetBoard == nil, selection.count == 1,
+           let sel = selection.first, let selLayer = p.layer(sel), !selLayer.isArtboard {
+            stackTarget = sel
+            if let o = p.absoluteOrigin(of: sel) {
+                let r = CGRect(origin: o, size: selLayer.frame.size)
+                let same = abs(r.midX - bounds.midX) < 0.5 && abs(r.midY - bounds.midY) < 0.5
+                if !same {
+                    shift = CGPoint(x: r.midX - bounds.midX, y: r.midY - bounds.midY)
+                }
+            }
+        }
         let fresh = layers.map { l -> Layer in
             var c = l.withNewIDs()
             c.frame.origin = CGPoint(x: c.frame.minX + shift.x, y: c.frame.minY + shift.y)
@@ -1400,6 +1416,17 @@ final class DocumentStore: ObservableObject {
             // Into the CHOSEN board, not whichever one happens to contain the
             // centre — the point of selecting it first.
             _ = p.reparent(fresh.map(\.id), into: board.id, at: p.children(of: board.id).count)
+        } else if let stack = stackTarget {
+            // Directly above the selected layer, in its container.
+            if let parent = p.ancestors(of: stack).last {
+                let index = (p.children(of: parent).firstIndex { $0.id == stack } ?? 0) + 1
+                _ = p.reparent(fresh.map(\.id), into: parent, at: index)
+            } else {
+                let moved = Array(p.layers.suffix(fresh.count))
+                p.layers.removeLast(fresh.count)
+                let at = (p.layers.firstIndex { $0.id == stack } ?? p.layers.count - 1) + 1
+                p.layers.insert(contentsOf: moved, at: min(at, p.layers.count))
+            }
         } else {
             for l in fresh { p.adoptIntoArtboard(l.id) }
         }

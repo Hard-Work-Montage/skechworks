@@ -132,10 +132,26 @@ public struct Renderer {
         return nil
     }
 
+    /// Whether a point lands on a path counting its STROKE: an open five-pixel
+    /// line has no fill to contain anything, and clicking it selected whatever
+    /// sat behind. The outline is the stroke width or the slop, whichever is
+    /// more forgiving.
+    public static func pathHit(_ p: CGPath, at point: CGPoint,
+                               borders: [Border], slop: CGFloat) -> Bool {
+        if p.contains(point) { return true }
+        let stroke = borders.map(\.thickness).max() ?? 0
+        let outline = p.copy(strokingWithWidth: max(stroke, slop * 2),
+                             lineCap: .round, lineJoin: .round, miterLimit: 10)
+        return outline.contains(point)
+    }
+
     /// Hit-test: the topmost drawable whose geometry contains `point` (page space).
     public func hitTest(page: Page, at point: CGPoint) -> Layer? {
         for d in Compose.flatten(page.layers).reversed() {
-            if let p = d.path, p.contains(point) { return d.layer }
+            if let p = d.path,
+               Renderer.pathHit(p, at: point, borders: d.style.borders, slop: 3) {
+                return d.layer
+            }
             if d.path == nil {
                 let f = d.layer.frame
                 let local = CGRect(origin: .zero, size: f.size).applying(d.transform)

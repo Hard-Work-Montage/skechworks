@@ -37,6 +37,33 @@ final class DocumentStoreTests: XCTestCase {
         return (store, group.id, photo.id)
     }
 
+    func testPasteWithALayerSelectedStacksTheCopyOnIt() {
+        var a = Layer(kind: .bitmap(imageRef: "a.png"))
+        a.name = "Source"
+        a.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        var b = Layer(kind: .bitmap(imageRef: "b.png"))
+        b.name = "Target"
+        b.frame = CGRect(x: 300, y: 300, width: 100, height: 100)
+        var page = Page(name: "Page 1")
+        page.layers = [a, b]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+
+        store.selection = [a.id]
+        store.copySelection()
+        store.selection = [b.id]
+        store.paste()
+
+        let layers = store.page!.layers
+        XCTAssertEqual(layers.count, 3)
+        let pasted = layers[2]
+        XCTAssertEqual(layers[1].id, b.id, "the copy sits directly above the target")
+        XCTAssertEqual(pasted.frame.midX, 350, accuracy: 0.6, "centred on the target")
+        XCTAssertEqual(pasted.frame.midY, 350, accuracy: 0.6)
+    }
+
     func testPixelSelectCopiesTheBoxAndPastesOverIt() {
         // A real 100×100 white image behind a 200×200 frame: layer units are 2×
         // the pixels, which is exactly the scaling copy has to get right.
@@ -230,6 +257,9 @@ final class DocumentStoreTests: XCTestCase {
 
         store.selection = [photo]
         store.copySelection()
+        // Deselect first: paste with a layer selected stacks the copy on it (its
+        // own contract, tested separately). This test is about the coordinates.
+        store.selection = []
         store.paste()
 
         guard let pasted = store.selection.first, pasted != photo else {

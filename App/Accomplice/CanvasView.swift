@@ -1409,7 +1409,11 @@ final class PageCanvas: NSView {
             // hit where it isn't painted, so a click on one panel can never select
             // the invisible tail of a neighbouring panel's art.
             if let c = d.clip, !c.contains(point) { continue }
-            if let p = d.path, p.contains(point) { return d.layer }
+            if let p = d.path,
+               Renderer.pathHit(p, at: point, borders: d.style.borders,
+                                slop: 4 / max(0.01, currentScale)) {
+                return d.layer
+            }
             if d.path == nil {
                 // The pathless rect test is for text and bitmaps, which have no
                 // outline to test. A group-shadow's open/close markers are pathless
