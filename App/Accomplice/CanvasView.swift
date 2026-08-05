@@ -648,7 +648,8 @@ final class PageCanvas: NSView {
     /// Canvas fill, artwork (culled to the viewport) and artboard hairlines — the
     /// pixels that are identical from frame to frame while nothing is being edited.
     /// Draws in view coordinates; shared by the live path and the backdrop cache.
-    private func drawContent(_ ctx: CGContext, viewSize: CGSize) {
+    private func drawContent(_ ctx: CGContext, viewSize: CGSize,
+                             drawables: [Drawable]? = nil) {
         // Nothing behind the canvas any more, so it paints the surround itself.
         ctx.setFillColor(Palette.canvas.cgColor)
         ctx.fill(CGRect(origin: .zero, size: viewSize))
@@ -663,7 +664,7 @@ final class PageCanvas: NSView {
         ctx.translateBy(x: -origin.x, y: -origin.y)
         let visible = CGRect(x: origin.x, y: origin.y,
                              width: viewSize.width / scale, height: viewSize.height / scale)
-        Renderer(images: images).draw(drawables: composed, in: ctx, visible: visible)
+        Renderer(images: images).draw(drawables: drawables ?? composed, in: ctx, visible: visible)
 
         // A hairline round each artboard. On a light canvas a white board has no edge
         // of its own, and knowing where the page stops is most of what an artboard is
@@ -674,6 +675,20 @@ final class PageCanvas: NSView {
         ctx.restoreGState()
     }
 
+    /// The composition with the in-flight erase applied, so the brush removes
+    /// pixels AS you drag rather than on release. The stroke only reaches the
+    /// model at mouse-up, exactly as before — this is presentation.
+    private var liveErasePreview: [Drawable] {
+        guard let e = erasing else { return composed }
+        var ds = composed
+        for i in ds.indices where ds[i].layer.id == e.layer && ds[i].imageRef != nil {
+            ds[i].layer.erased.append(EraseStroke(points: e.points,
+                                                  radius: eraseRadius,
+                                                  softness: eraseSoftness))
+        }
+        return ds
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         guard let page else {
@@ -682,11 +697,12 @@ final class PageCanvas: NSView {
             return
         }
 
-        if liveGesture != nil {
-            // Mid-gesture the artwork changes every frame; draw it directly.
+        if liveGesture != nil || erasing != nil {
+            // Mid-gesture the artwork changes every frame; draw it directly, with
+            // any in-flight erase stroke already applied.
             backdrop = nil
             backdropKey = ""
-            drawContent(ctx, viewSize: bounds.size)
+            drawContent(ctx, viewSize: bounds.size, drawables: liveErasePreview)
         } else {
             let bs = window?.backingScaleFactor ?? 2
             let appearance = effectiveAppearance.name.rawValue
