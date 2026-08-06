@@ -62,7 +62,7 @@ public struct SVGWriter {
             // baked into the engraving file.
             if d.isArtboardBackground && !d.includeInExport { continue }
             var attrs = ""
-            if let clip = d.clip {
+            if let clip = d.clip, !clipsNothing(clip, around: d) {
                 clipID += 1
                 defs += "  <clipPath id=\"c\(clipID)\"><path d=\"\(pathData(clip))\"/></clipPath>\n"
                 attrs += " clip-path=\"url(#c\(clipID))\""
@@ -222,6 +222,46 @@ public struct SVGWriter {
     /// is stroked, where a subpath of zero height is a perfectly ordinary straight
     /// line. Exporting a horizontal line produced an empty SVG for exactly this
     /// reason: min(width, height) of a flat line is 0, so it read as a sliver.
+    /// Whether a clip would cut nothing off this drawable.
+    ///
+    /// Everything inside an artboard is clipped to the board's edge, which is
+    /// right on a canvas and pointless in a file when the shape sits well
+    /// inside it. Sketch turns every clip-path into a "Clipped" group holding a
+    /// mask rectangle, so a drawing of ten shapes opened as ten nested groups
+    /// with twenty paths — none of which the person drew.
+    ///
+    /// Conservative on both counts. Only a plain axis-aligned rectangle is
+    /// dropped, because a shaped mask can cut a shape that sits entirely inside
+    /// its bounding box. And the shape's ink is measured, not its path: half a
+    /// stroke and any shadow reach past the outline, and those are exactly what
+    /// a board edge is there to cut.
+    func clipsNothing(_ clip: CGPath, around d: Drawable) -> Bool {
+        let box = clip.boundingBoxOfPath
+        guard !box.isNull, !box.isEmpty else { return false }
+        // A rectangle and nothing else.
+        guard clip == CGPath(rect: box, transform: nil) else { return false }
+
+        var ink: CGRect
+        if let p = d.path {
+            ink = p.boundingBoxOfPath
+        } else {
+            // Text and images cover their frame.
+            ink = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform)
+        }
+        guard !ink.isNull, !ink.isInfinite else { return false }
+
+        // Ink reaches past the outline: half a stroke either side, and a shadow
+        // as far as its blur plus its offset.
+        // An outside border reaches a full thickness past the outline, not half.
+        let stroke = d.style.borders.map { $0.position == .center ? $0.thickness / 2 : $0.thickness }.max() ?? 0
+        var slack = stroke
+        for shadow in d.style.shadows {
+            slack = max(slack, shadow.blur + shadow.spread
+                        + max(abs(shadow.offset.width), abs(shadow.offset.height)))
+        }
+        return box.insetBy(dx: -0.01, dy: -0.01).contains(ink.insetBy(dx: -slack, dy: -slack))
+    }
+
     public func pathData(_ p: CGPath, dropSlivers: Bool = true) -> String {
         // Serialized per subpath, so hairline contours can be dropped whole. Boolean
         // sweeps leave slivers thinner than anything a cutter can act on, and laser
