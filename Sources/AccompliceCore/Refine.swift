@@ -68,6 +68,24 @@ public enum Refine {
         var bestScore = score(best)
         let opening = bestScore
 
+        // How big each shape started. A misplaced shape scores better by
+        // VANISHING — ink overlap counts wrong ink against you, so shrinking a
+        // stem that isn't quite on the stem raises the ratio, and shrinking it
+        // to nothing raises it most. The search found that and quietly deleted
+        // the stems off a drawing while reporting an improvement. Sizes are
+        // held near what the model drew for the same reason points are.
+        var born: [String: CGSize] = [:]
+        func remember(_ layers: [Layer]) {
+            for l in layers {
+                switch l.kind {
+                case .group(let kids), .shapeGroup(let kids, _): remember(kids)
+                case .path: born[l.id] = l.frame.size
+                default: continue
+                }
+            }
+        }
+        remember(best.layers)
+
         // Only shapes move. A group's children carry their own frames, so the
         // indices here are into the flattened list of things that can be nudged.
         var targets = shapeIndices(in: best)
@@ -91,7 +109,7 @@ public enum Refine {
                     // Both directions, and the winner is applied before moving on
                     // — so a later knob is judged against the shape as it now is.
                     for delta in [ step, -step ] {
-                        guard let moved = apply(knob, delta, to: best, at: path) else { continue }
+                        guard let moved = apply(knob, delta, to: best, at: path, born: born) else { continue }
                         let s = score(moved)
                         if s > bestScore {
                             best = moved
@@ -277,7 +295,8 @@ public enum Refine {
         return out
     }
 
-    private static func apply(_ knob: Knob, _ delta: CGFloat, to page: Page, at path: [Int]) -> Page? {
+    private static func apply(_ knob: Knob, _ delta: CGFloat, to page: Page, at path: [Int],
+                              born: [String: CGSize]) -> Page? {
         var copy = page
         var changed = false
         modify(&copy.layers, path) { layer in
@@ -289,7 +308,16 @@ public enum Refine {
                 layer.frame.origin.y += delta
                 changed = true
             case .size:
-                changed = resize(&layer, by: 1 + delta)
+                // Half to double what it was drawn as. Enough to fix a shape
+                // that came out too small, not enough to make one disappear.
+                guard let start = born[layer.id] else { break }
+                var trial = layer
+                guard resize(&trial, by: 1 + delta) else { break }
+                let w = trial.frame.width / max(1, start.width)
+                let h = trial.frame.height / max(1, start.height)
+                guard w > 0.5, w < 2, h > 0.5, h < 2 else { break }
+                layer = trial
+                changed = true
             case .weight:
                 // Only means anything on a stroked shape, and thickness can't go
                 // to nothing — a zero-width stroke is an invisible one.

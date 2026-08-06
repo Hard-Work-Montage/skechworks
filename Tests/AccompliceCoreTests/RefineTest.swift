@@ -158,3 +158,41 @@ private func score(_ p: Page, _ ref: CGImage) -> Double {
     #expect(straightRuns >= 0, "shape survived with \(n) points")
     #expect(out.score >= out.startedAt)
 }
+
+@Test func aMisplacedShapeIsNotShrunkOutOfExistence() {
+    // The failure Adam saw: stems vanished off a drawn note while the score
+    // went UP. Ink overlap counts wrong ink against you, so a shape that isn't
+    // quite on target scores better small and best of all at nothing. Left to
+    // itself the search will delete the parts it can't place.
+    let ref = target()
+    var p = Page(name: "t")
+    var spec = AddSpec()
+    spec.kind = "path"
+    // A stem-ish bar, well away from either line in the target.
+    spec.d = "M20 40 L20 160 L30 160 L30 40 Z"
+    spec.fill = "#000000"
+    spec.name = "stem"
+    _ = p.add(spec)
+    let startSize = p.layers[0].frame.size
+
+    let out = Refine.polish(p, bounds: area, matching: ref, budget: 8)
+    guard let after = out.page.layers.first else { return }
+    #expect(after.frame.width > startSize.width * 0.5,
+            "width collapsed from \(startSize.width) to \(after.frame.width)")
+    #expect(after.frame.height > startSize.height * 0.5,
+            "height collapsed from \(startSize.height) to \(after.frame.height)")
+}
+
+@Test func aShapeMayStillBeResizedWithinReason() {
+    // The guard must not freeze size altogether — a shape drawn too small
+    // should still be able to grow onto the thing it's meant to cover.
+    let ref = target()
+    var p = Page(name: "t")
+    var spec = AddSpec()
+    spec.kind = "path"
+    spec.d = "M56 90 L56 110 L64 110 L64 90 Z"   // a stub where a tall bar belongs
+    spec.fill = "#000000"
+    _ = p.add(spec)
+    let out = Refine.polish(p, bounds: area, matching: ref, budget: 8)
+    #expect(out.score >= out.startedAt)
+}

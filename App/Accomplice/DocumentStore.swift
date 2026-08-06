@@ -1,5 +1,6 @@
 import AccompliceCore
 import AppKit
+import OSLog
 import Foundation
 import UniformTypeIdentifiers
 
@@ -2215,9 +2216,22 @@ final class DocumentStore: ObservableObject {
         selection = Set(layers.keys)
     }
 
+    /// Every page write goes through here, which makes it the one place worth
+    /// checking that what's being written can actually be drawn.
     private func apply(_ p: Page, at idx: Int, src: DocumentSource) {
-        src.replacePage(p, at: idx)
-        if idx == pageIndex { page = p }
+        var page = p
+        let (repaired, broken) = p.repairingGeometry()
+        if !broken.isEmpty {
+            // Loudly. A shape that quietly stops drawing itself is worse than a
+            // crash — the thing that broke it is finished and gone by the time
+            // anyone notices, and there's nothing left pointing at it.
+            Logger(subsystem: "com.accomplice.Accomplice", category: "geometry")
+                .error("Repaired unusable geometry on: \(broken.joined(separator: ", "), privacy: .public)")
+            status = "Repaired \(broken.count == 1 ? "a layer" : "\(broken.count) layers") with impossible size or position"
+            page = repaired
+        }
+        src.replacePage(page, at: idx)
+        if idx == pageIndex { self.page = page }
     }
 
     private func refreshUndoState() {
