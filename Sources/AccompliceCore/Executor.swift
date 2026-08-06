@@ -409,6 +409,19 @@ extension Page {
 
         // Placing into an artboard positions relative to it, which is what "add a
         // circle to the front artboard" has to mean.
+        // A new board goes beside the others, never on top of them.
+        if kind == "artboard", spec.x == nil, spec.y == nil {
+            let slot = nextBoardSlot(size: size)
+            var board = Layer(kind: .group([]))
+            board.isArtboard = true
+            board.backgroundColor = Color(r: 1, g: 1, b: 1, a: 1)
+            board.name = spec.name ?? "Artboard"
+            board.frame = slot
+            board.constrainProportions = false
+            if let hex = spec.fill, let c = SVGReader.color(hex, alpha: 1) { board.backgroundColor = c }
+            layers.insert(board, at: 0)
+            return board.id
+        }
         let parent = spec.parent.flatMap { resolveParent($0) }
         // Coordinates are relative to whatever contains the layer. "Put a circle at
         // 100,100 in artboard Back" means 100 from the artboard's corner — subtracting

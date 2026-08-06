@@ -1097,12 +1097,18 @@ final class DocumentStore: ObservableObject {
                 group.name = l.name.isEmpty ? "Vectorized" : "\(l.name) vector"
                 group.frame = CGRect(origin: .zero, size: bounds.size)
                 group.resize(to: frame.size)
-                group.frame.origin = frame.origin
 
+                // Beside the picture rather than over it, the same as AI Draw.
+                let placement = boardBeside(id, naming: "vector")
+                group.frame.origin = placement?.origin ?? frame.origin
                 mutatePage("Vectorize") { p in
-                    let parent = p.ancestors(of: id).last
-                    let index = p.children(of: parent).firstIndex { $0.id == id }
-                    p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                    if let board = placement?.board {
+                        p.insertLayer(group, parent: board, index: p.children(of: board).count)
+                    } else {
+                        let parent = p.ancestors(of: id).last
+                        let index = p.children(of: parent).firstIndex { $0.id == id }
+                        p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                    }
                 }
                 selection = [group.id]
                 if let left = result.remaining {
@@ -1114,6 +1120,32 @@ final class DocumentStore: ObservableObject {
                 status = "Vectorize failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    /// A copy of the board `id` sits on, placed in clear space beside it, for a
+    /// tool to put its output on.
+    ///
+    /// The result of tracing a picture belongs next to the picture, not on top
+    /// of it — the one comparison anyone wants is original against attempt, and
+    /// covering the original with the attempt makes that a drag to set up and
+    /// undo the only way back.
+    ///
+    /// Returns the new board and where on it the source layer's own frame lands,
+    /// so the output can sit exactly where the picture does.
+    private func boardBeside(_ id: String, naming suffix: String) -> (board: String, origin: CGPoint)? {
+        guard let page, let source = page.layer(id), let board = page.artboard(containing: id) else { return nil }
+        var copy = Layer(kind: .group([]))
+        copy.isArtboard = true
+        copy.backgroundColor = board.backgroundColor
+        copy.frame = page.freeSlot(size: board.frame.size, rightOf: board.frame)
+        copy.name = board.name.isEmpty ? suffix.capitalized : "\(board.name) \(suffix)"
+        copy.constrainProportions = false
+        mutatePage("Artboard") { page in
+            // Behind the art, like every other artboard.
+            page.layers.insert(copy, at: 0)
+        }
+        return (copy.id, CGPoint(x: source.frame.minX - board.frame.minX,
+                                 y: source.frame.minY - board.frame.minY))
     }
 
     /// Tools ▸ AI Draw: the selected bitmap is looked at and redrawn as shapes.
@@ -1156,24 +1188,10 @@ final class DocumentStore: ObservableObject {
         // the original stays there to compare against. Made up front rather
         // than at the end, because the live preview has to land somewhere and
         // that somewhere should be where the finished thing will be.
-        var boardID: String?
-        var boardOrigin = CGPoint.zero
-        if let board = page.artboard(containing: id) {
-            let slot = page.freeSlot(size: board.frame.size, rightOf: board.frame)
-            var copy = Layer(kind: .group([]))
-            copy.isArtboard = true
-            copy.backgroundColor = board.backgroundColor
-            copy.frame = slot
-            copy.name = board.name.isEmpty ? "Drawing" : "\(board.name) drawn"
-            boardID = copy.id
-            // Where the source bitmap sat on its own board, so the drawing lands
-            // in the same place on the new one rather than in its corner.
-            boardOrigin = CGPoint(x: frame.minX - board.frame.minX, y: frame.minY - board.frame.minY)
-            mutatePage("AI Draw") { page in
-                // Behind the art, like every other artboard.
-                page.layers.insert(copy, at: 0)
-            }
-        }
+        let placement = boardBeside(id, naming: "drawn")
+        let boardID = placement?.board
+        let boardOrigin = placement?.origin ?? .zero
+
         // The run reports into the chat, where it stays. The status line used to
         // carry it a phrase at a time and then drop it, so by the time a drawing
         // came out wrong there was nothing left saying how it got there.
@@ -1290,91 +1308,6 @@ final class DocumentStore: ObservableObject {
                 chat.endActivity(entry, text: error.localizedDescription, failed: true)
                 report(error, doing: "AI Draw")
             }
-        }
-    }
-
-    /// Tools ▸ Smart Tidy: nudge selected shapes until they match a picture.
-    ///
-    /// The same arithmetic AI Draw finishes with, on its own, because it's local
-    /// and free and there's no reason it should only run once at the end of
-    /// something expensive. Works on anything: shapes traced by hand over a
-    /// photo tidy up exactly the same way.
-    ///
-    /// It needs something to aim at, so the picture is part of the selection
-    /// rather than guessed at. One bitmap says what to match; everything else
-    /// selected is what gets moved.
-    func smartTidySelection() {
-        guard let page else { return }
-        let chosen = selection.compactMap { page.layer($0) }
-        let pictures = chosen.filter { if case .bitmap = $0.kind { return true }; return false }
-        let shapes = chosen.filter { if case .bitmap = $0.kind { return false }; return true }
-
-        guard pictures.count == 1, !shapes.isEmpty else {
-            status = pictures.isEmpty
-                ? "Smart Tidy needs the picture selected too, so it knows what to match"
-                : "Select one picture and the shapes to tidy against it"
-            return
-        }
-        guard case .bitmap(let ref) = pictures[0].kind,
-              let data = images[ref],
-              let reference = BitmapImage.load(data)?.image else {
-            status = "That picture can't be read"
-            return
-        }
-
-        let picture = pictures[0]
-        // Absolute, not `frame.origin`. A frame is relative to whatever contains
-        // the layer, and the picture and the shapes are routinely on different
-        // artboards — so subtracting one raw frame from another put the shapes
-        // an artboard's width away from the thing they were being scored
-        // against, where no nudge could help and the answer was always "nothing
-        // moved".
-        guard let pictureAt = page.absoluteOrigin(of: picture.id) else { return }
-        let ids = shapes.map(\.id)
-        let entry = chat.beginActivity("Smart Tidy")
-        status = "Smart Tidy…"
-
-        // Scored in the picture's own space, so the shapes are judged where they
-        // actually sit relative to it.
-        let bounds = CGRect(origin: .zero, size: picture.frame.size)
-        // How far each layer's own frame sits from its absolute position, so the
-        // answer can be put back where it came from.
-        var parentOffsets: [String: CGPoint] = [:]
-        var scratch = Page(name: "tidy")
-        scratch.layers = shapes.compactMap { layer in
-            guard let at = page.absoluteOrigin(of: layer.id) else { return nil }
-            parentOffsets[layer.id] = CGPoint(x: at.x - layer.frame.minX, y: at.y - layer.frame.minY)
-            var moved = layer
-            moved.frame.origin = CGPoint(x: at.x - pictureAt.x, y: at.y - pictureAt.y)
-            return moved
-        }
-
-        Task { @MainActor in
-            let outcome = await Task.detached(priority: .userInitiated) { [scratch] in
-                Refine.polish(scratch, bounds: bounds, matching: reference, budget: 30)
-            }.value
-
-            guard outcome.score > outcome.startedAt else {
-                // Say the score. "Nothing moved" on its own reads as broken when
-                // the two pictures plainly differ, and it hid a real bug for a
-                // while — the number is what tells you which it is.
-                let at = Int((outcome.score * 100).rounded())
-                chat.endActivity(entry, text: "Already as close as this gets — \(at)% match, nothing moved.")
-                status = "Smart Tidy: already at \(at)%"
-                return
-            }
-            let tidied = Dictionary(uniqueKeysWithValues: outcome.page.layers.map { ($0.id, $0) })
-            edit(ids, actionName: "Smart Tidy") { layer in
-                guard var fixed = tidied[layer.id], let offset = parentOffsets[layer.id] else { return }
-                // Back from the picture's space into the layer's own parent's.
-                fixed.frame.origin = CGPoint(x: fixed.frame.minX + pictureAt.x - offset.x,
-                                             y: fixed.frame.minY + pictureAt.y - offset.y)
-                layer = fixed
-            }
-            let line = String(format: "%.0f%% → %.0f%% in %d tries",
-                              outcome.startedAt * 100, outcome.score * 100, outcome.evaluations)
-            chat.endActivity(entry, text: "Tidied up: " + line)
-            status = "Smart Tidy: " + line
         }
     }
 
@@ -1719,6 +1652,18 @@ final class DocumentStore: ObservableObject {
                 if !same {
                     shift = CGPoint(x: r.midX - bounds.midX, y: r.midY - bounds.midY)
                 }
+            }
+        }
+        // A pasted BOARD goes in clear space rather than exactly over the one it
+        // was copied from, where it would look like nothing had happened at all.
+        // Only when the paste hasn't already been aimed somewhere by a click or
+        // a chosen board.
+        if targetOrigin == nil, targetBoard == nil,
+           !layers.isEmpty, layers.allSatisfy(\.isArtboard) {
+            let box = layers.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+            if !box.isNull {
+                let slot = p.nextBoardSlot(size: box.size)
+                shift = CGPoint(x: slot.minX - box.minX, y: slot.minY - box.minY)
             }
         }
         let fresh = layers.map { l -> Layer in

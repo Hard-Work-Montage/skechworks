@@ -48,6 +48,21 @@ extension Page {
         return CGRect(origin: CGPoint(x: anchor.minX, y: below.maxY + gap), size: size)
     }
 
+    /// Where a brand-new board of `size` should land: past the rightmost board
+    /// already on the page, or at the origin when the page is empty.
+    ///
+    /// Every way a board arrives goes through here — drawn, vectorized, pasted,
+    /// or inserted blank — so none of them lands on top of another. A new board
+    /// used to appear in the middle of whatever was already there, which looked
+    /// exactly like the work had been replaced.
+    public func nextBoardSlot(size: CGSize, gap: CGFloat = 10) -> CGRect {
+        let boards = layers.filter { $0.isArtboard && $0.isVisible }.map(\.frame)
+        guard let rightmost = boards.max(by: { $0.maxX < $1.maxX }) else {
+            return CGRect(origin: .zero, size: size)
+        }
+        return freeSlot(size: size, rightOf: rightmost, gap: gap)
+    }
+
     /// The artboard a layer sits on, if it sits on one.
     public func artboard(containing id: String) -> Layer? {
         ancestors(of: id).reversed().compactMap { layer($0) }.first(where: \.isArtboard)

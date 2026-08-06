@@ -96,3 +96,44 @@ private func page(_ boards: Layer...) -> Page {
     p.layers = [ loose ]
     #expect(p.artboard(containing: loose.id) == nil)
 }
+
+@Test func aNewBoardGoesPastTheOnesAlreadyThere() {
+    // Insert ▸ Artboard used to land in the middle of the content bounds, which
+    // on a page with work on it looked exactly like the work had been replaced.
+    var p = page(board(0, 0, 400, 400), board(410, 0, 400, 400))
+    let slot = p.nextBoardSlot(size: CGSize(width: 400, height: 400))
+    #expect(slot.minX >= 820, "a new board landed on an existing one")
+    for existing in p.layers {
+        #expect(!existing.frame.insetBy(dx: 1, dy: 1).intersects(slot))
+    }
+    p.layers = []
+    #expect(p.nextBoardSlot(size: CGSize(width: 400, height: 400)).origin == .zero,
+            "the first board on an empty page belongs at the origin")
+}
+
+@Test func addingAnArtboardThroughTheApiPlacesItClear() {
+    var p = page(board(0, 0, 300, 300))
+    var spec = AddSpec()
+    spec.kind = "artboard"
+    spec.name = "Second"
+    _ = p.add(spec)
+    let made = p.layers.first { $0.name == "Second" }
+    #expect(made != nil)
+    #expect(made?.isArtboard == true)
+    #expect(!p.layers[1].frame.insetBy(dx: 1, dy: 1).intersects(made!.frame),
+            "the new board overlaps the old one")
+}
+
+@Test func anArtboardAskedForAtAPlaceStillGoesThere() {
+    // Free-space placement is for boards with nowhere in particular to be. A
+    // caller naming coordinates means them.
+    var p = page(board(0, 0))
+    var spec = AddSpec()
+    spec.kind = "artboard"
+    spec.name = "Exact"
+    spec.x = 900
+    spec.y = 500
+    _ = p.add(spec)
+    let made = p.layers.first { $0.name == "Exact" }
+    #expect(made?.frame.origin == CGPoint(x: 900, y: 500))
+}
