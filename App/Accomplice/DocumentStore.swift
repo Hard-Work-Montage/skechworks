@@ -1186,10 +1186,19 @@ final class DocumentStore: ObservableObject {
             // Behind the art, like every other artboard.
             page.layers.insert(copy, at: 0)
         }
-        // Where the picture sits on its board — the origin for a loose one, so
-        // the drawing fills the board it just got.
-        let origin = board.map { CGPoint(x: source.frame.minX - $0.frame.minX,
-                                         y: source.frame.minY - $0.frame.minY) } ?? .zero
+        // Where the picture sits on its board, both measured from the page.
+        //
+        // `source.frame` is relative to whatever CONTAINS the picture and
+        // `board.frame` is relative to the page, so subtracting one from the
+        // other only looked right while the board happened to sit at the origin.
+        // Anywhere else and the drawing landed a board's width away, on top of
+        // whatever was there.
+        var origin = CGPoint.zero
+        if let board,
+           let pictureAt = page.absoluteOrigin(of: id),
+           let boardAt = page.absoluteOrigin(of: board.id) {
+            origin = CGPoint(x: pictureAt.x - boardAt.x, y: pictureAt.y - boardAt.y)
+        }
         return (copy.id, origin)
     }
 

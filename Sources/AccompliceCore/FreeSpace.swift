@@ -15,8 +15,15 @@ extension Page {
     /// Occupancy is judged against top-level layers only. Something nested is
     /// inside a board that's already counted, and counting both would rule out
     /// the row a board's own contents sit in.
+    /// Room between boards.
+    ///
+    /// Wide enough that two boards read as two drawings rather than one wide
+    /// one. Ten points looked deliberate in a diagram and cramped on a canvas,
+    /// where the label above a board needs somewhere to sit.
+    public static let boardGap: CGFloat = 30
+
     public func freeSlot(size: CGSize, rightOf anchor: CGRect,
-                         gap: CGFloat = 10, columns: Int = 8) -> CGRect {
+                         gap: CGFloat = Page.boardGap, columns: Int = 8) -> CGRect {
         let taken = layers.filter(\.isVisible).map(\.bounds)
 
         // A shared edge is not a collision: boards placed a clean gap apart
@@ -55,7 +62,7 @@ extension Page {
     /// or inserted blank — so none of them lands on top of another. A new board
     /// used to appear in the middle of whatever was already there, which looked
     /// exactly like the work had been replaced.
-    public func nextBoardSlot(size: CGSize, gap: CGFloat = 10) -> CGRect {
+    public func nextBoardSlot(size: CGSize, gap: CGFloat = Page.boardGap) -> CGRect {
         let boards = layers.filter { $0.isArtboard && $0.isVisible }.map(\.frame)
         guard let rightmost = boards.max(by: { $0.maxX < $1.maxX }) else {
             return CGRect(origin: .zero, size: size)

@@ -24,33 +24,36 @@ private func page(_ boards: Layer...) -> Page {
 @Test func theCopyLandsToTheRightWithAGapAndLevelTops() {
     let p = page(board(0, 0))
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100), rightOf: p.layers[0].frame)
-    #expect(slot.minX == 110, "expected a 10 gap, got x \(slot.minX)")
+    #expect(slot.minX == 100 + Page.boardGap, "expected one gap, got x \(slot.minX)")
     #expect(slot.minY == 0, "tops must line up")
 }
 
 @Test func anOccupiedSlotIsSkippedForTheNextOneAlong() {
     // Something already parked immediately to the right.
-    let p = page(board(0, 0), board(110, 0))
+    let p = page(board(0, 0), board(100 + Page.boardGap, 0))
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100), rightOf: p.layers[0].frame)
-    #expect(slot.minX == 220)
+    #expect(slot.minX == 200 + Page.boardGap * 2)
     #expect(slot.minY == 0)
 }
 
 @Test func aFullRowDropsToTheNextOneDown() {
+    let step = 100 + Page.boardGap
     var boards = [board(0, 0)]
-    for i in 1...8 { boards.append(board(CGFloat(i) * 110, 0)) }
+    for i in 1...8 { boards.append(board(CGFloat(i) * step, 0)) }
     var p = Page(name: "t")
     p.layers = boards
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100), rightOf: boards[0].frame,
-                          gap: 10, columns: 8)
-    #expect(slot.minY == 110, "should have gone down a row, got y \(slot.minY)")
+                          columns: 8)
+    #expect(slot.minY == step, "should have gone down a row, got y \(slot.minY)")
     #expect(slot.minX == 0, "a new row starts back at the anchor's left edge")
 }
 
 @Test func aChosenSlotNeverOverlapsAnything() {
     // The property that matters, over a scattering of awkward positions.
     var p = Page(name: "t")
-    p.layers = [ board(0, 0), board(110, 0), board(220, 0), board(0, 110), board(115, 118, 80, 60) ]
+    let g = Page.boardGap
+    p.layers = [ board(0, 0), board(100 + g, 0), board(200 + g * 2, 0),
+                 board(0, 100 + g), board(105 + g, 108 + g, 80, 60) ]
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100), rightOf: p.layers[0].frame)
     for existing in p.layers {
         #expect(!existing.frame.insetBy(dx: 1, dy: 1).intersects(slot),
@@ -61,22 +64,22 @@ private func page(_ boards: Layer...) -> Page {
 @Test func touchingAtTheGapIsNotACollision() {
     // Boards placed a clean gap apart share no pixels; treating that as a clash
     // would push every copy one slot further out for no reason.
-    let p = page(board(0, 0), board(220, 0))
+    let p = page(board(0, 0), board(200 + Page.boardGap * 2, 0))
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100), rightOf: p.layers[0].frame)
-    #expect(slot.minX == 110, "the empty gap between two boards should be used")
+    #expect(slot.minX == 100 + Page.boardGap, "the empty gap between two boards should be used")
 }
 
 @Test func differentSizedBoardsAreRespected() {
     let p = page(board(0, 0, 300, 200))
     let slot = p.freeSlot(size: CGSize(width: 300, height: 200), rightOf: p.layers[0].frame)
-    #expect(slot == CGRect(x: 310, y: 0, width: 300, height: 200))
+    #expect(slot == CGRect(x: 300 + Page.boardGap, y: 0, width: 300, height: 200))
 }
 
 @Test func anEmptyPageStillPlacesIt() {
     let p = Page(name: "t")
     let slot = p.freeSlot(size: CGSize(width: 100, height: 100),
                           rightOf: CGRect(x: 0, y: 0, width: 100, height: 100))
-    #expect(slot.minX == 110)
+    #expect(slot.minX == 100 + Page.boardGap)
 }
 
 @Test func theArtboardHoldingALayerIsFound() {
@@ -100,9 +103,9 @@ private func page(_ boards: Layer...) -> Page {
 @Test func aNewBoardGoesPastTheOnesAlreadyThere() {
     // Insert ▸ Artboard used to land in the middle of the content bounds, which
     // on a page with work on it looked exactly like the work had been replaced.
-    var p = page(board(0, 0, 400, 400), board(410, 0, 400, 400))
+    var p = page(board(0, 0, 400, 400), board(400 + Page.boardGap, 0, 400, 400))
     let slot = p.nextBoardSlot(size: CGSize(width: 400, height: 400))
-    #expect(slot.minX >= 820, "a new board landed on an existing one")
+    #expect(slot.minX >= 800 + Page.boardGap * 2, "a new board landed on an existing one")
     for existing in p.layers {
         #expect(!existing.frame.insetBy(dx: 1, dy: 1).intersects(slot))
     }
