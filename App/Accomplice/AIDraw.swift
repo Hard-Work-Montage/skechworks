@@ -103,7 +103,21 @@ enum AIDraw {
             // Only the newest turn carries pictures. The older ones are already
             // summarised by the drawing itself, and left in they'd blow the request
             // size for nothing.
-            let (turn, _) = try await connector.respond(to: trimmed(messages), purpose: .trace)
+            let asked = trimmed(messages)
+            let turn: ModelTurn
+            if pass == 1, attempts > 1 {
+                // The opening decides the whole structure and the cheap model is
+                // streaky at it — the same prompt scored 22% one run and 41% the
+                // next. Ask a few times at once and keep the best drawing rather
+                // than the first one. They go together, so it costs the wait of
+                // the slowest rather than the sum, and it lifts the floor, which
+                // is where the variance actually hurts.
+                turn = try await bestOpening(connector: connector, asking: asked,
+                                             page: best, bounds: area, source: source,
+                                             progress: progress)
+            } else {
+                turn = try await connector.respond(to: asked, purpose: .trace).turn
+            }
             if !turn.say.isEmpty { say = turn.say }
             // The first pass writes the parts list and later passes correct
             // against it, so a replan only replaces it if it actually said
@@ -190,6 +204,57 @@ enum AIDraw {
         }
 
         return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
+    }
+
+    /// How many times to ask for the opening drawing, keeping the best.
+    ///
+    /// The cheap model is wildly streaky at the opening and steady at nothing
+    /// else. Six runs of one prompt scored 28, 33, 38, 55, 57 and 61 — so which
+    /// drawing you get is mostly luck, and buying more luck is a penny a go.
+    ///
+    /// Five rather than three because the wall clock doesn't move: they go at
+    /// once, and six concurrent calls came back in the nine seconds one takes.
+    /// Set this to 1 for a slow or expensive model, where neither of those
+    /// things is true.
+    static let attempts = 5
+
+    /// Draws the opening `attempts` times over and returns whichever scored
+    /// best. A failed attempt is ignored rather than fatal; only every one
+    /// failing is an error, and then it's the first error that gets thrown.
+    private static func bestOpening(connector: ModelConnector, asking messages: [ModelConnector.Message],
+                                    page: Page, bounds: CGRect, source: CGImage,
+                                    progress: (String) -> Void) async throws -> ModelTurn {
+        var results: [(turn: ModelTurn, score: Double)] = []
+        var failure: Error?
+
+        await withTaskGroup(of: Result<ModelTurn, Error>.self) { group in
+            for _ in 0..<attempts {
+                group.addTask {
+                    do { return .success(try await connector.respond(to: messages, purpose: .trace).turn) }
+                    catch { return .failure(error) }
+                }
+            }
+            for await outcome in group {
+                switch outcome {
+                case .failure(let error):
+                    failure = failure ?? error
+                case .success(let turn):
+                    guard !turn.commands.isEmpty else { continue }
+                    var candidate = page
+                    _ = candidate.run(turn.commands)
+                    let score = Compare.render(candidate, bounds: bounds, matching: source)
+                        .map { Compare.inkAgreement($0, source) } ?? 0
+                    results.append((turn, score))
+                }
+            }
+        }
+
+        guard let winner = results.max(by: { $0.score < $1.score }) else {
+            throw failure ?? Refusal.nothingDrawn
+        }
+        let all = results.map { "\(Int(($0.score * 100).rounded()))%" }.sorted().reversed().joined(separator: ", ")
+        progress("Drew it \(results.count) time\(results.count == 1 ? "" : "s") — \(all) — keeping the best")
+        return winner.turn
     }
 
     /// Whether the drawing is solid shapes rather than hollow outlines.
