@@ -28,6 +28,21 @@ enum AIDraw {
         /// Kept because "is four passes right?" is a question about this list and
         /// nothing else, and it used to be discarded the moment it was computed.
         var scores: [Double] = []
+
+        /// The tidied version, kept apart from the drawing it came from.
+        ///
+        /// It scores better by definition and still sometimes looks worse — the
+        /// measure is ink overlap and the judge is an eye, and they disagree.
+        /// So it goes into the document as its own undo step and `layers` stays
+        /// as the model drew it: one ⌘Z drops the tidying and keeps the drawing.
+        var tidied: Tidied?
+
+        struct Tidied {
+            var layers: [Layer]
+            var from: Double
+            var to: Double
+            var tries: Int
+        }
     }
 
     enum Refusal: LocalizedError {
@@ -201,19 +216,20 @@ enum AIDraw {
         // nudge that scores better than what it replaced is kept.
         progress("Tidying up the placement…")
         let polished = await Task.detached(priority: .userInitiated) { [best] in
-            Refine.polish(best, bounds: area, matching: source, budget: 12)
+            Refine.polish(best, bounds: area, matching: source)
         }.value
 
+        var outcome = Outcome(layers: best.layers, score: bestScore, passes: used,
+                              say: say, scores: scores)
         if polished.score > bestScore {
-            best = polished.page
-            bestScore = polished.score
-            scores.append(polished.score)
             progress(String(format: "Tidied up: %.0f%% → %.0f%% in %d tries",
                             polished.startedAt * 100, polished.score * 100, polished.evaluations))
-            preview(best.layers)
+            outcome.tidied = Outcome.Tidied(layers: polished.page.layers,
+                                            from: polished.startedAt, to: polished.score,
+                                            tries: polished.evaluations)
+            outcome.score = polished.score
         }
-
-        return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
+        return outcome
     }
 
     /// Which trace model to use, and with it how long to wait and how many

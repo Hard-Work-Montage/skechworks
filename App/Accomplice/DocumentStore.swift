@@ -1218,8 +1218,12 @@ final class DocumentStore: ObservableObject {
             // watched rather than waited for. The swaps coalesce, so the whole
             // performance is still one ⌘Z.
             var previewID: String?
+            // Bumped whenever a new set of shapes arrives, so a reveal still
+            // running for the old set knows to stop rather than fight it.
+            var generation = 0
             let show: ([Layer]) -> Void = { [weak self] shapes in
                 guard let self, !shapes.isEmpty else { return }
+                generation += 1
                 // Deliberately NOT tightened to the shapes' bounds the way the
                 // finished group is: that box changes every pass, and a group
                 // whose frame keeps resizing under you is hard to watch. In the
@@ -1227,6 +1231,36 @@ final class DocumentStore: ObservableObject {
                 if let previewID {
                     self.edit([previewID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
                         group.kind = .group(shapes)
+                    }
+                } else if shapes.count > 1 {
+                    // Drawn rather than pasted. The parts arrive one at a time,
+                    // in the order the model planned them, which is the order a
+                    // person would have drawn them — palm, then fingers. It's
+                    // the same shapes either way; only the arriving is staged.
+                    var group = Layer(kind: .group([]))
+                    group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
+                    group.frame = boardID == nil ? frame : CGRect(origin: boardOrigin, size: frame.size)
+                    let newID = group.id
+                    previewID = newID
+                    self.mutatePage("AI Draw") { p in
+                        if let boardID {
+                            p.insertLayer(group, parent: boardID, index: p.children(of: boardID).count)
+                        } else {
+                            let parent = p.ancestors(of: id).last
+                            let index = p.children(of: parent).firstIndex { $0.id == id }
+                            p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                        }
+                    }
+                    let mine = generation
+                    Task { @MainActor in
+                        for count in 1...shapes.count {
+                            // A later pass has replaced this drawing; stop.
+                            guard generation == mine else { return }
+                            self.edit([newID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
+                                group.kind = .group(Array(shapes.prefix(count)))
+                            }
+                            try? await Task.sleep(for: .milliseconds(90))
+                        }
                     }
                 } else {
                     var group = Layer(kind: .group(shapes))
@@ -1301,6 +1335,27 @@ final class DocumentStore: ObservableObject {
                 // rather than joining this one.
                 endCoalescing()
                 selection = [finalID]
+
+                // Tidying goes in separately, because it scores better by
+                // definition and still sometimes looks worse — the measure is
+                // ink overlap and the judge is an eye. One ⌘Z drops it and
+                // keeps the drawing the model made.
+                if let tidy = outcome.tidied {
+                    var tidyKids = tidy.layers
+                    let box = tidyKids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+                    if !box.isNull {
+                        for i in tidyKids.indices {
+                            tidyKids[i].frame.origin.x -= box.minX
+                            tidyKids[i].frame.origin.y -= box.minY
+                        }
+                        edit([finalID], actionName: "Tidy Up") { group in
+                            group.kind = .group(tidyKids)
+                            group.frame = CGRect(x: anchor.x + box.minX, y: anchor.y + box.minY,
+                                                 width: box.width, height: box.height)
+                        }
+                        endCoalescing()
+                    }
+                }
 
                 let match = Int((outcome.score * 100).rounded())
                 let shapes = kids.count == 1 ? "1 shape" : "\(kids.count) shapes"
