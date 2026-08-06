@@ -11,6 +11,13 @@ struct ContentView: View {
     /// sidebar. It was hidden behind a toolbar button, which is a poor place for
     /// something you'd otherwise forget is there.
     @AppStorage("showChat") private var showCommandBar = true
+    @AppStorage("ai.backend") private var chatBackend = ModelConnector.Backend.ollama.rawValue
+    @AppStorage("ai.model") private var chatLocalModel = LocalModel.recommended
+    @AppStorage("ai.openRouterModel") private var chatRemoteModel = "anthropic/claude-sonnet-4.5"
+
+    private var chatModel: String {
+        ModelConnector.Backend(rawValue: chatBackend) == .ollama ? chatLocalModel : chatRemoteModel
+    }
 
     /// Which groups are open in the layer list.
     ///
@@ -179,7 +186,19 @@ struct ContentView: View {
                     properties
                         .frame(minHeight: 140, idealHeight: 300)
                     VStack(alignment: .leading, spacing: 0) {
-                        railHeader("Accomplice Chat", count: nil)
+                        // Which model is answering lives in the tooltip. It's
+                        // worth being able to check and not worth a line of its
+                        // own — it rarely changes, and a run says so in its own
+                        // notes when it matters.
+                        railHeader("Accomplice Chat", count: nil, help: "Using \(chatModel)") {
+                            Button {
+                                store.chat.messages.removeAll()
+                            } label: { Image(systemName: "trash") }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.tertiary)
+                                .help("Clear conversation")
+                                .disabled(store.chat.messages.isEmpty)
+                        }
                         ChatPanel().environmentObject(store)
                     }
                     .frame(minHeight: 200)
@@ -273,7 +292,7 @@ struct ContentView: View {
 
 
     @ViewBuilder
-    private func railHeader<Accessory: View>(_ title: String, count: Int?,
+    private func railHeader<Accessory: View>(_ title: String, count: Int?, help: String? = nil,
                                              @ViewBuilder accessory: () -> Accessory = { EmptyView() })
         -> some View {
         // Sentence case in the text colour, not tiny grey capitals. These are section
@@ -283,6 +302,7 @@ struct ContentView: View {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)
+                .help(help ?? "")
             Spacer()
             if let count {
                 Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)

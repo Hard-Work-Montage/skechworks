@@ -137,20 +137,26 @@ struct ModelConnector {
         var messages: [Message] = [.system(ModelPrompt.system)]
         for h in history { messages.append(Message(role: h.role, text: h.content)) }
         messages.append(.user(ModelPrompt.user(document: document, request: request)))
-        return try await respond(to: messages)
+        let answer = try await respond(to: messages)
+        return (answer.turn, answer.raw)
     }
 
     /// A turn built by hand, for the jobs that aren't chat — tracing shows the model
     /// a picture, its own attempt, and where the two differ.
-    func respond(to messages: [Message], purpose: Purpose = .chat) async throws -> (turn: ModelTurn, raw: String) {
+    func respond(to messages: [Message], purpose: Purpose = .chat) async throws
+        -> (turn: ModelTurn, raw: String, model: String?) {
         if settings.backend == .ollama, messages.contains(where: { !$0.images.isEmpty }) {
             throw Failure.cannotSee
         }
-        let raw = try await complete(messages: messages.map(\.payload), purpose: purpose)
+        // The service picks the model from the purpose, so the only place the
+        // answer exists is in its reply. Worth carrying back: with the name off
+        // the panel, a run saying which model drew it is the one place it's
+        // written down at the moment it mattered.
+        let (raw, model) = try await complete(messages: messages.map(\.payload), purpose: purpose)
         let cleaned = ModelConnector.stripFences(raw)
         let turn = ModelTurn.decode(Data(cleaned.utf8))
         guard !turn.say.isEmpty || !turn.commands.isEmpty else { throw Failure.noCommands(raw) }
-        return (turn, cleaned)
+        return (turn, cleaned, model)
     }
 
     // MARK: - Transport
@@ -207,10 +213,12 @@ struct ModelConnector {
         }
     }
 
-    private func complete(messages: [[String: Any]], purpose: Purpose) async throws -> String {
+    private func complete(messages: [[String: Any]], purpose: Purpose) async throws -> (String, String?) {
         switch settings.backend {
-        case .ollama: return try await ollama(messages)
-        case .openRouter: return try await openRouter(messages)
+        case .ollama: return (try await ollama(messages), settings.model)
+        case .openRouter: return (try await openRouter(messages), settings.openRouterModel)
+        // The service picks from the purpose, so the only place that answer
+        // exists is in its reply.
         case .accomplice: return try await accomplice(messages, purpose: purpose)
         }
     }
@@ -219,7 +227,7 @@ struct ModelConnector {
     /// signed-in account. Deliberately the same OpenAI-shaped request as OpenRouter,
     /// so the only thing that differs between "your key" and "our tokens" is where
     /// it's addressed and who pays.
-    private func accomplice(_ messages: [[String: Any]], purpose: Purpose = .chat) async throws -> String {
+    private func accomplice(_ messages: [[String: Any]], purpose: Purpose = .chat) async throws -> (String, String?) {
         let token = settings.accompliceToken
         guard !token.isEmpty else { throw Failure.notSignedIn }
         guard let url = URL(string: settings.accompliceHost + "/api/v1/chat/completions") else {
@@ -242,7 +250,7 @@ struct ModelConnector {
               let content = message["content"] as? String else {
             throw Failure.badResponse(String(describing: json))
         }
-        return content
+        return (content, json["model"] as? String)
     }
 
     private func ollama(_ messages: [[String: Any]]) async throws -> String {

@@ -43,30 +43,10 @@ private struct ChatPanelBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
             transcript
             Divider()
             composer
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Avatar()
-            Text(settings.backend == .ollama ? model : openRouterModel)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Spacer()
-            if session.busy { ProgressView().controlSize(.small) }
-            Button {
-                session.messages.removeAll()
-            } label: { Image(systemName: "trash") }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tertiary)
-                .help("Clear conversation")
-                .disabled(session.messages.isEmpty)
-        }
-        .padding(.horizontal, 12).padding(.bottom, 6)
     }
 
     @ViewBuilder
@@ -133,8 +113,9 @@ private struct ChatPanelBody: View {
         // the question from "where do we begin" to "what now".
         let blank = store.page.map { $0.layers.isEmpty } ?? true
         let pool = blank ? Self.blankDocOpeners : Self.workingOpeners
-        return VStack(spacing: 10) {
-            Avatar().scaleEffect(1.6).opacity(0.9).frame(height: 34)
+        return VStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 26)).foregroundStyle(.tertiary)
             Text(pool[openerSeed % pool.count])
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

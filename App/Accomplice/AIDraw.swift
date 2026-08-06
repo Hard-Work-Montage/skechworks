@@ -136,7 +136,9 @@ enum AIDraw {
                                              page: best, bounds: area, source: source,
                                              progress: progress)
             } else {
-                turn = try await connector.respond(to: asked, purpose: tier).turn
+                let answer = try await connector.respond(to: asked, purpose: tier)
+                turn = answer.turn
+                if let model = answer.model, pass == 1 { progress("Drawing with \(model)") }
             }
             if !turn.say.isEmpty { say = turn.say }
             // The first pass writes the parts list and later passes correct
@@ -259,19 +261,24 @@ enum AIDraw {
                                     progress: (String) -> Void) async throws -> ModelTurn {
         var results: [(turn: ModelTurn, score: Double)] = []
         var failure: Error?
+        var model: String?
 
-        await withTaskGroup(of: Result<ModelTurn, Error>.self) { group in
+        await withTaskGroup(of: Result<(turn: ModelTurn, raw: String, model: String?), Error>.self) { group in
             for _ in 0..<tier.attempts {
                 group.addTask {
-                    do { return .success(try await connector.respond(to: messages, purpose: tier).turn) }
-                    catch { return .failure(error) }
+                    do {
+                        let answer = try await connector.respond(to: messages, purpose: tier)
+                        return .success(answer)
+                    } catch { return .failure(error) }
                 }
             }
             for await outcome in group {
                 switch outcome {
                 case .failure(let error):
                     failure = failure ?? error
-                case .success(let turn):
+                case .success(let answer):
+                    model = model ?? answer.model
+                    let turn = answer.turn
                     guard !turn.commands.isEmpty else { continue }
                     var candidate = page
                     _ = candidate.run(turn.commands)
@@ -285,6 +292,7 @@ enum AIDraw {
         guard let winner = results.max(by: { $0.score < $1.score }) else {
             throw failure ?? Refusal.nothingDrawn
         }
+        if let model { progress("Drawing with \(model)") }
         let all = results.map { "\(Int(($0.score * 100).rounded()))%" }.sorted().reversed().joined(separator: ", ")
         progress("Drew it \(results.count) time\(results.count == 1 ? "" : "s") — \(all) — keeping the best")
         return winner.turn
