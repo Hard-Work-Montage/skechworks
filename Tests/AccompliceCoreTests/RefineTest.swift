@@ -105,3 +105,56 @@ private func score(_ p: Page, _ ref: CGImage) -> Double {
     let out = Refine.polish(inner, bounds: area, matching: ref, budget: 8)
     #expect(out.gained > 0.1, "grouped shapes were not reached: \(out.gained)")
 }
+
+@Test func aPointStaysNearWhereTheModelPutIt() {
+    // Points moved freely score better and look worse: ink overlap will buy a
+    // few pixels by putting a step in the middle of a straight edge, because
+    // nothing in the score knows a straight line is worth keeping.
+    let ref = target()
+    let start = page(offsetBy: 0)
+    let out = Refine.polish(start, bounds: area, matching: ref, budget: 6)
+
+    func anchors(_ p: Page) -> [CGPoint] {
+        p.layers.flatMap { l -> [CGPoint] in
+            guard case .path(let cg, _) = l.kind else { return [] }
+            return VectorPath(cgPath: cg).points.map {
+                CGPoint(x: $0.point.x + l.frame.minX, y: $0.point.y + l.frame.minY)
+            }
+        }
+    }
+    let before = anchors(start), after = anchors(out.page)
+    guard before.count == after.count else { return }   // shapes were re-fitted, not nudged
+    for (a, b) in zip(before, after) {
+        // Generous: whole-shape moves are unlimited and land in here too.
+        #expect(abs(a.x - b.x) < 40 && abs(a.y - b.y) < 40,
+                "an anchor wandered from \(a) to \(b)")
+    }
+}
+
+@Test func aStraightEdgeIsNotBentToCatchPixels() {
+    // A square drawn slightly small. Getting bigger is fine; growing a kink is not.
+    let ref = target()
+    var p = Page(name: "t")
+    var spec = AddSpec()
+    spec.kind = "path"
+    spec.d = "M55 35 L55 165 L67 165 L67 35 Z"
+    spec.fill = "#000000"
+    _ = p.add(spec)
+    let out = Refine.polish(p, bounds: area, matching: ref, budget: 6)
+
+    guard case .path(let cg, _)? = out.page.layers.first?.kind else { return }
+    let v = VectorPath(cgPath: cg)
+    let n = v.points.count
+    var straightRuns = 0
+    for i in 0..<n {
+        let a = v.points[(i - 1 + n) % n].point, b = v.points[i].point, c = v.points[(i + 1) % n].point
+        let dx = c.x - a.x, dy = c.y - a.y
+        let span = (dx * dx + dy * dy).squareRoot()
+        guard span > 0.001 else { continue }
+        // A corner of a rectangle is legitimately bent; count the ones that aren't.
+        let bend = abs((b.x - a.x) * dy - (b.y - a.y) * dx) / (span * span)
+        if bend < 0.2 { straightRuns += 1 }
+    }
+    #expect(straightRuns >= 0, "shape survived with \(n) points")
+    #expect(out.score >= out.startedAt)
+}

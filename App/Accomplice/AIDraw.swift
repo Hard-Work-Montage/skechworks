@@ -148,10 +148,32 @@ enum AIDraw {
             if !turn.plan.isEmpty { plan = turn.plan }
             guard !turn.commands.isEmpty else { break }
 
+            // Commands are told to correct what's there. A pass that only ever
+            // ADDS has ignored that and redrawn the lot — and run onto the
+            // previous drawing it lands a second copy of every shape on top of
+            // the first, which is five Thumbs in the layer list and a score
+            // that creeps up for the wrong reason.
+            //
+            // So a redraw is scored as a redraw: built on a clean page as well
+            // as on the drawing so far, and whichever is actually closer wins.
+            // One extra render, and no need to talk the model out of anything.
             var candidate = best
             _ = candidate.run(turn.commands)
-            guard let attempt = Compare.render(candidate, bounds: area, matching: source) else { break }
-            let score = Compare.inkAgreement(attempt, source)
+            guard var attempt = Compare.render(candidate, bounds: area, matching: source) else { break }
+            var score = Compare.inkAgreement(attempt, source)
+
+            if turn.commands.allSatisfy({ if case .add = $0 { return true }; return false }) {
+                var fresh = Page(name: "trace")
+                _ = fresh.run(turn.commands)
+                if let alone = Compare.render(fresh, bounds: area, matching: source) {
+                    let onItsOwn = Compare.inkAgreement(alone, source)
+                    if onItsOwn > score {
+                        candidate = fresh
+                        attempt = alone
+                        score = onItsOwn
+                    }
+                }
+            }
 
             // A pass that made it worse is thrown away, and the model is told so
             // rather than being handed its own bad work to build on. This is what

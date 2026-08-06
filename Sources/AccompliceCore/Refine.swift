@@ -124,16 +124,19 @@ public enum Refine {
                 // loud. Shapes, not percentages: the score barely moves on any
                 // single point and a number that doesn't move reads as stuck.
                 progress("Tidying up shape \(n + 1) of \(paths.count)…")
-                let points = anchorCount(of: best, at: path)
-                guard points > 1, points <= 64 else { continue }
-                for index in 0..<points {
+                // Where the model put them. Corrections are measured from here,
+                // not from wherever the search has wandered to.
+                let anchors = anchorPositions(of: best, at: path)
+                guard anchors.count > 1, anchors.count <= 64 else { continue }
+                for index in 0..<anchors.count {
                     guard Date() < deadline else { break }
-                    var step: CGFloat = 8
-                    while step >= 1 {
+                    var step: CGFloat = 4
+                    while step >= 0.5 {
                         var moved = false
                         for delta in [ CGPoint(x: step, y: 0), CGPoint(x: -step, y: 0),
                                        CGPoint(x: 0, y: step), CGPoint(x: 0, y: -step) ] {
-                            guard let nudged = nudge(point: index, by: delta, in: best, at: path) else { continue }
+                            guard let nudged = nudge(point: index, by: delta, in: best, at: path,
+                                                     within: drift, of: anchors[index]) else { continue }
                             let s = score(nudged)
                             if s > bestScore {
                                 best = nudged
@@ -162,26 +165,84 @@ public enum Refine {
 
     // MARK: - Moving one point
 
-    private static func anchorCount(of page: Page, at path: [Int]) -> Int {
-        var count = 0
+    /// How far one anchor may end up from where the model drew it.
+    ///
+    /// Points moved freely score better and look worse. Ink overlap rewards
+    /// catching a few more pixels and says nothing at all about a straight line
+    /// staying straight — so a stem grows a step in it, a beam picks up a
+    /// jagged end, and a drawing that read as drawn starts reading as wobbled.
+    ///
+    /// The model's shape is coherent even when it's in the wrong place. Whole
+    /// shapes still move as far as they like, because sliding one doesn't
+    /// deform it; only the points are kept on a short lead, enough to take up
+    /// slack and not enough to shred the outline.
+    private static let drift: CGFloat = 3
+
+    /// Whether moving `index` to `landing` leaves a straight run straight.
+    ///
+    /// Judged on the run as it stands, so a shape the model drew with a bend
+    /// there keeps its freedom to move — only a corner that IS square, or an
+    /// edge that IS straight, is defended.
+    private static func keepsItsLine(_ path: VectorPath, index: Int, moving landing: CGPoint) -> Bool {
+        let n = path.points.count
+        guard n >= 3 else { return true }
+        // Each neighbouring triple that includes this point.
+        for offset in -1...1 {
+            let mid = index + offset
+            guard path.closed || (mid > 0 && mid < n - 1) else { continue }
+            let a = path.points[((mid - 1) % n + n) % n].point
+            let c = path.points[(mid + 1) % n].point
+            let bWas = path.points[((mid % n) + n) % n].point
+            let bNow = (mid % n + n) % n == index ? landing : bWas
+            let wasStraight = bend(a, bWas, c)
+            guard wasStraight < 0.08 else { continue }   // it was a corner; leave it be
+            if bend(a, bNow, c) > 0.08 { return false }
+        }
+        return true
+    }
+
+    /// How far a point sits off the line between its neighbours, as a fraction
+    /// of that line's length. Scale-free, so it means the same on a long stem
+    /// and a short one.
+    private static func bend(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint) -> CGFloat {
+        let dx = c.x - a.x, dy = c.y - a.y
+        let span = (dx * dx + dy * dy).squareRoot()
+        guard span > 0.001 else { return 0 }
+        return abs((b.x - a.x) * dy - (b.y - a.y) * dx) / (span * span)
+    }
+
+    private static func anchorPositions(of page: Page, at path: [Int]) -> [CGPoint] {
+        var out: [CGPoint] = []
         var copy = page
         modify(&copy.layers, path) { layer in
             guard case .path(let p, _) = layer.kind else { return }
-            count = VectorPath(cgPath: p).points.count
+            out = VectorPath(cgPath: p).points.map(\.point)
         }
-        return count
+        return out
     }
 
     /// Moves one anchor and the handles either side of it, so the curve follows
     /// rather than kinking at the point that moved.
     private static func nudge(point index: Int, by delta: CGPoint,
-                              in page: Page, at path: [Int]) -> Page? {
+                              in page: Page, at path: [Int],
+                              within limit: CGFloat, of home: CGPoint) -> Page? {
         var copy = page
         var changed = false
         modify(&copy.layers, path) { layer in
             guard case .path(let cg, let closed) = layer.kind else { return }
             var vector = VectorPath(cgPath: cg)
             guard vector.points.indices.contains(index) else { return }
+            // Refuse the move rather than clamping it: a clamped move that keeps
+            // being proposed is a loop that never settles.
+            let landing = CGPoint(x: vector.points[index].point.x + delta.x,
+                                  y: vector.points[index].point.y + delta.y)
+            guard abs(landing.x - home.x) <= limit, abs(landing.y - home.y) <= limit else { return }
+            // A point sitting on a straight run has to stay on it. This is the
+            // damage you can see: ink overlap will happily buy three pixels by
+            // putting a step in the middle of a stem, because nothing in the
+            // score knows a straight line is worth anything. Curves are left
+            // alone — they were never straight, so there's nothing to break.
+            guard keepsItsLine(vector, index: index, moving: landing) else { return }
             vector.points[index].point.x += delta.x
             vector.points[index].point.y += delta.y
             vector.points[index].curveFrom.x += delta.x

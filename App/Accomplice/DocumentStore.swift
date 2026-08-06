@@ -1260,8 +1260,17 @@ final class DocumentStore: ObservableObject {
                 // whose frame keeps resizing under you is hard to watch. In the
                 // bitmap's own space the shapes land in the same place either way.
                 if let previewID {
-                    self.edit([previewID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
-                        group.kind = .group(shapes)
+                    // Later passes draw themselves in too — a pass that redraws
+                    // the whole thing should look like it, not blink.
+                    let mine = generation
+                    Task { @MainActor in
+                        for count in 1...shapes.count {
+                            guard generation == mine else { return }
+                            self.edit([previewID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
+                                group.kind = .group(Array(shapes.prefix(count)))
+                            }
+                            try? await Task.sleep(for: .milliseconds(60))
+                        }
                     }
                 } else if shapes.count > 1 {
                     // Drawn rather than pasted. The parts arrive one at a time,
