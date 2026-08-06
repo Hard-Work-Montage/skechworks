@@ -396,6 +396,19 @@ extension Page {
     /// anyone asks it.
     @discardableResult
     public mutating func add(_ spec: AddSpec) -> String? {
+        // A model can send anything, including a number that isn't one. A
+        // non-finite coordinate or stroke width becomes a layer nothing
+        // downstream can measure, and the damage shows up later somewhere else
+        // entirely — so it's refused here, at the door.
+        var spec = spec
+        func sane(_ v: Double?) -> Double? {
+            guard let v, v.isFinite, abs(v) < 1e7 else { return nil }
+            return v
+        }
+        spec.x = sane(spec.x); spec.y = sane(spec.y)
+        spec.width = sane(spec.width); spec.height = sane(spec.height)
+        spec.strokeWidth = sane(spec.strokeWidth).map { max(0, $0) }
+
         // Path data means a path. The kind defaults to "rect", so a caller that
         // gives the curve and leaves the kind alone would otherwise get a plain
         // box — silently, with the data it measured thrown away.

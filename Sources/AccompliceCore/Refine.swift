@@ -190,7 +190,8 @@ public enum Refine {
             vector.points[index].curveTo.y += delta.y
             let rebuilt = vector.cgPath()
             let box = rebuilt.boundingBoxOfPath
-            guard !box.isNull, box.width.isFinite, box.height.isFinite else { return }
+            guard !box.isNull, !box.isInfinite, box.minX.isFinite, box.minY.isFinite,
+                  abs(box.maxX) < 1e6, abs(box.maxY) < 1e6 else { return }
             layer.kind = .path(rebuilt, closed: closed)
             changed = true
         }
@@ -246,8 +247,14 @@ public enum Refine {
         guard factor > 0.2, case .path(let p, let closed) = layer.kind else { return false }
         var t = CGAffineTransform(scaleX: factor, y: factor)
         guard let scaled = p.copy(using: &t) else { return false }
+        // Every corner, not just the extent. A box can have a finite width and
+        // still sit at infinity, and the frame is built from maxX/maxY — one
+        // non-finite number there poisons the layer, and the change detector
+        // that reads it on every subsequent edit used to trap on it.
         let box = scaled.boundingBoxOfPath
-        guard !box.isNull, box.width.isFinite, box.height.isFinite else { return false }
+        guard !box.isNull, !box.isInfinite,
+              box.minX.isFinite, box.minY.isFinite,
+              abs(box.maxX) < 1e6, abs(box.maxY) < 1e6 else { return false }
         layer.kind = .path(scaled, closed: closed)
         layer.frame.size = CGSize(width: max(1, box.maxX), height: max(1, box.maxY))
         return true

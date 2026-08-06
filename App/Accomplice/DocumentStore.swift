@@ -1133,19 +1133,34 @@ final class DocumentStore: ObservableObject {
     /// Returns the new board and where on it the source layer's own frame lands,
     /// so the output can sit exactly where the picture does.
     private func boardBeside(_ id: String, naming suffix: String) -> (board: String, origin: CGPoint)? {
-        guard let page, let source = page.layer(id), let board = page.artboard(containing: id) else { return nil }
+        guard let page, let source = page.layer(id) else { return nil }
+
+        // A picture sitting loose on the canvas gets a board the size of itself,
+        // rather than no board at all. The output of these tools belongs on one
+        // either way — that's what makes it a thing you can export, compare and
+        // hand to something else — and "it depends where the picture was" is not
+        // a rule anybody should have to learn.
+        let board = page.artboard(containing: id)
+        let size = board?.frame.size ?? source.frame.size
+        let anchor = board?.frame ?? CGRect(origin: page.absoluteOrigin(of: id) ?? source.frame.origin,
+                                            size: source.frame.size)
+        let base = board?.name ?? source.name
+
         var copy = Layer(kind: .group([]))
         copy.isArtboard = true
-        copy.backgroundColor = board.backgroundColor
-        copy.frame = page.freeSlot(size: board.frame.size, rightOf: board.frame)
-        copy.name = board.name.isEmpty ? suffix.capitalized : "\(board.name) \(suffix)"
+        copy.backgroundColor = board?.backgroundColor ?? Color(r: 1, g: 1, b: 1, a: 1)
+        copy.frame = page.freeSlot(size: size, rightOf: anchor)
+        copy.name = base.isEmpty ? suffix.capitalized : "\(base) \(suffix)"
         copy.constrainProportions = false
         mutatePage("Artboard") { page in
             // Behind the art, like every other artboard.
             page.layers.insert(copy, at: 0)
         }
-        return (copy.id, CGPoint(x: source.frame.minX - board.frame.minX,
-                                 y: source.frame.minY - board.frame.minY))
+        // Where the picture sits on its board — the origin for a loose one, so
+        // the drawing fills the board it just got.
+        let origin = board.map { CGPoint(x: source.frame.minX - $0.frame.minX,
+                                         y: source.frame.minY - $0.frame.minY) } ?? .zero
+        return (copy.id, origin)
     }
 
     /// Tools ▸ AI Draw: the selected bitmap is looked at and redrawn as shapes.

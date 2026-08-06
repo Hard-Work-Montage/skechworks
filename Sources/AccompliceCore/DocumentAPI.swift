@@ -770,9 +770,22 @@ extension Layer {
     /// Used to tell a real edit from a no-op. Comparing only ids and frames — which is
     /// what this replaced — silently discarded every rename, recolour and opacity
     /// change, because none of those move anything.
+    /// Int that can't take the app down.
+    ///
+    /// `Int(someDouble)` traps on NaN and on anything past Int's range, and this
+    /// getter runs on every single edit — so one bad number anywhere in a
+    /// document turned the next drag into a crash, with the work unsaved. A
+    /// change detector is a diagnostic; it has no business being the thing that
+    /// loses somebody's drawing. Non-finite values compare equal to each other
+    /// here, which is right: the signature only has to answer "did this change".
+    private func whole(_ v: CGFloat) -> Int {
+        guard v.isFinite else { return v.isNaN ? Int.min : (v > 0 ? Int.max : Int.min + 1) }
+        return Int(min(max(v, -1e15), 1e15))
+    }
+
     public var contentSignature: String {
-        var s = "\(id)|\(name)|\(Int(frame.minX)),\(Int(frame.minY)),\(Int(frame.width)),\(Int(frame.height))"
-        s += "|\(isVisible ? 1 : 0)|\(Int(style.opacity * 1000))|\(Int(rotation * 100))"
+        var s = "\(id)|\(name)|\(whole(frame.minX)),\(whole(frame.minY)),\(whole(frame.width)),\(whole(frame.height))"
+        s += "|\(isVisible ? 1 : 0)|\(whole(style.opacity * 1000))|\(whole(rotation * 100))"
         // EVERY fill and border, not just the first, and including alpha — `hex` is
         // #rrggbb only. Seventh time this has caught an edit, and this one was found
         // by reading rather than by an edit vanishing: a colour well can change the
@@ -782,21 +795,21 @@ extension Layer {
         s += "|" + style.fills.map { f in
             let paint: String
             switch f.paint {
-            case .color(let c): paint = "\(c.hex)\(Int(c.a * 1000))"
+            case .color(let c): paint = "\(c.hex)\(whole(c.a * 1000))"
             case .gradient(let g):
-                paint = "g\(g.kind.rawValue):\(Int(g.from.x * 100)),\(Int(g.from.y * 100))"
-                    + ":\(Int(g.to.x * 100)),\(Int(g.to.y * 100)):"
-                    + g.stops.map { "\(Int($0.position * 1000))@\($0.color.hex)\(Int($0.color.a * 1000))" }
+                paint = "g\(g.kind.rawValue):\(whole(g.from.x * 100)),\(whole(g.from.y * 100))"
+                    + ":\(whole(g.to.x * 100)),\(whole(g.to.y * 100)):"
+                    + g.stops.map { "\(whole($0.position * 1000))@\($0.color.hex)\(whole($0.color.a * 1000))" }
                         .joined(separator: "/")
             }
-            return "\(paint)x\(Int(f.opacity * 1000))"
+            return "\(paint)x\(whole(f.opacity * 1000))"
         }.joined(separator: ",")
         s += "|" + style.borders.map {
-            "\($0.color.hex)\(Int($0.color.a * 1000)):\(Int($0.thickness * 100)):\($0.position.rawValue)"
-                + ":\($0.dashPattern.map { d in String(Int(d)) }.joined(separator: "-"))"
+            "\($0.color.hex)\(whole($0.color.a * 1000)):\(whole($0.thickness * 100)):\($0.position.rawValue)"
+                + ":\($0.dashPattern.map { d in String(whole(d)) }.joined(separator: "-"))"
         }.joined(separator: ",")
         s += "|\(isArtboard ? 1 : 0)\(backgroundInExport ? 1 : 0)"
-        s += backgroundColor.map { "\($0.hex)\(Int($0.a * 1000))" } ?? "-"
+        s += backgroundColor.map { "\($0.hex)\(whole($0.a * 1000))" } ?? "-"
         // Marking a mask changes no geometry. Left out, mutatePage sees an unchanged
         // page and throws the edit away — which it did whenever the shape was already
         // at the back, so Use as Mask worked from the layer list and not from the canvas.
@@ -807,18 +820,18 @@ extension Layer {
         // throws the stroke away. Sixth time, and the rule holds: if it can be edited
         // and isn't geometry, it belongs here.
         if !erased.isEmpty {
-            s += "|e" + erased.map { "\($0.points.count):\(Int($0.radius)):\(Int($0.softness * 100))" }
+            s += "|e" + erased.map { "\($0.points.count):\(whole($0.radius)):\(whole($0.softness * 100))" }
                 .joined(separator: ",")
         }
         s += "|" + style.shadows.map {
-            "\($0.color.hex)\(Int($0.color.a * 100)):\(Int($0.offset.width)),\(Int($0.offset.height)):\(Int($0.blur)):\(Int($0.spread))"
+            "\($0.color.hex)\(whole($0.color.a * 100)):\(whole($0.offset.width)),\(whole($0.offset.height)):\(whole($0.blur)):\(whole($0.spread))"
         }.joined(separator: ",")
         if let t = apiText { s += "|\(t)" }
         if case .path(let p, let closed) = kind {
             // Points move without the frame changing, so include the geometry's own
             // extent — cheaper than hashing every curve.
             let b = p.boundingBoxOfPath
-            s += "|\(Int(b.minX)),\(Int(b.minY)),\(Int(b.width)),\(Int(b.height)),\(closed ? 1 : 0)"
+            s += "|\(whole(b.minX)),\(whole(b.minY)),\(whole(b.width)),\(whole(b.height)),\(closed ? 1 : 0)"
             // Switching Mirrored to Aligned changes no geometry at all. Left out of
             // the signature, mutatePage sees no change and throws the edit away.
             if !curveModes.isEmpty { s += "|" + curveModes.map { String($0.rawValue) }.joined() }
