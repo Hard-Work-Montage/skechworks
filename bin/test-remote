@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# Runs the test suite on Burnie instead of here.
+#
+# XCUITest drives the real keyboard and window server, so a UI run owns the
+# screen of whatever machine it happens on. Running it on the Mac you're drawing
+# on means every run is either five minutes of not touching anything or a fistful
+# of failures that look like bugs and are really you clicking something.
+#
+# Sends the working tree as it stands, uncommitted changes included, so this
+# tests what you're looking at rather than what you last pushed.
+#
+#   bin/test-remote          # everything, UI suite included
+#   bin/test-remote ""       # skip the UI suite
+#
+# Setup lives in docs/testing-on-burnie.md.
+set -euo pipefail
+
+HOST="${BURNIE_HOST:-burnie@100.105.168.11}"
+REMOTE="Development/accomplice"
+ARGS="${1---ui}"
+
+cd "$(dirname "$0")/.."
+
+if ! ssh -o ConnectTimeout=8 "$HOST" true 2>/dev/null; then
+    echo "Can't reach $HOST. Is Burnie awake and on Tailscale?" >&2
+    exit 1
+fi
+
+if ! ssh "$HOST" 'test -d /Applications/Xcode.app && xcodebuild -version >/dev/null 2>&1'; then
+    echo "Burnie has no working Xcode yet — see docs/testing-on-burnie.md" >&2
+    exit 1
+fi
+
+echo "── Sending the working tree ──"
+rsync -a --delete \
+    --exclude '.git' --exclude 'build' --exclude '.build' \
+    --exclude 'DerivedData' --exclude '*.xcodeproj' \
+    ./ "$HOST:$REMOTE/"
+
+echo "── Running on Burnie ──"
+# caffeinate holds the display awake for the length of the run. A screen that
+# sleeps or locks mid-suite fails every remaining test for no reason at all.
+ssh "$HOST" "cd $REMOTE && caffeinate -disu ./bin/test $ARGS"

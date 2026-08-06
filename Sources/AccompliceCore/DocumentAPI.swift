@@ -883,7 +883,14 @@ public enum ModelPrompt {
     public static func traceAgain(report: String, pass: Int) -> String {
         """
         ATTEMPT \(pass)
-        The first image is the original. The second is what you drew.
+        Three images: the original, what you drew, and the two laid on top of each
+        other.
+
+        READ THE THIRD ONE. In it, GREY is ink in the original that you have not
+        drawn, RED is ink you drew where the original has none, and BLACK is where
+        the two agree. So a red tip above a grey stub means that stroke runs too
+        far; red beside grey means it sits to one side; grey with no red near it
+        means you have missed something out entirely.
 
         \(report)
 

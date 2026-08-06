@@ -136,6 +136,50 @@ public enum Compare {
         return lines.joined(separator: "\n")
     }
 
+    /// The two pictures laid on top of each other, colour-coded.
+    ///
+    /// Grey is ink in the original that hasn't been drawn. Red is ink drawn where
+    /// the original has none. Black is agreement. Handing a model its attempt and
+    /// the original as two separate pictures asks it to hold both in its head and
+    /// spot a forty-pixel shift by memory, which is the same eyeballing that puts
+    /// the strokes in the wrong place to begin with. Overlaid, "this finger is too
+    /// long" is a red tip on a grey stub, and it needs no comparing at all.
+    public static func overlay(_ drawing: CGImage, _ reference: CGImage,
+                               resolution: Int = 512) -> CGImage? {
+        let side = max(64, resolution)
+        guard let a = sample(drawing, side: side), let b = sample(reference, side: side),
+              let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                                  bytesPerRow: side * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let out = ctx.data else { return nil }
+
+        var counts: [Int: Int] = [:]
+        for i in stride(from: 0, to: b.count, by: 4) {
+            counts[Int(b[i]) << 16 | Int(b[i + 1]) << 8 | Int(b[i + 2]), default: 0] += 1
+        }
+        let background = counts.max(by: { $0.value < $1.value })?.key ?? 0xFFFFFF
+        let br = background >> 16 & 0xFF, bg = background >> 8 & 0xFF, bb = background & 0xFF
+        func isInk(_ p: [UInt8], _ i: Int) -> Bool {
+            max(abs(Int(p[i]) - br), abs(Int(p[i + 1]) - bg), abs(Int(p[i + 2]) - bb)) > 48
+        }
+
+        let pixels = out.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        for i in stride(from: 0, to: a.count, by: 4) {
+            let mine = isInk(a, i), theirs = isInk(b, i)
+            let colour: (UInt8, UInt8, UInt8)
+            switch (mine, theirs) {
+            case (true, true):   colour = (20, 20, 20)      // agreed
+            case (true, false):  colour = (230, 40, 40)     // drawn where nothing is
+            case (false, true):  colour = (190, 190, 190)   // missed
+            case (false, false): colour = (255, 255, 255)
+            }
+            pixels[i] = colour.0; pixels[i + 1] = colour.1; pixels[i + 2] = colour.2
+            pixels[i + 3] = 255
+        }
+        return ctx.makeImage()
+    }
+
     /// Renders part of a page at the same pixel size as something to compare it
     /// against, so the two line up without either being rescaled first.
     public static func render(_ page: Page, bounds: CGRect, matching reference: CGImage,

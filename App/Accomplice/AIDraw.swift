@@ -102,10 +102,12 @@ enum AIDraw {
             // kept, otherwise the drawing as it stood before this pass.
             let shown = improved ? attempt : (Compare.render(best, bounds: area, matching: source) ?? attempt)
             guard let attemptPNG = Renderer.png(shown) else { break }
-            let report = Compare.report(shown, against: source, bounds: area)
+            // The overlay is the useful picture. The other two are context.
+            let diff = Compare.overlay(shown, source).flatMap { Renderer.png($0) }
+            let report = Compare.report(shown, against: source, bounds: area, cells: 12)
             messages.append(.assistant(turn.say.isEmpty ? "(drew it)" : turn.say))
             messages.append(.user(ModelPrompt.traceAgain(report: report, pass: pass),
-                                  images: [sourcePNG, attemptPNG]))
+                                  images: [sourcePNG, attemptPNG, diff].compactMap { $0 }))
         }
 
         guard !best.layers.isEmpty else { throw Refusal.nothingDrawn }

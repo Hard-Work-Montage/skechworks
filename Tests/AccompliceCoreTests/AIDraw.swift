@@ -307,9 +307,9 @@ private func canvas(_ side: Int = 128, _ draw: (CGContext) -> Void) -> CGImage {
         ctx.fill(CGRect(x: 0, y: 64, width: 64, height: 64))
     }
     let stats = ImageStats.measure(corner)
-    #expect(stats.inkGrid.count == 12)
+    #expect(stats.inkGrid.count == 24)
     #expect(stats.inkGrid[0][0] == 9, "the top-left cell is entirely inked")
-    #expect(stats.inkGrid[11][11] == 0, "the bottom-right should be empty")
+    #expect(stats.inkGrid[23][23] == 0, "the bottom-right should be empty")
     #expect(stats.inkBounds.minY < 0.05)
     #expect(stats.inkBounds.maxX <= 0.55)
     #expect(stats.summary.contains("where the marks are"))
@@ -362,4 +362,65 @@ private func canvas(_ side: Int = 128, _ draw: (CGContext) -> Void) -> CGImage {
     let saved = try #require(reopened.document.pages.first?.layers.first?.style.borders.first)
     #expect(saved.cap == LineCap.round)
     #expect(saved.join == LineJoin.round)
+}
+
+@Test func lineArtIsRecognisedWhateverTheSampleSize() {
+    // Counting distinct colours made this flip between line art and flat as the
+    // sample size changed, because antialiasing invents a different handful of
+    // greys each time. Two-tone is a share of the picture, not a count.
+    let icon = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: 20, y: 20, width: 88, height: 88))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: 34, y: 34, width: 60, height: 60))
+    }
+    for samples in [96, 128, 144, 200] {
+        #expect(ImageStats.measure(icon, samples: samples).verdict == .lineArt,
+                "a black ring on white is line art at any sample size")
+    }
+}
+
+// MARK: - Showing the difference rather than describing it
+
+@Test func theOverlaySaysWhichMarksAreWrongAndWhichAreMissing() {
+    let reference = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 20, y: 20, width: 30, height: 88))
+    }
+    // Drawn in the wrong place entirely: everything is missed, everything is spurious.
+    let elsewhere = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 80, y: 20, width: 30, height: 88))
+    }
+    let diff = try! #require(Compare.overlay(elsewhere, reference))
+    let counts = colourCounts(diff)
+    #expect(counts.red > 0, "ink drawn where there is none should show red")
+    #expect(counts.grey > 0, "ink not yet drawn should show grey")
+
+    // Drawn correctly: agreement, and neither of the other two.
+    let right = try! #require(Compare.overlay(reference, reference))
+    let good = colourCounts(right)
+    #expect(good.red == 0)
+    #expect(good.grey == 0)
+    #expect(good.black > 0)
+}
+
+private func colourCounts(_ image: CGImage) -> (red: Int, grey: Int, black: Int) {
+    let side = image.width
+    var buffer = [UInt8](repeating: 0, count: side * side * 4)
+    buffer.withUnsafeMutableBytes { raw in
+        let ctx = CGContext(data: raw.baseAddress, width: side, height: side,
+                            bitsPerComponent: 8, bytesPerRow: side * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+    }
+    var red = 0, grey = 0, black = 0
+    for i in stride(from: 0, to: buffer.count, by: 4) {
+        let r = Int(buffer[i]), g = Int(buffer[i + 1]), b = Int(buffer[i + 2])
+        if r > 200, g < 80, b < 80 { red += 1 }
+        else if abs(r - 190) < 12, abs(g - 190) < 12, abs(b - 190) < 12 { grey += 1 }
+        else if r < 40, g < 40, b < 40 { black += 1 }
+    }
+    return (red, grey, black)
 }

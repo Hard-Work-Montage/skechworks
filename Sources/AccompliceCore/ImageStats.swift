@@ -47,7 +47,7 @@ public struct ImageStats: Sendable, Equatable {
     public let palette: [(hex: String, share: Double)]
     /// Where the marks actually sit, as fractions of the picture.
     public let inkBounds: CGRect
-    /// How much ink is in each cell of a 12×12 grid, 0 to 9, row 0 at the top.
+    /// How much ink is in each cell of a 24×24 grid, 0 to 9, row 0 at the top.
     ///
     /// The antidote to a model estimating positions off a picture, which is the one
     /// thing it is reliably bad at. Told where the marks are, it can put them there
@@ -63,7 +63,11 @@ public struct ImageStats: Sendable, Equatable {
 
     /// Reads the picture at a small fixed size. Detail below this doesn't change
     /// what KIND of image it is, and it keeps the whole thing under a millisecond.
-    public static func measure(_ image: CGImage, samples: Int = 128) -> ImageStats {
+    /// 144 rather than a round 128 so the 24×24 ink grid divides it exactly. An
+    /// uneven split leaves the last row and column covering more pixels than the
+    /// rest while being averaged as if they didn't, which reads as a solid edge
+    /// down two sides of every picture.
+    public static func measure(_ image: CGImage, samples: Int = 144) -> ImageStats {
         let side = max(16, samples)
         guard let pixels = flatten(image, side: side) else {
             return ImageStats(uniqueColors: 0, dominantCoverage: 0, flatShare: 0,
@@ -84,6 +88,10 @@ public struct ImageStats: Sendable, Equatable {
         let ranked = counts.sorted { $0.value > $1.value }
         let significant = ranked.filter { Double($0.value) / total >= 0.002 }
         let coverage = ranked.prefix(4).reduce(0.0) { $0 + Double($1.value) / total }
+        // Two-tone is a share, not a count. Counting distinct colours calls a
+        // drawing line art at one sample size and something else at the next,
+        // because antialiasing invents a different handful of greys each time.
+        let twoTone = ranked.prefix(2).reduce(0.0) { $0 + Double($1.value) / total }
         // A colour earns its keep by holding a real area, not by appearing. Sum
         // those and you have the share of the picture that is solid.
         let flat = exact.values.filter { Double($0) / total >= 0.005 }
@@ -103,7 +111,7 @@ public struct ImageStats: Sendable, Equatable {
             max(abs(Int(pixels[i]) - bgr), abs(Int(pixels[i + 1]) - bgg),
                 abs(Int(pixels[i + 2]) - bgb)) > 48
         }
-        let cells = 12
+        let cells = 24
         let step = max(1, side / cells)
         var grid = Array(repeating: Array(repeating: 0, count: cells), count: cells)
         var minX = side, minY = side, maxX = 0, maxY = 0, inkCount = 0
@@ -144,7 +152,7 @@ public struct ImageStats: Sendable, Equatable {
         if flat < 0.5 {
             // Nothing here holds still long enough to be a shape.
             verdict = .photographic
-        } else if unique <= 3 && coverage > 0.9 {
+        } else if twoTone > 0.85 {
             verdict = .lineArt
         } else if unique <= 16 && coverage > 0.7 {
             verdict = .flat
@@ -170,7 +178,7 @@ public struct ImageStats: Sendable, Equatable {
         palette, commonest first: \(colours)
         the marks sit inside x \(pct(inkBounds.minX))-\(pct(inkBounds.maxX)), \
         y \(pct(inkBounds.minY))-\(pct(inkBounds.maxY)) of the area
-        where the marks are, 12×12 over the whole area, 0 empty and 9 solid, \
+        where the marks are, 24×24 over the whole area, 0 empty and 9 solid, \
         row 1 at the TOP:
         \(inkGrid.map { $0.map(String.init).joined() }.joined(separator: "\n        "))
         """
