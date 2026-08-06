@@ -42,7 +42,11 @@ enum AIDraw {
     /// How many times to look and correct. Three is where it stops paying: the
     /// first pass gets the shapes, the second fixes placement, and the third is
     /// usually the last one that changes the score at all.
-    static let passes = 3
+    /// How many times to look and correct.
+    ///
+    /// Four rather than three now the score means something: with a metric that
+    /// barely moved there was nothing to be gained from another look.
+    static let passes = 4
 
     static func trace(source: CGImage, size: CGSize, connector: ModelConnector,
                       progress: (String) -> Void = { _ in }) async throws -> Outcome {
@@ -55,8 +59,11 @@ enum AIDraw {
         var best = Page(name: "trace")
         // The baseline is an empty page. Anything the model draws has to beat
         // drawing nothing, or it isn't worth putting in the document.
+        // Scored on the ink. Pixel agreement is dominated by the background: this
+        // icon is four fifths white, so an EMPTY page scored 82% and a real trace
+        // scored 82%, and three passes of the loop were steering on noise.
         var bestScore = Compare.render(best, bounds: area, matching: source)
-            .map { Compare.score($0, source) } ?? 0
+            .map { Compare.inkAgreement($0, source) } ?? 0
 
         var messages: [ModelConnector.Message] = [
             .system(ModelPrompt.trace(width: size.width, height: size.height)),
@@ -79,7 +86,7 @@ enum AIDraw {
             var candidate = best
             _ = candidate.run(turn.commands)
             guard let attempt = Compare.render(candidate, bounds: area, matching: source) else { break }
-            let score = Compare.score(attempt, source)
+            let score = Compare.inkAgreement(attempt, source)
 
             // A pass that made it worse is thrown away, and the model is told so
             // rather than being handed its own bad work to build on. This is what

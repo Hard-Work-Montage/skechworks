@@ -455,12 +455,35 @@ public struct Fill: Sendable {
 
 public enum BorderPosition: Int, Sendable { case center = 0, inside = 1, outside = 2 }
 
+/// How a stroke starts and ends, and what it does at a corner.
+///
+/// Butt and miter are CoreGraphics' defaults and what every stroke in the corpus
+/// has always been drawn with, so they stay the default here — changing it would
+/// redraw artwork that already exists. Line art wants round on both: every
+/// fingertip in an icon is a round cap, and a miter join between two segments of
+/// the same stroke shows up as a spike.
+public enum LineCap: Int, Sendable { case butt = 0, round = 1, square = 2 }
+public enum LineJoin: Int, Sendable { case miter = 0, round = 1, bevel = 2 }
+
 public struct Border: Sendable {
     public var color: Color = .black
     public var thickness: CGFloat = 1
     public var position: BorderPosition = .center
     public var dashPattern: [CGFloat] = []
+    public var cap: LineCap = .butt
+    public var join: LineJoin = .miter
     public init() {}
+
+    /// Sets both ends and corners from one word, which is how anyone describing a
+    /// stroke thinks about it.
+    public mutating func applyCap(_ name: String?) {
+        switch name?.lowercased() {
+        case "round": cap = .round; join = .round
+        case "square", "projecting": cap = .square; join = .bevel
+        case "butt", "flat": cap = .butt; join = .miter
+        default: break
+        }
+    }
 }
 
 public struct Shadow: Sendable {

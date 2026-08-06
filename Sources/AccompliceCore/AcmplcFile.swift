@@ -368,6 +368,8 @@ public struct AcmplcFile {
             default: bd.position = .center
             }
             bd.dashPattern = (b["dash"] as? [Any] ?? []).compactMap(dbl)
+            if let c = b["cap"] as? Int, let v = LineCap(rawValue: c) { bd.cap = v }
+            if let j = b["join"] as? Int, let v = LineJoin(rawValue: j) { bd.join = v }
             s.borders.append(bd)
         }
         for sh in j["shadows"] as? [[String: Any]] ?? [] {
@@ -500,6 +502,10 @@ public struct AcmplcFile {
                 var o: [String: Any] = ["color": b.color.hex, "width": b.thickness,
                                         "position": ["center", "inside", "outside"][b.position.rawValue]]
                 if !b.dashPattern.isEmpty { o["dash"] = b.dashPattern }
+                // Only when they differ from the default, so files that never
+                // asked for a cap stay byte-identical to what they were.
+                if b.cap != .butt { o["cap"] = b.cap.rawValue }
+                if b.join != .miter { o["join"] = b.join.rawValue }
                 return o
             }
         }

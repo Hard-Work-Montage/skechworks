@@ -45,6 +45,15 @@ public struct ImageStats: Sendable, Equatable {
     public let edgeDensity: Double
     /// Commonest colours first, as hex, with the share each covers.
     public let palette: [(hex: String, share: Double)]
+    /// Where the marks actually sit, as fractions of the picture.
+    public let inkBounds: CGRect
+    /// How much ink is in each cell of a 12×12 grid, 0 to 9, row 0 at the top.
+    ///
+    /// The antidote to a model estimating positions off a picture, which is the one
+    /// thing it is reliably bad at. Told where the marks are, it can put them there
+    /// instead of guessing — the same reasoning as handing over the palette rather
+    /// than asking it to read colours off pixels.
+    public let inkGrid: [[Int]]
     public let verdict: Verdict
 
     public static func == (a: ImageStats, b: ImageStats) -> Bool {
@@ -58,7 +67,8 @@ public struct ImageStats: Sendable, Equatable {
         let side = max(16, samples)
         guard let pixels = flatten(image, side: side) else {
             return ImageStats(uniqueColors: 0, dominantCoverage: 0, flatShare: 0,
-                              edgeDensity: 0, palette: [], verdict: .photographic)
+                              edgeDensity: 0, palette: [], inkBounds: .zero, inkGrid: [],
+                              verdict: .photographic)
         }
 
         // Four bits a channel. Fine enough to keep colours a person would call
@@ -83,6 +93,39 @@ public struct ImageStats: Sendable, Equatable {
             let r = (entry.key >> 8 & 0xF) * 17, g = (entry.key >> 4 & 0xF) * 17, b = (entry.key & 0xF) * 17
             return (String(format: "#%02X%02X%02X", r, g, b), Double(entry.value) / total)
         }
+
+        // Ink is anything that isn't the background, and the background is whatever
+        // the picture is mostly made of — so this reads white-on-black as happily as
+        // black-on-white.
+        let bgKey = ranked.first?.key ?? 0
+        let bgr = (bgKey >> 8 & 0xF) * 17, bgg = (bgKey >> 4 & 0xF) * 17, bgb = (bgKey & 0xF) * 17
+        func inked(_ i: Int) -> Bool {
+            max(abs(Int(pixels[i]) - bgr), abs(Int(pixels[i + 1]) - bgg),
+                abs(Int(pixels[i + 2]) - bgb)) > 48
+        }
+        let cells = 12
+        let step = max(1, side / cells)
+        var grid = Array(repeating: Array(repeating: 0, count: cells), count: cells)
+        var minX = side, minY = side, maxX = 0, maxY = 0, inkCount = 0
+        for y in 0..<side {
+            for x in 0..<side where inked((y * side + x) * 4) {
+                inkCount += 1
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+                let r = min(cells - 1, y / step), c = min(cells - 1, x / step)
+                grid[r][c] += 1
+            }
+        }
+        let per = Double(step * step)
+        for r in 0..<cells {
+            for c in 0..<cells {
+                grid[r][c] = min(9, Int((Double(grid[r][c]) / per * 9).rounded()))
+            }
+        }
+        let bounds = inkCount == 0 ? CGRect.zero
+            : CGRect(x: Double(minX) / Double(side), y: Double(minY) / Double(side),
+                     width: Double(maxX - minX + 1) / Double(side),
+                     height: Double(maxY - minY + 1) / Double(side))
 
         var edges = 0
         for y in 0..<(side - 1) {
@@ -110,7 +153,8 @@ public struct ImageStats: Sendable, Equatable {
         }
 
         return ImageStats(uniqueColors: unique, dominantCoverage: coverage, flatShare: flat,
-                          edgeDensity: density, palette: Array(palette), verdict: verdict)
+                          edgeDensity: density, palette: Array(palette),
+                          inkBounds: bounds, inkGrid: grid, verdict: verdict)
     }
 
     /// The measurements as the model should be told them.
@@ -124,8 +168,15 @@ public struct ImageStats: Sendable, Equatable {
         \(Int((flatShare * 100).rounded()))% of it solid areas, \
         \(Int((edgeDensity * 100).rounded()))% of it on an edge
         palette, commonest first: \(colours)
+        the marks sit inside x \(pct(inkBounds.minX))-\(pct(inkBounds.maxX)), \
+        y \(pct(inkBounds.minY))-\(pct(inkBounds.maxY)) of the area
+        where the marks are, 12×12 over the whole area, 0 empty and 9 solid, \
+        row 1 at the TOP:
+        \(inkGrid.map { $0.map(String.init).joined() }.joined(separator: "\n        "))
         """
     }
+
+    private func pct(_ v: CGFloat) -> String { "\(Int((v * 100).rounded()))%" }
 
     private static func flatten(_ image: CGImage, side: Int) -> [UInt8]? {
         let bytesPerRow = side * 4

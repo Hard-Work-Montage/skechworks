@@ -134,7 +134,8 @@ public struct SVGWriter {
             }
 
             guard let p = d.path else { continue }
-            let dstr = pathData(p)
+            // Anything with a stroke keeps its hairlines: they are lines.
+            let dstr = pathData(p, dropSlivers: d.style.borders.isEmpty)
             guard !dstr.isEmpty else { continue }
 
             if d.style.fills.isEmpty && d.style.borders.isEmpty {
@@ -166,6 +167,12 @@ public struct SVGWriter {
                 strokeAttrs += " stroke-width=\"\(fmt(w))\""
                 if !b2.dashPattern.isEmpty {
                     strokeAttrs += " stroke-dasharray=\"\(b2.dashPattern.map(fmt).joined(separator: " "))\""
+                }
+                if b2.cap != .butt {
+                    strokeAttrs += " stroke-linecap=\"\(b2.cap == .round ? "round" : "square")\""
+                }
+                if b2.join != .miter {
+                    strokeAttrs += " stroke-linejoin=\"\(b2.join == .round ? "round" : "bevel")\""
                 }
                 body += "  <path\(clipAttr) \(strokeAttrs) d=\"\(dstr)\"/>\n"
             }
@@ -210,7 +217,12 @@ public struct SVGWriter {
         }
     }
 
-    public func pathData(_ p: CGPath) -> String {
+    /// `dropSlivers` culls hairline contours. Right for something that is filled,
+    /// where a contour with no thickness paints nothing; wrong for something that
+    /// is stroked, where a subpath of zero height is a perfectly ordinary straight
+    /// line. Exporting a horizontal line produced an empty SVG for exactly this
+    /// reason: min(width, height) of a flat line is 0, so it read as a sliver.
+    public func pathData(_ p: CGPath, dropSlivers: Bool = true) -> String {
         // Serialized per subpath, so hairline contours can be dropped whole. Boolean
         // sweeps leave slivers thinner than anything a cutter can act on, and laser
         // software (LightBurn, at least) treats a zero-width filled contour as an
@@ -251,6 +263,7 @@ public struct SVGWriter {
             }
         }
         flush()
+        guard dropSlivers else { return subs.map(\.d).joined() }
         return subs.filter { min($0.max.x - $0.min.x, $0.max.y - $0.min.y) >= 0.05 }
                    .map(\.d).joined()
     }

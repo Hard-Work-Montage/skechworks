@@ -56,6 +56,8 @@ public final class SVGReader: NSObject {
         var fill: String? = "#000000"
         var stroke: String?
         var strokeWidth: CGFloat = 1
+        var cap: LineCap = .butt
+        var join: LineJoin = .miter
         var opacity: CGFloat = 1
         var fillOpacity: CGFloat = 1
         var strokeOpacity: CGFloat = 1
@@ -252,6 +254,18 @@ public final class SVGReader: NSObject {
         if let v = SVGReader.length(a["fill-opacity"]) { s.fillOpacity = v }
         if let v = SVGReader.length(a["stroke-opacity"]) { s.strokeOpacity = v }
         if let v = a["stroke-dasharray"], v != "none" { s.dash = SVGReader.numbers(v).filter { $0 > 0 } }
+        switch a["stroke-linecap"] {
+        case "round": s.cap = .round
+        case "square": s.cap = .square
+        case "butt": s.cap = .butt
+        default: break
+        }
+        switch a["stroke-linejoin"] {
+        case "round": s.join = .round
+        case "bevel": s.join = .bevel
+        case "miter": s.join = .miter
+        default: break
+        }
         return s
     }
 
@@ -292,6 +306,8 @@ public final class SVGReader: NSObject {
             // Stroke width is in user units, so a scaled group scales the stroke too.
             b.thickness = s.strokeWidth * sqrt(abs(t.a * t.d - t.b * t.c))
             b.dashPattern = s.dash
+            b.cap = s.cap
+            b.join = s.join
             out.borders = [b]
         }
         return out

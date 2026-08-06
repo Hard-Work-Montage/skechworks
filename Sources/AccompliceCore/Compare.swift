@@ -21,6 +21,40 @@ public enum Compare {
         return 1 - (cells.first?.first ?? 1)
     }
 
+    /// How much of the ink lines up: marks in both, over marks in either.
+    ///
+    /// The number that actually means something for a drawing, and the reason the
+    /// first version of this loop was steering on noise. Per-pixel agreement is
+    /// dominated by the background — an icon that is 80% white scores 80% for a
+    /// BLANK page, and a real trace of it scores 82%. Two numbers no model can tell
+    /// apart and nothing can be improved against. Counting only the marks, a blank
+    /// page scores 0 and every correction moves the number.
+    public static func inkAgreement(_ drawing: CGImage, _ reference: CGImage,
+                                    resolution: Int = 240) -> Double {
+        let side = max(16, resolution)
+        guard let a = sample(drawing, side: side), let b = sample(reference, side: side) else { return 0 }
+
+        // Whatever the original is mostly made of is its background, so this works
+        // for black-on-white, white-on-black and a coloured plate alike.
+        var counts: [Int: Int] = [:]
+        for i in stride(from: 0, to: b.count, by: 4) {
+            counts[Int(b[i]) << 16 | Int(b[i + 1]) << 8 | Int(b[i + 2]), default: 0] += 1
+        }
+        guard let background = counts.max(by: { $0.value < $1.value })?.key else { return 0 }
+        let br = background >> 16 & 0xFF, bg = background >> 8 & 0xFF, bb = background & 0xFF
+
+        func isInk(_ p: [UInt8], _ i: Int) -> Bool {
+            max(abs(Int(p[i]) - br), abs(Int(p[i + 1]) - bg), abs(Int(p[i + 2]) - bb)) > 48
+        }
+        var both = 0, either = 0
+        for i in stride(from: 0, to: a.count, by: 4) {
+            let x = isInk(a, i), y = isInk(b, i)
+            if x && y { both += 1 }
+            if x || y { either += 1 }
+        }
+        return either == 0 ? 1 : Double(both) / Double(either)
+    }
+
     /// Error per cell of a `cells`×`cells` grid, row 0 at the top, 0 perfect and
     /// 1 completely wrong.
     public static func errors(_ a: CGImage, _ b: CGImage,
@@ -80,7 +114,11 @@ public enum Compare {
                               bounds: CGRect? = nil, cells: Int = 6) -> String {
         let grid = errors(drawing, reference, cells: cells)
         let overall = grid.flatMap { $0 }.reduce(0, +) / Double(cells * cells)
-        var lines = ["match \(Int(((1 - overall) * 100).rounded()))%",
+        // Ink first. The pixel figure is along for the ride because it is what the
+        // error map below is made of, but on its own it flatters everything.
+        let ink = Int((inkAgreement(drawing, reference) * 100).rounded())
+        var lines = ["ink match \(ink)% — of the marks in the original, how many you have drawn in the right place",
+                     "pixel match \(Int(((1 - overall) * 100).rounded()))%",
                      "\(cells)×\(cells) error map over the compared area, 0 best 9 worst:"]
         for row in grid {
             lines.append(row.map { String(min(9, Int(($0 * 10).rounded()))) }.joined(separator: " "))

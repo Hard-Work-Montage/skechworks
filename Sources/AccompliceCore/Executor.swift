@@ -342,6 +342,9 @@ public struct AddSpec: Sendable, Equatable {
     /// stroke only, which is what line art wants.
     public var stroke: String?
     public var strokeWidth: Double?
+    /// "round", "butt" or "square". Round also rounds the joins, because a stroke
+    /// with round ends and mitred corners is not a thing anyone wants.
+    public var strokeCap: String?
     public init() {}
 }
 
@@ -503,6 +506,7 @@ extension Page {
                 var b = Border()
                 b.color = spec.stroke.flatMap { SVGReader.color($0, alpha: 1) } ?? colour
                 b.thickness = spec.strokeWidth.map { CGFloat($0) } ?? 1
+                b.applyCap(spec.strokeCap)
                 l.style.borders = [b]
             } else {
                 l.style.fills = [Fill(paint: .color(colour))]
@@ -510,6 +514,7 @@ extension Page {
                     var b = Border()
                     b.color = c
                     b.thickness = spec.strokeWidth.map { CGFloat($0) } ?? 1
+                    b.applyCap(spec.strokeCap)
                     l.style.borders = [b]
                 }
             }

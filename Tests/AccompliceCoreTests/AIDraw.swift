@@ -247,3 +247,119 @@ private func canvas(_ side: Int = 128, _ draw: (CGContext) -> Void) -> CGImage {
     #expect(text.contains("#000000"))
     #expect(text.contains("palette"))
 }
+
+// MARK: - Scoring a drawing rather than its background
+
+@Test func aBlankPageDoesNotScoreWellAgainstADrawing() {
+    // The bug Adam caught from one status line. His icon is about four fifths
+    // white, so per-pixel agreement gives an EMPTY page ~80% and a real trace 82%:
+    // a metric the loop cannot steer on, because correcting the drawing barely
+    // moves it.
+    let icon = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 20, y: 20, width: 24, height: 88))
+        ctx.fill(CGRect(x: 84, y: 20, width: 24, height: 88))
+    }
+    let blank = canvas { _ in }
+
+    #expect(Compare.score(blank, icon) > 0.7, "per-pixel flatters an empty page")
+    #expect(Compare.inkAgreement(blank, icon) < 0.01, "no marks means no agreement")
+}
+
+@Test func inkAgreementMovesWhenTheDrawingGetsCloser() {
+    let icon = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 20, y: 20, width: 24, height: 88))
+    }
+    let close = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 24, y: 20, width: 24, height: 88))
+    }
+    let wrong = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 84, y: 20, width: 24, height: 88))
+    }
+    let near = Compare.inkAgreement(close, icon), far = Compare.inkAgreement(wrong, icon)
+    #expect(near > far + 0.3, "being nearly right must score far above being elsewhere")
+}
+
+@Test func inkWorksTheSameOnWhiteMarksOverBlack() {
+    let inverted = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 128, height: 128))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 30, y: 30, width: 40, height: 60))
+    }
+    #expect(Compare.inkAgreement(inverted, inverted) > 0.99)
+    let empty = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 128, height: 128))
+    }
+    #expect(Compare.inkAgreement(empty, inverted) < 0.01)
+}
+
+// MARK: - Telling the model where the marks are
+
+@Test func theInkMapSaysWhereTheMarksActuallyAre() {
+    // Ink only in the top-left quarter of the image as it reads.
+    let corner = canvas { ctx in
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 64, width: 64, height: 64))
+    }
+    let stats = ImageStats.measure(corner)
+    #expect(stats.inkGrid.count == 12)
+    #expect(stats.inkGrid[0][0] == 9, "the top-left cell is entirely inked")
+    #expect(stats.inkGrid[11][11] == 0, "the bottom-right should be empty")
+    #expect(stats.inkBounds.minY < 0.05)
+    #expect(stats.inkBounds.maxX <= 0.55)
+    #expect(stats.summary.contains("where the marks are"))
+}
+
+// MARK: - Round caps
+
+@Test func aStrokeCanAskForRoundEnds() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec()
+        s.d = "M 0 0 L 100 0"
+        s.stroke = "#000000"; s.strokeWidth = 20; s.strokeCap = "round"
+        return s
+    }())
+    let border = try! #require(id.flatMap { page.layer($0) }).style.borders.first
+    #expect(border?.cap == LineCap.round)
+    // Round ends with mitred corners is not a thing anyone wants, so one word sets both.
+    #expect(border?.join == LineJoin.round)
+}
+
+@Test func strokesStayFlatEndedUnlessAsked() {
+    var page = Page(name: "P")
+    let id = page.add({
+        var s = AddSpec(); s.d = "M 0 0 L 100 0"; s.stroke = "#000000"; return s
+    }())
+    let border = try! #require(id.flatMap { page.layer($0) }).style.borders.first
+    #expect(border?.cap == LineCap.butt, "existing artwork must render exactly as it did")
+    #expect(border?.join == LineJoin.miter)
+}
+
+@Test func roundCapsSurviveSvgAndTheDocumentFormat() throws {
+    var page = Page(name: "P")
+    _ = page.add({
+        var s = AddSpec()
+        s.d = "M 10 10 L 90 70"
+        s.stroke = "#FF0000"; s.strokeWidth = 8; s.strokeCap = "round"
+        return s
+    }())
+    var doc = Document(); doc.pages = [page]
+
+    let svg = SVGWriter().svg(page: page)
+    #expect(svg.contains("stroke-linecap=\"round\""))
+    let back = try SVGReader().read(data: Data(svg.utf8))
+    let reread = try #require(back.document.pages.first?.layers.first?.style.borders.first)
+    #expect(reread.cap == LineCap.round)
+
+    let data = try AcmplcFile.write(document: doc, images: [:])
+    let reopened = try AcmplcFile.read(data)
+    let saved = try #require(reopened.document.pages.first?.layers.first?.style.borders.first)
+    #expect(saved.cap == LineCap.round)
+    #expect(saved.join == LineJoin.round)
+}

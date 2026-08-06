@@ -446,6 +446,7 @@ extension DocumentCommand {
             spec.d = s("d", "path", "pathData", "data")
             spec.stroke = s("stroke", "strokeColor", "strokeColour", "border")
             spec.strokeWidth = n("strokeWidth", "thickness", "weight", "borderWidth")
+            spec.strokeCap = s("strokeCap", "cap", "linecap", "strokeLinecap")
             return .add(spec)
         case "addartboard", "newartboard", "createartboard":
             var spec = AddSpec()
@@ -854,6 +855,18 @@ public enum ModelPrompt {
         filled regions — draw the strokes. Give each path a stroke and strokeWidth
         and NO fill, and run the path down the MIDDLE of the ink rather than around
         its edge. One stroked path beats two outlines of the same finger.
+
+        Set strokeCap "round" on those unless the ends are visibly square. It rounds
+        the corners too. Butted-flat ends and mitred corners are what make a traced
+        icon look broken where a real one looks drawn.
+
+        Prefer FEWER, LONGER paths. A finger that curves from the palm to its tip is
+        one path with a few curve segments, not three short ones parked end to end:
+        every join between two paths is a place the drawing can show a seam.
+
+        You are told where the marks are, as a grid. Use it. Reading positions off
+        the picture by eye is the one part of this you are worst at, and the grid is
+        measured.
 
         Use the palette you are given. Do not invent colours, and do not trace the
         soft pixels along an edge; they are antialiasing, not artwork.

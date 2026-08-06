@@ -290,6 +290,8 @@ public struct Renderer {
             ctx.addPath(p)
             ctx.setStrokeColor(b.color.cg)
             ctx.setLineWidth(b.position == .center ? b.thickness : b.thickness * 2)
+            ctx.setLineCap(CGLineCap(rawValue: Int32(b.cap.rawValue)) ?? .butt)
+            ctx.setLineJoin(CGLineJoin(rawValue: Int32(b.join.rawValue)) ?? .miter)
             if !b.dashPattern.isEmpty { ctx.setLineDash(phase: 0, lengths: b.dashPattern) }
             ctx.strokePath()
             ctx.restoreGState()
