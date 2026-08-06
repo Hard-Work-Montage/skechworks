@@ -466,6 +466,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // was still queued, and the throttle meant the last edits might not even
         // be queued yet. Snapshot every dirty document NOW and wait for the disk.
         for s in stores where s.isDirty { s.autosaveNow() }
+        // Conversations are written a moment after they settle, so a quit can
+        // land inside that moment. Every document flushes its own now.
+        for s in stores { s.chat.keep() }
         DocumentStore.flushRecoveryQueueForTesting()
         return .terminateNow
     }

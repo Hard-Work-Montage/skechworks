@@ -13,7 +13,12 @@ final class DocumentStore: ObservableObject {
 
     @Published var source: DocumentSource?
     @Published var url: URL? {
-        didSet { AppDelegate.shared?.recordSession() }
+        didSet {
+            AppDelegate.shared?.recordSession()
+            // The conversation is filed under the document's name, so it arrives
+            // when a file is opened and follows it through a Save As.
+            chat.documentURL = url
+        }
     }
     /// The window this document lives in, set by WindowTabbing. How menu commands
     /// find the document the user is actually looking at.

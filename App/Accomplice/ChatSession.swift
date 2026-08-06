@@ -43,8 +43,42 @@ struct ChatMessage: Identifiable {
 /// Runs the conversation and applies what comes back.
 @MainActor
 final class ChatSession: ObservableObject {
-    @Published var messages: [ChatMessage] = []
+    @Published var messages: [ChatMessage] = [] { didSet { scheduleKeep() } }
     @Published var busy = false
+
+    /// Where this conversation is filed. Set when the document gets a name, and
+    /// on a Save As it moves with it.
+    var documentURL: URL? {
+        didSet {
+            guard documentURL != oldValue else { return }
+            if let documentURL, messages.isEmpty {
+                messages = ChatArchive.load(for: documentURL)
+            } else {
+                keep()
+            }
+        }
+    }
+
+    private var keepTask: Task<Void, Never>?
+
+    /// Written a moment after things settle rather than on every line, because a
+    /// run appends a dozen in a second and each one would be a file write.
+    private func scheduleKeep() {
+        guard documentURL != nil else { return }
+        keepTask?.cancel()
+        keepTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            keep()
+        }
+    }
+
+    /// Now, for the moments that can't wait — closing, quitting.
+    func keep() {
+        guard let documentURL else { return }
+        keepTask?.cancel()
+        ChatArchive.save(messages, for: documentURL)
+    }
 
     /// The running conversation, so a follow-up like "no, the other ones" works.
     private var history: [(role: String, content: String)] = []
