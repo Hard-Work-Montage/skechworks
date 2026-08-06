@@ -142,11 +142,11 @@ struct ModelConnector {
 
     /// A turn built by hand, for the jobs that aren't chat — tracing shows the model
     /// a picture, its own attempt, and where the two differ.
-    func respond(to messages: [Message]) async throws -> (turn: ModelTurn, raw: String) {
+    func respond(to messages: [Message], purpose: Purpose = .chat) async throws -> (turn: ModelTurn, raw: String) {
         if settings.backend == .ollama, messages.contains(where: { !$0.images.isEmpty }) {
             throw Failure.cannotSee
         }
-        let raw = try await complete(messages: messages.map(\.payload))
+        let raw = try await complete(messages: messages.map(\.payload), purpose: purpose)
         let cleaned = ModelConnector.stripFences(raw)
         let turn = ModelTurn.decode(Data(cleaned.utf8))
         guard !turn.say.isEmpty || !turn.commands.isEmpty else { throw Failure.noCommands(raw) }
@@ -155,11 +155,19 @@ struct ModelConnector {
 
     // MARK: - Transport
 
-    private func complete(messages: [[String: Any]]) async throws -> String {
+    /// What the request is FOR. The account service picks the model from this,
+    /// because the gap between models on tracing is enormous and the price of the
+    /// right one is only worth paying for the job that needs it.
+    enum Purpose: String {
+        case chat
+        case trace
+    }
+
+    private func complete(messages: [[String: Any]], purpose: Purpose) async throws -> String {
         switch settings.backend {
         case .ollama: return try await ollama(messages)
         case .openRouter: return try await openRouter(messages)
-        case .accomplice: return try await accomplice(messages)
+        case .accomplice: return try await accomplice(messages, purpose: purpose)
         }
     }
 
@@ -167,7 +175,7 @@ struct ModelConnector {
     /// signed-in account. Deliberately the same OpenAI-shaped request as OpenRouter,
     /// so the only thing that differs between "your key" and "our tokens" is where
     /// it's addressed and who pays.
-    private func accomplice(_ messages: [[String: Any]]) async throws -> String {
+    private func accomplice(_ messages: [[String: Any]], purpose: Purpose = .chat) async throws -> String {
         let token = settings.accompliceToken
         guard !token.isEmpty else { throw Failure.notSignedIn }
         guard let url = URL(string: settings.accompliceHost + "/api/v1/chat/completions") else {
@@ -176,6 +184,9 @@ struct ModelConnector {
         let body: [String: Any] = [
             "temperature": 0.1,
             "response_format": ["type": "json_object"],
+            // The job, not the model. The service knows what each costs; a client
+            // naming a model would be a client naming a price.
+            "purpose": purpose.rawValue,
             "messages": messages,
         ]
         let json = try await post(url, body: body, headers: [
@@ -373,18 +384,10 @@ struct ModelConnector {
 
     /// Models wrap JSON in ``` fences even when told not to. Cheaper to tolerate it
     /// than to spend a round trip correcting it.
+    /// Kept as the connector's name for it; the implementation lives in the core
+    /// beside the parser that needs it, so the two can't drift apart.
     static func stripFences(_ s: String) -> String {
-        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.hasPrefix("```") {
-            if let firstNewline = t.firstIndex(of: "\n") { t = String(t[t.index(after: firstNewline)...]) }
-            if let fence = t.range(of: "```", options: .backwards) { t = String(t[..<fence.lowerBound]) }
-        }
-        // Some models narrate before the JSON; take the outermost object or array.
-        if let start = t.firstIndex(where: { $0 == "{" || $0 == "[" }),
-           let end = t.lastIndex(where: { $0 == "}" || $0 == "]" }), start < end {
-            t = String(t[start...end])
-        }
-        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        String(data: DocumentCommand.unwrap(Data(s.utf8)), encoding: .utf8) ?? s
     }
 
     /// Which local models are installed, for the settings picker.

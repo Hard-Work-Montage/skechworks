@@ -507,7 +507,7 @@ extension DocumentCommand {
     /// with six correctly stroked paths inside a fence, decoded to zero commands,
     /// and the draw loop stopped there believing the model had nothing to add.
     /// Rejecting good work over a wrapper is the worst trade available here.
-    static func unwrap(_ data: Data) -> Data {
+    public static func unwrap(_ data: Data) -> Data {
         guard let text = String(data: data, encoding: .utf8) else { return data }
         var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
 

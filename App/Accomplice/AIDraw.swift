@@ -97,7 +97,7 @@ enum AIDraw {
             // Only the newest turn carries pictures. The older ones are already
             // summarised by the drawing itself, and left in they'd blow the request
             // size for nothing.
-            let (turn, _) = try await connector.respond(to: trimmed(messages))
+            let (turn, _) = try await connector.respond(to: trimmed(messages), purpose: .trace)
             if !turn.say.isEmpty { say = turn.say }
             // The first pass writes the parts list and later passes correct
             // against it, so a replan only replaces it if it actually said
