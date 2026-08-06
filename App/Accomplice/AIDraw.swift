@@ -170,6 +170,25 @@ enum AIDraw {
         }
 
         guard !best.layers.isEmpty else { throw Refusal.nothingDrawn }
+
+        // The model has put the right parts in roughly the wrong place, and
+        // asking it to fix that makes it worse. Arithmetic is better at
+        // coordinates than any of them, costs nothing, and cannot lose: only a
+        // nudge that scores better than what it replaced is kept.
+        progress("Tidying up the placement…")
+        let polished = await Task.detached(priority: .userInitiated) { [best] in
+            Refine.polish(best, bounds: area, matching: source, budget: 12)
+        }.value
+
+        if polished.score > bestScore {
+            best = polished.page
+            bestScore = polished.score
+            scores.append(polished.score)
+            progress(String(format: "Tidied up: %.0f%% → %.0f%% in %d tries",
+                            polished.startedAt * 100, polished.score * 100, polished.evaluations))
+            preview(best.layers)
+        }
+
         return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
     }
 
