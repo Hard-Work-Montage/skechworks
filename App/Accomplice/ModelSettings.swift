@@ -16,6 +16,12 @@ struct ModelSettings: View {
     @State private var connecting = false
     @State private var problem: String?
     @State private var balance: String?
+    /// The sign-in is stored but the service won't take it.
+    ///
+    /// A token in the keychain is not the same as an account that answers, and the
+    /// difference is invisible in the one place you'd go to check: a green tick
+    /// and no balance underneath, because the balance call failed and said nothing.
+    @State private var expired = false
     /// Bumped after connect/disconnect so the Keychain is re-read; the credential is
     /// deliberately not held in a property, or "Disconnect" wouldn't take effect.
     @State private var credentialsRevision = 0
@@ -91,10 +97,14 @@ struct ModelSettings: View {
         HStack {
             if connected {
                 VStack(alignment: .leading, spacing: 2) {
-                    Label(connectedLabel, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                    Label(expired ? "Sign-in expired" : connectedLabel,
+                          systemImage: expired ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(expired ? .orange : .green)
                     if connectedLabel.contains("Accomplice") {
-                        if let balance {
+                        if expired {
+                            Text("The service didn't accept this sign-in. Disconnect and sign in again.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else if let balance {
                             Text(balance)
                                 .font(.caption).foregroundStyle(.secondary)
                         }
@@ -104,8 +114,21 @@ struct ModelSettings: View {
                 }
                 .task(id: credentialsRevision) {
                     guard connectedLabel.contains("Accomplice") else { return }
-                    if let me = try? await ModelConnector.accountBalance() {
+                    // Ask the service who this is. Swallowing the answer is what let a
+                    // dead token look like a healthy account until something else
+                    // failed and blamed itself.
+                    do {
+                        let me = try await ModelConnector.accountBalance()
                         balance = "\(me.email) · $\(String(format: "%.2f", me.credits)) in credits"
+                        expired = false
+                    } catch ModelConnector.Failure.notSignedIn {
+                        balance = nil
+                        expired = true
+                    } catch {
+                        // Offline or the service is down: not the same as rejected,
+                        // and calling it expired would send someone to sign in again
+                        // for no reason.
+                        balance = nil
                     }
                 }
                 Spacer()

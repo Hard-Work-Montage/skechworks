@@ -245,7 +245,13 @@ struct ModelConnector {
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        // A rejected token has to be told apart from a reply that didn't parse.
+        // Both used to come back as "couldn't be read", so the one place you'd go
+        // to check your sign-in showed a green tick and nothing else.
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 || http.statusCode == 403 {
+            throw Failure.notSignedIn
+        }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let email = json["email"] as? String,
               let credits = json["credits"] as? Double else {
