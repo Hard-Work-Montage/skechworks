@@ -44,10 +44,14 @@ enum AIDraw {
         }
     }
 
-    /// The most it will look. Higher than it was, because it no longer costs
-    /// anything to allow: the loop stops on its own once a pass stops paying,
-    /// so this is a ceiling rather than a quota.
-    static let passes = 6
+    /// Once a drawing is this good, correcting it makes it worse.
+    ///
+    /// Measured, twice: a 70% drawing came back 62% from the model that drew it
+    /// and 40% from a cheaper one. Below this a weak opening really does climb —
+    /// 19% to 34% over four passes — so the loop is worth running. Above it,
+    /// every further pass is money and minutes spent to be told the drawing was
+    /// already better before, and the local cleanup does more for nothing.
+    static let goodEnough = 0.55
 
     /// How many passes in a row may fail to improve before it gives up.
     ///
@@ -96,9 +100,9 @@ enum AIDraw {
         var scores: [Double] = []
         var stale = 0
 
-        for pass in 1...passes {
+        for pass in 1...max(1, tier.passes) {
             used = pass
-            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(passes)…")
+            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(tier.passes)…")
 
             // Only the newest turn carries pictures. The older ones are already
             // summarised by the drawing itself, and left in they'd blow the request
@@ -160,11 +164,17 @@ enum AIDraw {
             // so the last drawing is the wrong one to keep. This loop already
             // keeps the best rather than the last; stopping at a plateau just
             // means not paying for the passes that were going to drift.
+            // Good enough to stop asking. The cleanup that follows gains more
+            // than another pass would, and never less than nothing.
+            if bestScore >= goodEnough {
+                progress("Good enough at \(Int((bestScore * 100).rounded()))% — tidying up rather than redrawing")
+                break
+            }
             if stale >= patience {
                 progress("Stopped early — the last \(stale) passes didn't improve on \(Int((bestScore * 100).rounded()))%")
                 break
             }
-            guard pass < passes else { break }
+            guard pass < tier.passes else { break }
 
             // Show it what it's actually building on: its own attempt if that was
             // kept, otherwise the drawing as it stood before this pass.

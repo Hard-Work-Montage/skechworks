@@ -177,6 +177,21 @@ struct ModelConnector {
             }
         }
 
+        /// How many correction passes are worth paying for after the opening.
+        ///
+        /// Correcting rescues a bad drawing and spoils a good one, and the
+        /// expensive model doesn't draw bad ones — so on that tier the opening
+        /// IS the drawing, and the local cleanup does the rest for nothing.
+        /// Another Fable pass is four minutes and 88 cents to be told the
+        /// drawing was already better before.
+        var passes: Int {
+            switch self {
+            case .chat: return 1
+            case .trace: return 6
+            case .traceBest: return 1
+            }
+        }
+
         /// How many openings to draw at once and pick between.
         ///
         /// Buying more rolls of the dice only makes sense when a roll is cheap
