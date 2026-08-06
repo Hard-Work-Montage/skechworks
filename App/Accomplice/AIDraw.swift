@@ -116,6 +116,7 @@ enum AIDraw {
         var stale = 0
 
         for pass in 1...max(1, tier.passes) {
+            try Task.checkCancellation()
             used = pass
             progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(tier.passes)…")
 
@@ -214,6 +215,7 @@ enum AIDraw {
         // asking it to fix that makes it worse. Arithmetic is better at
         // coordinates than any of them, costs nothing, and cannot lose: only a
         // nudge that scores better than what it replaced is kept.
+        try Task.checkCancellation()
         progress("Tidying up the placement…")
         let polished = await Task.detached(priority: .userInitiated) { [best] in
             Refine.polish(best, bounds: area, matching: source)

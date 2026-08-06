@@ -48,9 +48,22 @@ final class ChatSession: ObservableObject {
 
     // MARK: - Tools reporting into the transcript
 
+    /// What to call if the person asks the running tool to stop. Set by whoever
+    /// opened the activity, cleared when it ends — so the button is only there
+    /// while there's something to stop.
+    private var stopHandler: (() -> Void)?
+
+    var canStop: Bool { stopHandler != nil }
+
+    func stop() {
+        stopHandler?()
+        stopHandler = nil
+    }
+
     /// Opens a live entry for a tool that takes a while. Returns its id, which is
     /// how the tool addresses it for the rest of the run.
-    func beginActivity(_ title: String) -> UUID {
+    func beginActivity(_ title: String, onStop: (() -> Void)? = nil) -> UUID {
+        stopHandler = onStop
         // Reporting into a panel that is closed is the same as not reporting, and
         // this is now the only place the run is described. Same key ContentView
         // binds its toggle to, so the panel opens.
@@ -72,6 +85,7 @@ final class ChatSession: ObservableObject {
 
     /// Closes it out. The spinner stops and the log stays.
     func endActivity(_ id: UUID, text: String, applied: [String] = [], failed: Bool = false) {
+        stopHandler = nil
         guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[i].running = false
         messages[i].text = text

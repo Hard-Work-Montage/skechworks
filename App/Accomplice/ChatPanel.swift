@@ -81,7 +81,8 @@ private struct ChatPanelBody: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(session.messages) { m in
-                        MessageRow(message: m) { pending in
+                        MessageRow(message: m,
+                                   onStop: session.canStop ? { session.stop() } : nil) { pending in
                             session.confirm(pending, store: store)
                         }
                         .id(m.id)
@@ -191,6 +192,8 @@ private struct Avatar: View {
 
 private struct MessageRow: View {
     let message: ChatMessage
+    /// Present only while something is actually running and stoppable.
+    var onStop: (() -> Void)?
     let onConfirm: (ChatMessage) -> Void
     /// Working notes start open while the tool runs and fold away once it's
     /// done — you want to watch them live and almost never afterwards, but
@@ -254,10 +257,23 @@ private struct MessageRow: View {
                         Avatar()
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        if !message.text.isEmpty {
-                            Text(message.text)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            if !message.text.isEmpty {
+                                Text(message.text)
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } else {
+                                Spacer(minLength: 0)
+                            }
+                            // A run can be minutes long and can hang on something
+                            // out of our hands. Waiting is a choice; being unable
+                            // to stop waiting isn't.
+                            if message.running, let onStop {
+                                Button("Stop", action: onStop)
+                                    .buttonStyle(.plain)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         if !message.steps.isEmpty { stepLog }
                     }

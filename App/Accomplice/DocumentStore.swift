@@ -1122,6 +1122,30 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// The run in flight, so it can be stopped.
+    private var aiDrawTask: Task<Void, Never>?
+
+    /// Takes back the empty board a stopped run left behind.
+    ///
+    /// The board is made before the first shape arrives, so stopping early
+    /// otherwise leaves a blank artboard sitting there — the visible remains of
+    /// something the person explicitly cancelled.
+    private func cleanUpAbandoned(board: String?, drawing: String?) {
+        guard let board else { return }
+        endCoalescing()
+        mutatePage("AI Draw") { page in
+            guard let b = page.layer(board), case .group(let kids) = b.kind else { return }
+            // Only if nothing was drawn onto it. A part-finished drawing is worth
+            // more than a tidy page.
+            let empty = kids.isEmpty || kids.allSatisfy { child in
+                if case .group(let inner) = child.kind { return inner.isEmpty }
+                return false
+            }
+            if empty { _ = page.removeLayer(board) }
+        }
+        _ = drawing
+    }
+
     /// A copy of the board `id` sits on, placed in clear space beside it, for a
     /// tool to put its output on.
     ///
@@ -1210,9 +1234,16 @@ final class DocumentStore: ObservableObject {
         // The run reports into the chat, where it stays. The status line used to
         // carry it a phrase at a time and then drop it, so by the time a drawing
         // came out wrong there was nothing left saying how it got there.
-        let entry = chat.beginActivity("AI Draw")
+        // Held so it can be stopped. A run is minutes long and can hang on
+        // something out of our hands — a provider that never answers, five
+        // requests where one never comes back — and waiting has to be a choice.
+        var stopped = false
+        let entry = chat.beginActivity("AI Draw") { [weak self] in
+            stopped = true
+            self?.aiDrawTask?.cancel()
+        }
         status = "AI Draw…"
-        Task { @MainActor in
+        aiDrawTask = Task { @MainActor in
             // The group is put on the page the first time a pass improves and
             // its contents swapped on every pass after, so the drawing is
             // watched rather than waited for. The swaps coalesce, so the whole
@@ -1372,7 +1403,21 @@ final class DocumentStore: ObservableObject {
                                  text: headline + (outcome.say.isEmpty ? "" : "\n\n\(outcome.say)"),
                                  applied: named)
                 status = headline
+            } catch is CancellationError {
+                cleanUpAbandoned(board: boardID, drawing: previewID)
+                chat.endActivity(entry, text: "Stopped.")
+                status = "AI Draw stopped"
             } catch {
+                // A cancelled request surfaces as a transport failure rather than
+                // a CancellationError, so the flag decides which it was — saying
+                // "couldn't reach the model" to someone who just pressed Stop is
+                // blaming the network for their own decision.
+                if stopped {
+                    cleanUpAbandoned(board: boardID, drawing: previewID)
+                    chat.endActivity(entry, text: "Stopped.")
+                    status = "AI Draw stopped"
+                    return
+                }
                 // The log of how far it got is worth keeping when it fails —
                 // more so than when it works.
                 chat.endActivity(entry, text: error.localizedDescription, failed: true)
