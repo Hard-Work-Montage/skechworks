@@ -161,6 +161,17 @@ struct ModelConnector {
     enum Purpose: String {
         case chat
         case trace
+
+        /// How long to wait. A trace goes to a much stronger and much slower
+        /// model — a measured pass took 277 seconds against Sonnet's twenty —
+        /// and the old flat two minutes hung up on it every time, reporting a
+        /// model that was working perfectly well as unreachable.
+        var timeout: TimeInterval {
+            switch self {
+            case .chat: return 120
+            case .trace: return 420
+            }
+        }
     }
 
     private func complete(messages: [[String: Any]], purpose: Purpose) async throws -> String {
@@ -192,7 +203,7 @@ struct ModelConnector {
         let json = try await post(url, body: body, headers: [
             "Authorization": "Bearer \(token)",
             "X-Title": "Accomplice",
-        ])
+        ], timeout: purpose.timeout)
         guard let choices = json["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String else {
@@ -344,10 +355,11 @@ struct ModelConnector {
         return (out, json["credits_remaining"] as? Double)
     }
 
-    private func post(_ url: URL, body: [String: Any], headers: [String: String]) async throws -> [String: Any] {
+    private func post(_ url: URL, body: [String: Any], headers: [String: String],
+                      timeout: TimeInterval = 120) async throws -> [String: Any] {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 120
+        req.timeoutInterval = timeout
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
