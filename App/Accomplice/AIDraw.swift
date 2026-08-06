@@ -44,11 +44,6 @@ enum AIDraw {
         }
     }
 
-    /// How many times to look and correct. Three is where it stops paying: the
-    /// first pass gets the shapes, the second fixes placement, and the third is
-    /// usually the last one that changes the score at all.
-    /// How many times to look and correct.
-    ///
     /// The most it will look. Higher than it was, because it no longer costs
     /// anything to allow: the loop stops on its own once a pass stops paying,
     /// so this is a ceiling rather than a quota.
@@ -90,6 +85,7 @@ enum AIDraw {
             .user(opening, images: [sourcePNG]),
         ]
         var say = ""
+        var plan = ""
         var used = 0
         var scores: [Double] = []
         var stale = 0
@@ -104,6 +100,11 @@ enum AIDraw {
             // size for nothing.
             let (turn, _) = try await connector.respond(to: trimmed(messages))
             if !turn.say.isEmpty { say = turn.say }
+            // The first pass writes the parts list and later passes correct
+            // against it, so a replan only replaces it if it actually said
+            // something. A pass that returns no plan is still working from the
+            // one it wrote.
+            if !turn.plan.isEmpty { plan = turn.plan }
             guard !turn.commands.isEmpty else { break }
 
             var candidate = best
@@ -146,7 +147,7 @@ enum AIDraw {
             let diff = Compare.overlay(shown, source).flatMap { Renderer.png($0) }
             let report = Compare.report(shown, against: source, bounds: area, cells: 12)
             messages.append(.assistant(turn.say.isEmpty ? "(drew it)" : turn.say))
-            messages.append(.user(ModelPrompt.traceAgain(report: report, pass: pass),
+            messages.append(.user(ModelPrompt.traceAgain(report: report, pass: pass, plan: plan),
                                   images: [sourcePNG, attemptPNG, diff].compactMap { $0 }))
         }
 

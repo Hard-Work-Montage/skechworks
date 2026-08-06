@@ -877,6 +877,19 @@ public enum ModelPrompt {
         \(Int(width)) wide, \(Int(height)) tall. 0,0 is the TOP LEFT and y increases
         DOWNWARD, exactly like an SVG. Every coordinate you give is in this space.
 
+        PLAN IT FIRST
+        Add a "plan" to your reply and write it BEFORE "commands" — first key in the
+        object. The order is the point: the plan is for deciding what you are about
+        to draw, and a plan written after the shapes is a description of them.
+
+        Name the parts you can see and say, for each one, what you will draw it with
+        and roughly where it sits. Count them. Then draw exactly those, and give each
+        layer the name you used, so the next pass can talk about them.
+
+        Say in one line how you are drawing it overall — stroked paths, or filled
+        regions — and why. Commit there rather than deciding shape by shape, or the
+        drawing ends up half one and half the other, which reads as neither.
+
         HOW TO DRAW IT
         Draw what each thing IS, not the outline a tracer would find around it. A
         round thing is an ellipse. A box is a rect, with cornerRadius if the corners
@@ -908,9 +921,20 @@ public enum ModelPrompt {
     }
 
     /// What to tell the model after it has seen its own attempt.
-    public static func traceAgain(report: String, pass: Int) -> String {
+    public static func traceAgain(report: String, pass: Int, plan: String = "") -> String {
+        // The plan goes back with the picture. Without it the model re-derives
+        // what it meant to draw from a rendering of what it managed to draw,
+        // and a part it left out entirely has nothing left to remind it.
+        let intent = plan.isEmpty ? "" : """
+
+        WHAT YOU SAID YOU WERE DRAWING
+        \(plan)
+
+        Fix these by name. If a part on that list isn't in the picture, you never
+        drew it — add it now rather than adjusting what is there.
         """
-        ATTEMPT \(pass)
+        return """
+        ATTEMPT \(pass)\(intent)
         Three images: the original, what you drew, and the two laid on top of each
         other.
 
@@ -948,15 +972,29 @@ public struct ModelTurn: Sendable {
 
     public var problems: [String] = []
 
+    /// The parts list a trace writes before it draws anything.
+    ///
+    /// Only tracing asks for it, and only tracing reads it back. Empty
+    /// everywhere else, and empty from any model that ignores the request.
+    public var plan: String = ""
+
     public static func decode(_ data: Data) -> ModelTurn {
         let report = DocumentCommand.decodeReport(data)
         let commands = report.commands
         var say = ""
+        var plan = ""
         if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             say = (obj["say"] as? String) ?? (obj["message"] as? String) ?? ""
+            // Written as a list as often as a sentence, and both are worth having.
+            if let text = obj["plan"] as? String {
+                plan = text
+            } else if let lines = obj["plan"] as? [Any] {
+                plan = lines.map { String(describing: $0) }.joined(separator: "\n")
+            }
         }
         var turn = ModelTurn(say: say, commands: commands)
         turn.problems = report.problems
+        turn.plan = plan
         return turn
     }
 
