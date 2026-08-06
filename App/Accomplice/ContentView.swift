@@ -326,6 +326,19 @@ struct ContentView: View {
         // a bar, and it cut the canvas short for the sake of two words. The status is
         // just text on the canvas now, the way the document title is just text in the
         // toolbar.
+        .alert(store.alarm?.title ?? "", isPresented: Binding(
+            get: { store.alarm != nil },
+            set: { if !$0 { store.alarm = nil } }
+        ), presenting: store.alarm) { alarm in
+            if alarm.settings {
+                Button("Open Settings…") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { alarm in
+            Text(alarm.detail)
+        }
         .overlay(alignment: .bottom) {
             HStack(spacing: 10) {
                 Text(store.status).font(.caption).foregroundStyle(.secondary)

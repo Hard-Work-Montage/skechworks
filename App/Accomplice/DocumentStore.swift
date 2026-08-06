@@ -70,6 +70,42 @@ final class DocumentStore: ObservableObject {
     /// canvas has it. Set here, consumed by the canvas on its next update — the
     /// layer doesn't exist in the view's copy of the page until then.
     @Published var pendingTextEdit: String?
+
+    /// Something the person asked for didn't happen, and they need to know now.
+    ///
+    /// The status line is right for progress and for what just worked. It is wrong
+    /// for a failure with a fix attached: it sits below the canvas in small grey
+    /// type, so a request that quietly did nothing looks like a request that
+    /// quietly did nothing.
+    struct Alarm: Identifiable {
+        let id = UUID()
+        var title: String
+        var detail: String
+        /// True when the fix lives in Settings, so the alert can offer to go there.
+        var settings = false
+    }
+    @Published var alarm: Alarm?
+
+    /// Reports a failure the way it deserves.
+    ///
+    /// Anything the person can act on gets a modal and, where the fix is in
+    /// Settings, a button that opens it. Raw transport detail never reaches either:
+    /// "HTTP 401" followed by a JSON envelope is a thing to be read past to find
+    /// the one sentence that matters.
+    func report(_ error: Error, doing what: String) {
+        let said = error.localizedDescription
+        let inSettings: Bool
+        if let failure = error as? ModelConnector.Failure {
+            switch failure {
+            case .notSignedIn, .noKey, .cannotSee, .outOfCredits: inSettings = true
+            default: inSettings = false
+            }
+        } else {
+            inSettings = false
+        }
+        alarm = Alarm(title: "\(what) couldn't finish", detail: said, settings: inSettings)
+        status = said
+    }
     /// Brush settings, kept across strokes and documents — you pick a size once.
     /// UserDefaults directly rather than @AppStorage: this is a store, not a view.
     var eraseRadius: Double {
@@ -1148,7 +1184,7 @@ final class DocumentStore: ObservableObject {
                 status = "Drew \(shapes), \(match)% match after \(outcome.passes) passes"
                     + (outcome.say.isEmpty ? "" : " · \(outcome.say)")
             } catch {
-                status = "AI Draw: \(error.localizedDescription)"
+                report(error, doing: "AI Draw")
             }
         }
     }

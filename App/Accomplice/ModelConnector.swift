@@ -76,6 +76,9 @@ struct ModelConnector {
         case badResponse(String)
         case noCommands(String)
         case cannotSee
+        /// The service turned the request down and said why in words worth showing.
+        case refused(String)
+        case outOfCredits(String)
 
         var errorDescription: String? {
             switch self {
@@ -86,6 +89,8 @@ struct ModelConnector {
             case .noCommands(let s): return "No commands in the reply.\n\n\(s)"
             case .cannotSee:
                 return "A model on this Mac can't be shown a picture. Switch to OpenRouter or your Accomplice account in Settings."
+            case .refused(let s): return s
+            case .outOfCredits(let s): return s
             }
         }
     }
@@ -337,7 +342,22 @@ struct ModelConnector {
             throw Failure.unreachable(error.localizedDescription)
         }
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-            throw Failure.badResponse("HTTP \(http.statusCode): \(String(decoding: data, as: UTF8.self).prefix(300))")
+            // Every one of these services says what went wrong in plain words and
+            // then wraps it in JSON. Show the words. A status line reading
+            // `HTTP 401: {"error":{"message":…}}` makes the person read past the
+            // punctuation to find the one sentence that tells them what to do.
+            let said = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                .flatMap { ($0?["error"] as? [String: Any])?["message"] as? String }
+            switch http.statusCode {
+            case 401, 403:
+                // The token is stale or gone, which is a thing to fix rather than a
+                // thing to report.
+                throw settings.backend == .openRouter ? Failure.noKey : Failure.notSignedIn
+            case 402:
+                throw Failure.outOfCredits(said ?? "You're out of credits.")
+            default:
+                throw Failure.refused(said ?? "The service returned \(http.statusCode).")
+            }
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Failure.badResponse(String(decoding: data.prefix(300), as: UTF8.self))
