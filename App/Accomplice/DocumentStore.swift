@@ -1151,6 +1151,29 @@ final class DocumentStore: ObservableObject {
 
         let frame = l.frame
         let name = l.name
+
+        // The drawing goes on a board of its own, beside the one it copied, so
+        // the original stays there to compare against. Made up front rather
+        // than at the end, because the live preview has to land somewhere and
+        // that somewhere should be where the finished thing will be.
+        var boardID: String?
+        var boardOrigin = CGPoint.zero
+        if let board = page.artboard(containing: id) {
+            let slot = page.freeSlot(size: board.frame.size, rightOf: board.frame)
+            var copy = Layer(kind: .group([]))
+            copy.isArtboard = true
+            copy.backgroundColor = board.backgroundColor
+            copy.frame = slot
+            copy.name = board.name.isEmpty ? "Drawing" : "\(board.name) drawn"
+            boardID = copy.id
+            // Where the source bitmap sat on its own board, so the drawing lands
+            // in the same place on the new one rather than in its corner.
+            boardOrigin = CGPoint(x: frame.minX - board.frame.minX, y: frame.minY - board.frame.minY)
+            mutatePage("AI Draw") { page in
+                // Behind the art, like every other artboard.
+                page.layers.insert(copy, at: 0)
+            }
+        }
         // The run reports into the chat, where it stays. The status line used to
         // carry it a phrase at a time and then drop it, so by the time a drawing
         // came out wrong there was nothing left saying how it got there.
@@ -1175,12 +1198,19 @@ final class DocumentStore: ObservableObject {
                 } else {
                     var group = Layer(kind: .group(shapes))
                     group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
-                    group.frame = frame
+                    // On the new board, coordinates are relative to it.
+                    group.frame = boardID == nil
+                        ? frame
+                        : CGRect(origin: boardOrigin, size: frame.size)
                     previewID = group.id
                     self.mutatePage("AI Draw") { p in
-                        let parent = p.ancestors(of: id).last
-                        let index = p.children(of: parent).firstIndex { $0.id == id }
-                        p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                        if let boardID {
+                            p.insertLayer(group, parent: boardID, index: p.children(of: boardID).count)
+                        } else {
+                            let parent = p.ancestors(of: id).last
+                            let index = p.children(of: parent).firstIndex { $0.id == id }
+                            p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                        }
                     }
                 }
             }
@@ -1203,7 +1233,11 @@ final class DocumentStore: ObservableObject {
                 }
                 // It drew in the bitmap's own space, so the group lands where the
                 // bitmap sits, offset by wherever inside it the drawing ended up.
-                let placed = CGRect(x: frame.minX + bounds.minX, y: frame.minY + bounds.minY,
+                // Relative to whatever holds it: the new board if there is one,
+                // otherwise the page, where the source bitmap's own frame is the
+                // origin the model drew against.
+                let anchor = boardID == nil ? frame.origin : boardOrigin
+                let placed = CGRect(x: anchor.x + bounds.minX, y: anchor.y + bounds.minY,
                                     width: bounds.width, height: bounds.height)
 
                 let finalID: String
@@ -1220,9 +1254,13 @@ final class DocumentStore: ObservableObject {
                     group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
                     group.frame = placed
                     mutatePage("AI Draw") { p in
-                        let parent = p.ancestors(of: id).last
-                        let index = p.children(of: parent).firstIndex { $0.id == id }
-                        p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                        if let boardID {
+                            p.insertLayer(group, parent: boardID, index: p.children(of: boardID).count)
+                        } else {
+                            let parent = p.ancestors(of: id).last
+                            let index = p.children(of: parent).firstIndex { $0.id == id }
+                            p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                        }
                     }
                     finalID = group.id
                 }
