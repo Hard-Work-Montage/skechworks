@@ -856,6 +856,18 @@ public enum ModelPrompt {
         gently: every white patch has to line up with the black underneath it,
         and where any of them falls short you get a solid blob instead of a
         drawing that is merely a bit off.
+
+        Draw the INK, not the object. The black marks here are a hollow outline
+        with white inside it; a filled shape of the same outline is a different
+        picture. Where you would have filled a finger, stroke its outline
+        instead and leave the middle empty.
+
+        This is the shape of it — no "fill" key at all, which is what leaves it
+        hollow. A "fill" alongside a stroke floods the middle:
+
+        {"op":"add","kind":"path","name":"Index finger",
+         "d":"M120 300 L120 140","stroke":"#000000","strokeWidth":19,
+         "strokeCap":"round"}
         """ : """
 
         If the picture is an outline drawing — strokes of roughly one thickness,
@@ -921,7 +933,26 @@ public enum ModelPrompt {
     }
 
     /// What to tell the model after it has seen its own attempt.
-    public static func traceAgain(report: String, pass: Int, plan: String = "") -> String {
+    /// What to say when an outline drawing came back as solid shapes.
+    ///
+    /// Worth its own message rather than a line in the report: it is not an
+    /// error of degree like a stroke in the wrong place, so no amount of moving
+    /// things fixes it, and the overlay shows it as a huge red mass that looks
+    /// like every shape being wrong at once.
+    public static let filledLineArt = """
+
+    YOU FILLED THEM. Every shape you drew is solid, and the picture is hollow
+    outlines — that is the whole red mass in the middle of the overlay, and it
+    will not go away by moving anything.
+
+    The shapes themselves are close. Keep them and change how they are drawn:
+    give each one a stroke and a strokeWidth and take the fill OFF, so the
+    middle goes back to white. Where a filled finger was right, the same outline
+    stroked and hollow is right.
+    """
+
+    public static func traceAgain(report: String, pass: Int, plan: String = "",
+                                  filledLineArt flooded: Bool = false) -> String {
         // The plan goes back with the picture. Without it the model re-derives
         // what it meant to draw from a rendering of what it managed to draw,
         // and a part it left out entirely has nothing left to remind it.
@@ -934,7 +965,7 @@ public enum ModelPrompt {
         drew it — add it now rather than adjusting what is there.
         """
         return """
-        ATTEMPT \(pass)\(intent)
+        ATTEMPT \(pass)\(flooded ? filledLineArt : "")\(intent)
         Three images: the original, what you drew, and the two laid on top of each
         other.
 

@@ -146,13 +146,36 @@ enum AIDraw {
             // The overlay is the useful picture. The other two are context.
             let diff = Compare.overlay(shown, source).flatMap { Renderer.png($0) }
             let report = Compare.report(shown, against: source, bounds: area, cells: 12)
+            // Tracing an outline drawing with solid shapes is the one failure the
+            // overlay can't teach: it shows as one huge red mass, which reads as
+            // everything being in the wrong place. Named for what it is instead.
+            let flooded = stats.verdict == .lineArt && filled(best.layers)
             messages.append(.assistant(turn.say.isEmpty ? "(drew it)" : turn.say))
-            messages.append(.user(ModelPrompt.traceAgain(report: report, pass: pass, plan: plan),
+            messages.append(.user(ModelPrompt.traceAgain(report: report, pass: pass, plan: plan,
+                                                         filledLineArt: flooded),
                                   images: [sourcePNG, attemptPNG, diff].compactMap { $0 }))
         }
 
         guard !best.layers.isEmpty else { throw Refusal.nothingDrawn }
         return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
+    }
+
+    /// Whether the drawing is solid shapes rather than hollow outlines.
+    ///
+    /// Judged on the majority: one filled dot among ten strokes is a dot, and
+    /// saying "you filled them" about that would be wrong and confusing.
+    private static func filled(_ layers: [Layer]) -> Bool {
+        var solid = 0, hollow = 0
+        func walk(_ ls: [Layer]) {
+            for l in ls {
+                if case .group(let kids) = l.kind { walk(kids); continue }
+                let hasFill = !l.style.fills.isEmpty
+                let hasBorder = !l.style.borders.isEmpty
+                if hasFill && !hasBorder { solid += 1 } else if hasBorder { hollow += 1 }
+            }
+        }
+        walk(layers)
+        return solid > hollow
     }
 
     private static func trimmed(_ messages: [ModelConnector.Message]) -> [ModelConnector.Message] {
