@@ -499,8 +499,43 @@ extension DocumentCommand {
     ///
     /// Dropping an unreadable command silently is how a model's "done!" ends up
     /// attached to nothing happening. Whatever couldn't be read gets reported.
+    /// The JSON out of a reply that may be wrapped in something.
+    ///
+    /// Models fence their replies in ```json even when the request asked for JSON
+    /// and nothing else, and they sometimes say a sentence before it. Parsing the
+    /// raw bytes threw the whole turn away for punctuation: a real trace came back
+    /// with six correctly stroked paths inside a fence, decoded to zero commands,
+    /// and the draw loop stopped there believing the model had nothing to add.
+    /// Rejecting good work over a wrapper is the worst trade available here.
+    static func unwrap(_ data: Data) -> Data {
+        guard let text = String(data: data, encoding: .utf8) else { return data }
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if s.hasPrefix("```") {
+            // Drop the opening fence and its language tag, then the closing one.
+            if let firstBreak = s.firstIndex(where: \.isNewline) {
+                s = String(s[s.index(after: firstBreak)...])
+            }
+            if let close = s.range(of: "```", options: .backwards) {
+                s = String(s[..<close.lowerBound])
+            }
+            s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Still not JSON? Take what sits between the outermost braces or brackets,
+        // which is what a model that chats before answering leaves behind.
+        if !s.hasPrefix("{"), !s.hasPrefix("[") {
+            let opens = [s.firstIndex(of: "{"), s.firstIndex(of: "[")].compactMap { $0 }
+            let closes = [s.lastIndex(of: "}"), s.lastIndex(of: "]")].compactMap { $0 }
+            if let start = opens.min(), let end = closes.max(), start < end {
+                s = String(s[start...end])
+            }
+        }
+        return Data(s.utf8)
+    }
+
     public static func decodeReport(_ data: Data) -> (commands: [DocumentCommand], problems: [String]) {
-        guard let root = try? JSONSerialization.jsonObject(with: data) else {
+        guard let root = try? JSONSerialization.jsonObject(with: unwrap(data)) else {
             return ([], ["The reply wasn't valid JSON."])
         }
         var raw: [Any] = []
@@ -1014,7 +1049,9 @@ public struct ModelTurn: Sendable {
         let commands = report.commands
         var say = ""
         var plan = ""
-        if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        // Same unwrapping as the commands, or a fenced reply would land its shapes
+        // and lose the sentence and the plan that came with them.
+        if let obj = try? JSONSerialization.jsonObject(with: DocumentCommand.unwrap(data)) as? [String: Any] {
             say = (obj["say"] as? String) ?? (obj["message"] as? String) ?? ""
             // Written as a list as often as a sentence, and both are worth having.
             if let text = obj["plan"] as? String {
