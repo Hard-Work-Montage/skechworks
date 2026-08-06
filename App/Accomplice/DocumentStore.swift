@@ -1153,9 +1153,39 @@ final class DocumentStore: ObservableObject {
         let name = l.name
         status = "Looking at the picture…"
         Task { @MainActor in
+            // The group is put on the page the first time a pass improves and
+            // its contents swapped on every pass after, so the drawing is
+            // watched rather than waited for. The swaps coalesce, so the whole
+            // performance is still one ⌘Z.
+            var previewID: String?
+            let show: ([Layer]) -> Void = { [weak self] shapes in
+                guard let self, !shapes.isEmpty else { return }
+                // Deliberately NOT tightened to the shapes' bounds the way the
+                // finished group is: that box changes every pass, and a group
+                // whose frame keeps resizing under you is hard to watch. In the
+                // bitmap's own space the shapes land in the same place either way.
+                if let previewID {
+                    self.edit([previewID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
+                        group.kind = .group(shapes)
+                    }
+                } else {
+                    var group = Layer(kind: .group(shapes))
+                    group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
+                    group.frame = frame
+                    previewID = group.id
+                    self.mutatePage("AI Draw") { p in
+                        let parent = p.ancestors(of: id).last
+                        let index = p.children(of: parent).firstIndex { $0.id == id }
+                        p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                    }
+                }
+            }
+
             do {
                 let outcome = try await AIDraw.trace(source: source, size: frame.size,
-                                                     connector: connector) { self.status = $0 }
+                                                     connector: connector,
+                                                     progress: { self.status = $0 },
+                                                     preview: show)
                 var kids = outcome.layers
                 let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
                 guard !bounds.isNull else {
@@ -1166,22 +1196,44 @@ final class DocumentStore: ObservableObject {
                     kids[i].frame.origin.x -= bounds.minX
                     kids[i].frame.origin.y -= bounds.minY
                 }
-                var group = Layer(kind: .group(kids))
-                group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
-                group.frame = CGRect(origin: .zero, size: bounds.size)
                 // It drew in the bitmap's own space, so the group lands where the
                 // bitmap sits, offset by wherever inside it the drawing ended up.
-                group.frame.origin = CGPoint(x: frame.minX + bounds.minX, y: frame.minY + bounds.minY)
+                let placed = CGRect(x: frame.minX + bounds.minX, y: frame.minY + bounds.minY,
+                                    width: bounds.width, height: bounds.height)
 
-                mutatePage("AI Draw") { p in
-                    let parent = p.ancestors(of: id).last
-                    let index = p.children(of: parent).firstIndex { $0.id == id }
-                    p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                let finalID: String
+                if let previewID {
+                    // Tighten the group that has been on screen all along rather
+                    // than inserting a second one beside it.
+                    edit([previewID], actionName: "AI Draw", coalescingAs: "ai-draw") { group in
+                        group.kind = .group(kids)
+                        group.frame = placed
+                    }
+                    finalID = previewID
+                } else {
+                    var group = Layer(kind: .group(kids))
+                    group.name = name.isEmpty ? "Drawing" : "\(name) drawn"
+                    group.frame = placed
+                    mutatePage("AI Draw") { p in
+                        let parent = p.ancestors(of: id).last
+                        let index = p.children(of: parent).firstIndex { $0.id == id }
+                        p.insertLayer(group, parent: parent, index: (index ?? 0) + 1)
+                    }
+                    finalID = group.id
                 }
-                selection = [group.id]
+                // The run is over, so the next edit starts its own undo step
+                // rather than joining this one.
+                endCoalescing()
+                selection = [finalID]
+
                 let match = Int((outcome.score * 100).rounded())
                 let shapes = kids.count == 1 ? "1 shape" : "\(kids.count) shapes"
-                status = "Drew \(shapes), \(match)% match after \(outcome.passes) passes"
+                // Every pass's score, not just the winner's: it's the only way to
+                // see whether it was still climbing when it stopped.
+                let history = outcome.scores.count > 1
+                    ? " (" + outcome.scores.map { "\(Int(($0 * 100).rounded()))" }.joined(separator: " → ") + ")"
+                    : ""
+                status = "Drew \(shapes), \(match)% match after \(outcome.passes) passes\(history)"
                     + (outcome.say.isEmpty ? "" : " · \(outcome.say)")
             } catch {
                 report(error, doing: "AI Draw")

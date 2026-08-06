@@ -23,6 +23,11 @@ enum AIDraw {
         var score: Double
         var passes: Int
         var say: String
+        /// What each pass scored, in order — including the ones thrown away.
+        ///
+        /// Kept because "is four passes right?" is a question about this list and
+        /// nothing else, and it used to be discarded the moment it was computed.
+        var scores: [Double] = []
     }
 
     enum Refusal: LocalizedError {
@@ -44,12 +49,21 @@ enum AIDraw {
     /// usually the last one that changes the score at all.
     /// How many times to look and correct.
     ///
-    /// Four rather than three now the score means something: with a metric that
-    /// barely moved there was nothing to be gained from another look.
-    static let passes = 4
+    /// The most it will look. Higher than it was, because it no longer costs
+    /// anything to allow: the loop stops on its own once a pass stops paying,
+    /// so this is a ceiling rather than a quota.
+    static let passes = 6
+
+    /// How many passes in a row may fail to improve before it gives up.
+    ///
+    /// One bad pass is worth forgiving — the model is told the pass was thrown
+    /// away and often corrects on the next. Two in a row is a plateau, and the
+    /// drawing that comes back from a plateau is the one already in `best`.
+    static let patience = 2
 
     static func trace(source: CGImage, size: CGSize, connector: ModelConnector,
-                      progress: (String) -> Void = { _ in }) async throws -> Outcome {
+                      progress: (String) -> Void = { _ in },
+                      preview: ([Layer]) -> Void = { _ in }) async throws -> Outcome {
 
         let stats = ImageStats.measure(source)
         guard stats.verdict.traceable else { throw Refusal.notWorthTracing(stats.verdict) }
@@ -77,10 +91,13 @@ enum AIDraw {
         ]
         var say = ""
         var used = 0
+        var scores: [Double] = []
+        var stale = 0
 
         for pass in 1...passes {
             used = pass
-            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(passes)…")
+            let sofar = bestScore > 0 ? " · \(Int((bestScore * 100).rounded()))%" : ""
+            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(passes)\(sofar)…")
 
             // Only the newest turn carries pictures. The older ones are already
             // summarised by the drawing itself, and left in they'd blow the request
@@ -98,9 +115,26 @@ enum AIDraw {
             // rather than being handed its own bad work to build on. This is what
             // makes "try something ambitious" safe.
             let improved = score > bestScore
+            scores.append(score)
             if improved {
                 best = candidate
                 bestScore = score
+                stale = 0
+                // Show the work as it happens. Only improvements go up, so the
+                // canvas never flickers backwards through an attempt that was
+                // thrown away.
+                preview(best.layers)
+            } else {
+                stale += 1
+            }
+
+            // Every run in the arena write-up ended below its own mid-run peak,
+            // so the last drawing is the wrong one to keep. This loop already
+            // keeps the best rather than the last; stopping at a plateau just
+            // means not paying for the passes that were going to drift.
+            if stale >= patience {
+                progress("Stopped early — the last \(stale) passes didn't improve on \(Int((bestScore * 100).rounded()))%")
+                break
             }
             guard pass < passes else { break }
 
@@ -117,7 +151,7 @@ enum AIDraw {
         }
 
         guard !best.layers.isEmpty else { throw Refusal.nothingDrawn }
-        return Outcome(layers: best.layers, score: bestScore, passes: used, say: say)
+        return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
     }
 
     private static func trimmed(_ messages: [ModelConnector.Message]) -> [ModelConnector.Message] {
