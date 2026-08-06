@@ -835,7 +835,39 @@ public enum ModelPrompt {
     /// the outline a tracer would find, because a real ellipse is editable and a
     /// 300-point blob is not. And stop early: the failure here is a model grinding
     /// out shapes for antialiasing until the result is worse than the bitmap.
-    public static func trace(width: CGFloat, height: CGFloat) -> String {
+    public static func trace(width: CGFloat, height: CGFloat, lineArt: Bool = false) -> String {
+        // Whether this is an outline drawing is measured, so it is stated
+        // rather than left as a question. Asked to decide for itself, the model
+        // took the other road on a plain rock-horns icon: one black silhouette
+        // of the whole hand, then white shapes painted on top to carve the
+        // holes back out. That needs seven shapes to agree with each other
+        // exactly and it produced a black blob. Stroking six paths cannot fail
+        // that way.
+        let approach = lineArt ? """
+
+        THIS IS AN OUTLINE DRAWING. That is measured, not a guess, so do not
+        talk yourself out of it. Draw it as STROKED paths: every path gets a
+        stroke and a strokeWidth and NO fill, and it runs down the MIDDLE of the
+        ink rather than around the edge of it. One stroked path beats two
+        outlines of the same finger.
+
+        Never fill a silhouette and then paint background-coloured shapes on top
+        to make the holes. It is the one approach here that cannot degrade
+        gently: every white patch has to line up with the black underneath it,
+        and where any of them falls short you get a solid blob instead of a
+        drawing that is merely a bit off.
+        """ : """
+
+        If the picture is an outline drawing — strokes of roughly one thickness,
+        not filled regions — draw the strokes. Give each path a stroke and
+        strokeWidth and NO fill, and run the path down the MIDDLE of the ink
+        rather than around its edge. One stroked path beats two outlines of the
+        same finger.
+        """
+        return trace(width: width, height: height, approach: approach)
+    }
+
+    private static func trace(width: CGFloat, height: CGFloat, approach: String) -> String {
         """
         You are redrawing a picture as vector shapes.
 
@@ -850,11 +882,7 @@ public enum ModelPrompt {
         round thing is an ellipse. A box is a rect, with cornerRadius if the corners
         are soft. Only reach for kind "path" with d when the shape is genuinely
         arbitrary, and then use as few curve segments as the shape needs.
-
-        If the picture is an outline drawing — strokes of roughly one thickness, not
-        filled regions — draw the strokes. Give each path a stroke and strokeWidth
-        and NO fill, and run the path down the MIDDLE of the ink rather than around
-        its edge. One stroked path beats two outlines of the same finger.
+        \(approach)
 
         Set strokeCap "round" on those unless the ends are visibly square. It rounds
         the corners too. Butted-flat ends and mitred corners are what make a traced

@@ -233,37 +233,48 @@ public struct ImageStats: Sendable, Equatable {
                        abs(Int(pixels[i + 2]) - bb)) > 48
         }
 
-        var horizontal = [Int](repeating: 0, count: side * side)
-        var vertical = [Int](repeating: 0, count: side * side)
+        // Four directions, not two. Across a stroke running at 45°, both the
+        // horizontal and the vertical crossing are √2 times its real width, so
+        // measuring on the axes alone reads a diagonal as half again as thick
+        // as it is — and a drawn hand is nearly all diagonals and curves. The
+        // two diagonal scans put a near-perpendicular crossing within 22.5° of
+        // any stroke, whichever way it runs, which caps the overshoot at 8%.
+        // A diagonal step covers √2 pixels, so those runs are scaled to match.
+        let directions: [(dx: Int, dy: Int, scale: Double)] = [
+            (1, 0, 1), (0, 1, 1), (1, 1, 2.0.squareRoot()), (1, -1, 2.0.squareRoot()),
+        ]
+        var best = [Double](repeating: .greatestFiniteMagnitude, count: side * side)
+        var isInk = [Bool](repeating: false, count: side * side)
         for y in 0..<side {
-            var x = 0
-            while x < side {
-                guard inked(x, y) else { x += 1; continue }
-                var end = x
-                while end < side, inked(end, y) { end += 1 }
-                for k in x..<end { horizontal[y * side + k] = end - x }
-                x = end
-            }
+            for x in 0..<side { isInk[y * side + x] = inked(x, y) }
         }
-        for x in 0..<side {
-            var y = 0
-            while y < side {
-                guard inked(x, y) else { y += 1; continue }
-                var end = y
-                while end < side, inked(x, end) { end += 1 }
-                for k in y..<end { vertical[k * side + x] = end - y }
-                y = end
+
+        for (dx, dy, scale) in directions {
+            for start in 0..<(side * side) {
+                let sx = start % side, sy = start / side
+                guard isInk[start] else { continue }
+                // Only walk from the first pixel of a run, or every pixel would
+                // re-measure the tail of the run it sits in.
+                let px = sx - dx, py = sy - dy
+                if px >= 0, px < side, py >= 0, py < side, isInk[py * side + px] { continue }
+
+                var run: [Int] = []
+                var x = sx, y = sy
+                while x >= 0, x < side, y >= 0, y < side, isInk[y * side + x] {
+                    run.append(y * side + x)
+                    x += dx; y += dy
+                }
+                let length = Double(run.count) * scale
+                for i in run where length < best[i] { best[i] = length }
             }
         }
 
-        var widths: [Int] = []
-        widths.reserveCapacity(side * side / 8)
-        for i in 0..<(side * side) where horizontal[i] > 0 {
-            widths.append(min(horizontal[i], vertical[i]))
+        var widths = best.enumerated().compactMap { index, value in
+            isInk[index] && value < .greatestFiniteMagnitude ? value : nil
         }
         guard !widths.isEmpty else { return 0 }
         widths.sort()
-        return Double(widths[widths.count / 2]) / Double(side)
+        return widths[widths.count / 2] / Double(side)
     }
 
     private static func flatten(_ image: CGImage, side: Int) -> [UInt8]? {

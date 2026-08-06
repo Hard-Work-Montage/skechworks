@@ -71,7 +71,8 @@ enum AIDraw {
         let opening = [stats.summary, stats.strokeWidthHint(for: size), "Redraw this picture."]
             .compactMap { $0 }.joined(separator: "\n\n")
         var messages: [ModelConnector.Message] = [
-            .system(ModelPrompt.trace(width: size.width, height: size.height)),
+            .system(ModelPrompt.trace(width: size.width, height: size.height,
+                                      lineArt: stats.verdict == .lineArt)),
             .user(opening, images: [sourcePNG]),
         ]
         var say = ""
