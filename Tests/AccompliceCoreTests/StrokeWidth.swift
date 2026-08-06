@@ -26,10 +26,13 @@ private func strokedFigure(width: CGFloat, side: Int = 400) -> CGImage {
         ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
         ctx.setLineWidth(width)
         ctx.setLineCap(.round)
-        ctx.move(to: CGPoint(x: 120, y: 320)); ctx.addLine(to: CGPoint(x: 120, y: 120))
-        ctx.move(to: CGPoint(x: 280, y: 320)); ctx.addLine(to: CGPoint(x: 280, y: 120))
+        // Two fingers standing clear above the fist. They must not cross its
+        // edge: two strokes that touch merge into one blob, and then the run
+        // either side of them is the blob's width, not a line's.
+        ctx.move(to: CGPoint(x: 150, y: 60)); ctx.addLine(to: CGPoint(x: 150, y: 150))
+        ctx.move(to: CGPoint(x: 250, y: 60)); ctx.addLine(to: CGPoint(x: 250, y: 150))
         ctx.strokePath()
-        ctx.stroke(CGRect(x: 110, y: 60, width: 180, height: 200))
+        ctx.stroke(CGRect(x: 110, y: 190, width: 180, height: 150))
     }
 }
 
@@ -93,4 +96,23 @@ private func strokedFigure(width: CGFloat, side: Int = 400) -> CGImage {
     #expect(Compare.inkAgreement(strokedFigure(width: 14), target) > 0.99)
     #expect(Compare.inkAgreement(strokedFigure(width: 24), target) < 0.7)
     #expect(Compare.inkAgreement(strokedFigure(width: 32), target) < 0.55)
+}
+
+@Test func touchingStrokesReadAsOneThickMark() {
+    // The honest limit of measuring by runs: where two strokes overlap there is
+    // no gap between them, so the run spans both and the ink reads as heavier
+    // than any single line in it. The median keeps this from mattering while
+    // most of the ink is still clean line, which is the normal case for the
+    // outline drawings this path is for.
+    let touching = page { ctx in
+        ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+        ctx.setLineWidth(20)
+        ctx.setLineCap(.round)
+        for x in [100, 112, 124, 136] as [CGFloat] {
+            ctx.move(to: CGPoint(x: x, y: 80)); ctx.addLine(to: CGPoint(x: x, y: 320))
+        }
+        ctx.strokePath()
+    }
+    #expect(ImageStats.measure(touching).strokeWidth * 400 > 24,
+            "four overlapping 20-wide lines should measure as the slab they form")
 }
