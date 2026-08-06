@@ -94,6 +94,14 @@ private struct ChatPanelBody: View {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
+            // A running tool grows the entry it already added, so the count never
+            // changes and the view above would sit still while the log ran off
+            // the bottom.
+            .onChange(of: session.messages.last?.steps.count ?? 0) { _, _ in
+                if let last = session.messages.last {
+                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+            }
             }
         }
     }
@@ -176,8 +184,30 @@ private struct MessageRow: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
             case .assistant:
-                if !message.text.isEmpty {
+                if message.activity {
+                    HStack(spacing: 6) {
+                        if message.running {
+                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "sparkles").foregroundStyle(.secondary)
+                        }
+                        Text(message.text).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else if !message.text.isEmpty {
                     Text(message.text).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !message.steps.isEmpty {
+                    // The whole run, still here after it finishes. Monospaced
+                    // digits so a column of percentages doesn't wobble as it counts.
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(message.steps.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.leading, 2)
                 }
                 if !message.applied.isEmpty {
                     // What it actually did, after the fact — undo is right there, but

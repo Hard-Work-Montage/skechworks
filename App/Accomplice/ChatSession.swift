@@ -19,6 +19,15 @@ struct ChatMessage: Identifiable {
     var confirmPrompt = ""
     var awaitingConfirmation = false
 
+    /// A tool working, rather than something said. Shows a spinner while it runs
+    /// and keeps its log afterwards, which is the point: the canvas status line
+    /// said one thing at a time and then took it away, so how a drawing got
+    /// where it got was gone by the time you wanted to know.
+    var activity = false
+    var running = false
+    /// One line per step, oldest first. Kept after the run.
+    var steps: [String] = []
+
     var declined: ChatMessage {
         var m = self
         m.pending = []
@@ -36,6 +45,39 @@ final class ChatSession: ObservableObject {
 
     /// The running conversation, so a follow-up like "no, the other ones" works.
     private var history: [(role: String, content: String)] = []
+
+    // MARK: - Tools reporting into the transcript
+
+    /// Opens a live entry for a tool that takes a while. Returns its id, which is
+    /// how the tool addresses it for the rest of the run.
+    func beginActivity(_ title: String) -> UUID {
+        // Reporting into a panel that is closed is the same as not reporting, and
+        // this is now the only place the run is described. Same key ContentView
+        // binds its toggle to, so the panel opens.
+        UserDefaults.standard.set(true, forKey: "showChat")
+        var m = ChatMessage(role: .assistant, text: title)
+        m.activity = true
+        m.running = true
+        messages.append(m)
+        return m.id
+    }
+
+    /// Adds a line to a running entry. Repeats of the same line are dropped —
+    /// a pass that reports the same thing twice shouldn't grow the log.
+    func note(_ id: UUID, _ line: String) {
+        guard let i = messages.firstIndex(where: { $0.id == id }), !line.isEmpty else { return }
+        guard messages[i].steps.last != line else { return }
+        messages[i].steps.append(line)
+    }
+
+    /// Closes it out. The spinner stops and the log stays.
+    func endActivity(_ id: UUID, text: String, applied: [String] = [], failed: Bool = false) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[i].running = false
+        messages[i].text = text
+        messages[i].applied = applied
+        if failed { messages[i].role = .error }
+    }
 
     func send(_ text: String, store: DocumentStore, settings: ModelConnector.Settings) {
         messages.append(ChatMessage(role: .user, text: text))

@@ -92,8 +92,7 @@ enum AIDraw {
 
         for pass in 1...passes {
             used = pass
-            let sofar = bestScore > 0 ? " · \(Int((bestScore * 100).rounded()))%" : ""
-            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(passes)\(sofar)…")
+            progress(pass == 1 ? "Looking at the picture…" : "Pass \(pass) of \(passes)…")
 
             // Only the newest turn carries pictures. The older ones are already
             // summarised by the drawing itself, and left in they'd blow the request
@@ -117,6 +116,14 @@ enum AIDraw {
             // makes "try something ambitious" safe.
             let improved = score > bestScore
             scores.append(score)
+            // One line per pass that stays put: what this attempt scored, how many
+            // shapes it drew, and whether it was kept. Reading three of those back
+            // says more about why a drawing came out as it did than the final
+            // number ever does.
+            let pct = Int((score * 100).rounded())
+            let shapes = candidate.layers.count
+            progress("Pass \(pass): \(shapes) shape\(shapes == 1 ? "" : "s"), \(pct)%"
+                     + (improved ? " — kept" : " — worse than \(Int((bestScore * 100).rounded()))%, thrown away"))
             if improved {
                 best = candidate
                 bestScore = score

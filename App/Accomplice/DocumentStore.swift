@@ -1151,7 +1151,11 @@ final class DocumentStore: ObservableObject {
 
         let frame = l.frame
         let name = l.name
-        status = "Looking at the picture…"
+        // The run reports into the chat, where it stays. The status line used to
+        // carry it a phrase at a time and then drop it, so by the time a drawing
+        // came out wrong there was nothing left saying how it got there.
+        let entry = chat.beginActivity("AI Draw")
+        status = "AI Draw…"
         Task { @MainActor in
             // The group is put on the page the first time a pass improves and
             // its contents swapped on every pass after, so the drawing is
@@ -1184,11 +1188,12 @@ final class DocumentStore: ObservableObject {
             do {
                 let outcome = try await AIDraw.trace(source: source, size: frame.size,
                                                      connector: connector,
-                                                     progress: { self.status = $0 },
+                                                     progress: { self.chat.note(entry, $0) },
                                                      preview: show)
                 var kids = outcome.layers
                 let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
                 guard !bounds.isNull else {
+                    chat.endActivity(entry, text: "AI Draw produced no shapes", failed: true)
                     status = "AI Draw produced no shapes"
                     return
                 }
@@ -1233,9 +1238,18 @@ final class DocumentStore: ObservableObject {
                 let history = outcome.scores.count > 1
                     ? " (" + outcome.scores.map { "\(Int(($0 * 100).rounded()))" }.joined(separator: " → ") + ")"
                     : ""
-                status = "Drew \(shapes), \(match)% match after \(outcome.passes) passes\(history)"
-                    + (outcome.say.isEmpty ? "" : " · \(outcome.say)")
+                let headline = "Drew \(shapes), \(match)% match after \(outcome.passes) passes\(history)"
+                // What it drew, by name — the fastest way to see whether it
+                // understood the picture or just covered it.
+                let named = kids.map { $0.name.isEmpty ? "(unnamed)" : $0.name }
+                chat.endActivity(entry,
+                                 text: headline + (outcome.say.isEmpty ? "" : "\n\n\(outcome.say)"),
+                                 applied: named)
+                status = headline
             } catch {
+                // The log of how far it got is worth keeping when it fails —
+                // more so than when it works.
+                chat.endActivity(entry, text: error.localizedDescription, failed: true)
                 report(error, doing: "AI Draw")
             }
         }
