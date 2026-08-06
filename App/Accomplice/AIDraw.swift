@@ -224,12 +224,14 @@ enum AIDraw {
     /// it draws five at once and keeps the best, which costs five cents and no
     /// extra waiting.
     ///
-    /// `.traceBest` is Fable: four minutes and 88 cents, and 73% against the
-    /// cheap model's 65. One opening, because five would be $4.40 and no
-    /// quicker than the slowest of them.
+    /// `.traceBest` is Fable: four minutes and 88 cents. It draws better — 89%
+    /// against 83% once the local tidy-up has run — but six points for
+    /// eighty-seven cents and two and a half minutes is the wrong trade for
+    /// something you sit and watch. One opening on that tier, because five
+    /// would be $4.40 and no quicker than the slowest of them.
     ///
     /// One line, so switching tiers is one line.
-    static let tier: ModelConnector.Purpose = .traceBest
+    static let tier: ModelConnector.Purpose = .trace
 
     /// Draws the opening `attempts` times over and returns whichever scored
     /// best. A failed attempt is ignored rather than fatal; only every one
