@@ -51,10 +51,16 @@ enum AIDraw {
 
     /// How many passes in a row may fail to improve before it gives up.
     ///
-    /// One bad pass is worth forgiving — the model is told the pass was thrown
-    /// away and often corrects on the next. Two in a row is a plateau, and the
-    /// drawing that comes back from a plateau is the one already in `best`.
-    static let patience = 2
+    /// One, on measurement. Correcting turns out to rescue a bad drawing and
+    /// spoil a good one: a weak first pass climbed 19% to 34% over four passes,
+    /// but a 70% first pass came back 62% when the same model was asked to fix
+    /// it, and 40% when a cheaper one was — that one bolted five new shapes on
+    /// top of five that were already right.
+    ///
+    /// So a pass that fails to improve isn't a wobble to sit through, it's the
+    /// signal that this drawing is done. Forgiving a second costs another call
+    /// at trace prices to be told the same thing.
+    static let patience = 1
 
     static func trace(source: CGImage, size: CGSize, connector: ModelConnector,
                       progress: (String) -> Void = { _ in },
