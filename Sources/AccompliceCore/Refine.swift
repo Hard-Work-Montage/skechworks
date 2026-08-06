@@ -48,7 +48,7 @@ public enum Refine {
     /// - budget: wall-clock ceiling. The search stops mid-sweep when it's spent,
     ///   which is safe because every accepted move is already banked.
     public static func polish(_ page: Page, bounds: CGRect, matching source: CGImage,
-                              budget: TimeInterval = 12,
+                              budget: TimeInterval = 30,
                               progress: (String) -> Void = { _ in }) -> Outcome {
         let deadline = Date().addingTimeInterval(budget)
         var evaluations = 0
@@ -111,7 +111,80 @@ public enum Refine {
             targets = shapeIndices(in: best)
         }
 
+        // Whole shapes can only be slid, grown and thickened. Once that stops
+        // paying, what's left is the outline's own shape — a corner cut across,
+        // a curve bowing the wrong way — and only the points can fix that.
+        if Date() < deadline {
+            let paths = shapeIndices(in: best)
+            for (n, path) in paths.enumerated() {
+                guard Date() < deadline else { break }
+                // Twenty seconds of silence looks like a hang, so it counts out
+                // loud. Shapes, not percentages: the score barely moves on any
+                // single point and a number that doesn't move reads as stuck.
+                progress("Tidying up shape \(n + 1) of \(paths.count)…")
+                let points = anchorCount(of: best, at: path)
+                guard points > 1, points <= 64 else { continue }
+                for index in 0..<points {
+                    guard Date() < deadline else { break }
+                    var step: CGFloat = 8
+                    while step >= 1 {
+                        var moved = false
+                        for delta in [ CGPoint(x: step, y: 0), CGPoint(x: -step, y: 0),
+                                       CGPoint(x: 0, y: step), CGPoint(x: 0, y: -step) ] {
+                            guard let nudged = nudge(point: index, by: delta, in: best, at: path) else { continue }
+                            let s = score(nudged)
+                            if s > bestScore {
+                                best = nudged
+                                bestScore = s
+                                moved = true
+                                break
+                            }
+                        }
+                        if !moved { step /= 2 }
+                    }
+                }
+            }
+            progress(String(format: "Tidying up: %.0f%%", bestScore * 100))
+        }
+
         return Outcome(page: best, score: bestScore, startedAt: opening, evaluations: evaluations)
+    }
+
+    // MARK: - Moving one point
+
+    private static func anchorCount(of page: Page, at path: [Int]) -> Int {
+        var count = 0
+        var copy = page
+        modify(&copy.layers, path) { layer in
+            guard case .path(let p, _) = layer.kind else { return }
+            count = VectorPath(cgPath: p).points.count
+        }
+        return count
+    }
+
+    /// Moves one anchor and the handles either side of it, so the curve follows
+    /// rather than kinking at the point that moved.
+    private static func nudge(point index: Int, by delta: CGPoint,
+                              in page: Page, at path: [Int]) -> Page? {
+        var copy = page
+        var changed = false
+        modify(&copy.layers, path) { layer in
+            guard case .path(let cg, let closed) = layer.kind else { return }
+            var vector = VectorPath(cgPath: cg)
+            guard vector.points.indices.contains(index) else { return }
+            vector.points[index].point.x += delta.x
+            vector.points[index].point.y += delta.y
+            vector.points[index].curveFrom.x += delta.x
+            vector.points[index].curveFrom.y += delta.y
+            vector.points[index].curveTo.x += delta.x
+            vector.points[index].curveTo.y += delta.y
+            let rebuilt = vector.cgPath()
+            let box = rebuilt.boundingBoxOfPath
+            guard !box.isNull, box.width.isFinite, box.height.isFinite else { return }
+            layer.kind = .path(rebuilt, closed: closed)
+            changed = true
+        }
+        return changed ? copy : nil
     }
 
     // MARK: - Moving one shape

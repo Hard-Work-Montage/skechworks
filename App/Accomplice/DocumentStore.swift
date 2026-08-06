@@ -1293,6 +1293,75 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Tools ▸ Smart Tidy: nudge selected shapes until they match a picture.
+    ///
+    /// The same arithmetic AI Draw finishes with, on its own, because it's local
+    /// and free and there's no reason it should only run once at the end of
+    /// something expensive. Works on anything: shapes traced by hand over a
+    /// photo tidy up exactly the same way.
+    ///
+    /// It needs something to aim at, so the picture is part of the selection
+    /// rather than guessed at. One bitmap says what to match; everything else
+    /// selected is what gets moved.
+    func smartTidySelection() {
+        guard let page else { return }
+        let chosen = selection.compactMap { page.layer($0) }
+        let pictures = chosen.filter { if case .bitmap = $0.kind { return true }; return false }
+        let shapes = chosen.filter { if case .bitmap = $0.kind { return false }; return true }
+
+        guard pictures.count == 1, !shapes.isEmpty else {
+            status = pictures.isEmpty
+                ? "Smart Tidy needs the picture selected too, so it knows what to match"
+                : "Select one picture and the shapes to tidy against it"
+            return
+        }
+        guard case .bitmap(let ref) = pictures[0].kind,
+              let data = images[ref],
+              let reference = BitmapImage.load(data)?.image else {
+            status = "That picture can't be read"
+            return
+        }
+
+        let picture = pictures[0]
+        let ids = shapes.map(\.id)
+        let entry = chat.beginActivity("Smart Tidy")
+        status = "Smart Tidy…"
+
+        // Scored in the picture's own space, so the shapes are judged where they
+        // actually sit relative to it.
+        let bounds = CGRect(origin: .zero, size: picture.frame.size)
+        var scratch = Page(name: "tidy")
+        scratch.layers = shapes.map { layer in
+            var moved = layer
+            moved.frame.origin.x -= picture.frame.minX
+            moved.frame.origin.y -= picture.frame.minY
+            return moved
+        }
+
+        Task { @MainActor in
+            let outcome = await Task.detached(priority: .userInitiated) { [scratch] in
+                Refine.polish(scratch, bounds: bounds, matching: reference, budget: 30)
+            }.value
+
+            guard outcome.score > outcome.startedAt else {
+                chat.endActivity(entry, text: "Already as close as this gets — nothing moved.")
+                status = "Smart Tidy: nothing to gain"
+                return
+            }
+            let tidied = Dictionary(uniqueKeysWithValues: outcome.page.layers.map { ($0.id, $0) })
+            edit(ids, actionName: "Smart Tidy") { layer in
+                guard var fixed = tidied[layer.id] else { return }
+                fixed.frame.origin.x += picture.frame.minX
+                fixed.frame.origin.y += picture.frame.minY
+                layer = fixed
+            }
+            let line = String(format: "%.0f%% → %.0f%% in %d tries",
+                              outcome.startedAt * 100, outcome.score * 100, outcome.evaluations)
+            chat.endActivity(entry, text: "Tidied up: " + line)
+            status = "Smart Tidy: " + line
+        }
+    }
+
     /// Tools ▸ Remove: the boxed part of a bitmap goes to the account service
     /// with the whole image; the service works out what the box means to remove
     /// and sends the image back with it painted out. Only the boxed region can

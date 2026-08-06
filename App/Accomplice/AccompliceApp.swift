@@ -217,6 +217,7 @@ struct AccompliceApp: App {
                     Button("Remove") { AppDelegate.shared?.active?.tool = .remove }
                     Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }
+                    Button("Smart Tidy") { AppDelegate.shared?.active?.smartTidySelection() }
                 }
             }
             CommandGroup(replacing: .saveItem) {
