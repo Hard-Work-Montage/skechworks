@@ -53,7 +53,7 @@ private struct ChatPanelBody: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: "sparkles").foregroundStyle(.secondary)
+            Avatar()
             Text(settings.backend == .ollama ? model : openRouterModel)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Spacer()
@@ -132,9 +132,8 @@ private struct ChatPanelBody: View {
         // the question from "where do we begin" to "what now".
         let blank = store.page.map { $0.layers.isEmpty } ?? true
         let pool = blank ? Self.blankDocOpeners : Self.workingOpeners
-        return VStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 26)).foregroundStyle(.tertiary)
+        return VStack(spacing: 10) {
+            Avatar().scaleEffect(1.6).opacity(0.9).frame(height: 34)
             Text(pool[openerSeed % pool.count])
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -170,9 +169,72 @@ private struct ChatPanelBody: View {
 
 // MARK: - Transcript rows
 
+/// Accomplice's face in the transcript, in whatever colourway the app icon is
+/// wearing — so the assistant looks like the app rather than like a generic
+/// sparkle.
+private struct Avatar: View {
+    @AppStorage("appIconTheme") private var theme = AppIconTheme.gradient.rawValue
+
+    var body: some View {
+        Group {
+            if let image = AppIconTheme(rawValue: theme)?.thumbnail(points: 20) {
+                Image(nsImage: image).resizable().interpolation(.high)
+            } else {
+                Image(systemName: "sparkles").resizable().foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 20, height: 20)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .accessibilityHidden(true)
+    }
+}
+
 private struct MessageRow: View {
     let message: ChatMessage
     let onConfirm: (ChatMessage) -> Void
+    /// Working notes start open while the tool runs and fold away once it's
+    /// done — you want to watch them live and almost never afterwards, but
+    /// "almost never" is why they're kept rather than thrown away.
+    @State private var showSteps: Bool?
+
+    /// Open while it runs, folded once it stops, and either way the person can
+    /// say otherwise.
+    private var stepsVisible: Bool { showSteps ?? message.running }
+
+    private var stepLog: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { showSteps = !stepsVisible }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: stepsVisible ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text(stepsVisible ? "Working notes" : "\(message.steps.count) working notes")
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+            .buttonStyle(.plain)
+
+            if stepsVisible {
+                // Monospaced digits so a column of percentages doesn't wobble as
+                // it counts, and a rule down the side so the notes read as an
+                // aside rather than as more of what was said.
+                HStack(alignment: .top, spacing: 7) {
+                    Rectangle().fill(.quaternary).frame(width: 1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(message.steps.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -184,30 +246,21 @@ private struct MessageRow: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
             case .assistant:
-                if message.activity {
-                    HStack(spacing: 6) {
-                        if message.running {
-                            ProgressView().controlSize(.small).scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "sparkles").foregroundStyle(.secondary)
-                        }
-                        Text(message.text).frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .top, spacing: 8) {
+                    if message.running {
+                        ProgressView().controlSize(.small).scaleEffect(0.7)
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Avatar()
                     }
-                } else if !message.text.isEmpty {
-                    Text(message.text).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if !message.steps.isEmpty {
-                    // The whole run, still here after it finishes. Monospaced
-                    // digits so a column of percentages doesn't wobble as it counts.
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(message.steps.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !message.text.isEmpty {
+                            Text(message.text)
+                                .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if !message.steps.isEmpty { stepLog }
                     }
-                    .padding(.leading, 2)
                 }
                 if !message.applied.isEmpty {
                     // What it actually did, after the fact — undo is right there, but

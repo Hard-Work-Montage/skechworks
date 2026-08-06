@@ -1323,6 +1323,13 @@ final class DocumentStore: ObservableObject {
         }
 
         let picture = pictures[0]
+        // Absolute, not `frame.origin`. A frame is relative to whatever contains
+        // the layer, and the picture and the shapes are routinely on different
+        // artboards — so subtracting one raw frame from another put the shapes
+        // an artboard's width away from the thing they were being scored
+        // against, where no nudge could help and the answer was always "nothing
+        // moved".
+        guard let pictureAt = page.absoluteOrigin(of: picture.id) else { return }
         let ids = shapes.map(\.id)
         let entry = chat.beginActivity("Smart Tidy")
         status = "Smart Tidy…"
@@ -1330,11 +1337,15 @@ final class DocumentStore: ObservableObject {
         // Scored in the picture's own space, so the shapes are judged where they
         // actually sit relative to it.
         let bounds = CGRect(origin: .zero, size: picture.frame.size)
+        // How far each layer's own frame sits from its absolute position, so the
+        // answer can be put back where it came from.
+        var parentOffsets: [String: CGPoint] = [:]
         var scratch = Page(name: "tidy")
-        scratch.layers = shapes.map { layer in
+        scratch.layers = shapes.compactMap { layer in
+            guard let at = page.absoluteOrigin(of: layer.id) else { return nil }
+            parentOffsets[layer.id] = CGPoint(x: at.x - layer.frame.minX, y: at.y - layer.frame.minY)
             var moved = layer
-            moved.frame.origin.x -= picture.frame.minX
-            moved.frame.origin.y -= picture.frame.minY
+            moved.frame.origin = CGPoint(x: at.x - pictureAt.x, y: at.y - pictureAt.y)
             return moved
         }
 
@@ -1344,15 +1355,20 @@ final class DocumentStore: ObservableObject {
             }.value
 
             guard outcome.score > outcome.startedAt else {
-                chat.endActivity(entry, text: "Already as close as this gets — nothing moved.")
-                status = "Smart Tidy: nothing to gain"
+                // Say the score. "Nothing moved" on its own reads as broken when
+                // the two pictures plainly differ, and it hid a real bug for a
+                // while — the number is what tells you which it is.
+                let at = Int((outcome.score * 100).rounded())
+                chat.endActivity(entry, text: "Already as close as this gets — \(at)% match, nothing moved.")
+                status = "Smart Tidy: already at \(at)%"
                 return
             }
             let tidied = Dictionary(uniqueKeysWithValues: outcome.page.layers.map { ($0.id, $0) })
             edit(ids, actionName: "Smart Tidy") { layer in
-                guard var fixed = tidied[layer.id] else { return }
-                fixed.frame.origin.x += picture.frame.minX
-                fixed.frame.origin.y += picture.frame.minY
+                guard var fixed = tidied[layer.id], let offset = parentOffsets[layer.id] else { return }
+                // Back from the picture's space into the layer's own parent's.
+                fixed.frame.origin = CGPoint(x: fixed.frame.minX + pictureAt.x - offset.x,
+                                             y: fixed.frame.minY + pictureAt.y - offset.y)
                 layer = fixed
             }
             let line = String(format: "%.0f%% → %.0f%% in %d tries",

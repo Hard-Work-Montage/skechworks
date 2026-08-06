@@ -75,6 +75,8 @@ public enum Refine {
             return Outcome(page: best, score: bestScore, startedAt: opening, evaluations: evaluations)
         }
 
+      while Date() < deadline {
+        let roundStart = bestScore
         var scale: CGFloat = 1
         // Six halvings takes a 12-point step down to under a quarter of a point,
         // which is finer than the render can see.
@@ -146,6 +148,14 @@ public enum Refine {
             }
             progress(String(format: "Tidying up: %.0f%%", bestScore * 100))
         }
+
+        // Moving points changes where the whole shape wants to sit, and moving
+        // the shape changes which points are wrong — so the two stages feed each
+        // other and one pass of each leaves real gains behind. Measured: a
+        // second run over a finished drawing found another five points. Round
+        // trips until neither stage pays.
+        if bestScore <= roundStart + 0.001 { break }
+      }
 
         return Outcome(page: best, score: bestScore, startedAt: opening, evaluations: evaluations)
     }
