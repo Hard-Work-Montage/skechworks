@@ -1401,7 +1401,7 @@ final class DocumentStore: ObservableObject {
                 let named = kids.map { $0.name.isEmpty ? "(unnamed)" : $0.name }
                 chat.endActivity(entry,
                                  text: headline + (outcome.say.isEmpty ? "" : "\n\n\(outcome.say)"),
-                                 applied: named)
+                                 applied: named, noun: named.count == 1 ? "shape drawn" : "shapes drawn")
                 status = headline
             } catch is CancellationError {
                 cleanUpAbandoned(board: boardID, drawing: previewID)

@@ -199,44 +199,62 @@ private struct MessageRow: View {
     /// done — you want to watch them live and almost never afterwards, but
     /// "almost never" is why they're kept rather than thrown away.
     @State private var showSteps: Bool?
+    /// The list of what was made. Folded to start: it describes something that
+    /// is already sitting on the canvas in front of you.
+    @State private var showApplied = false
 
     /// Open while it runs, folded once it stops, and either way the person can
     /// say otherwise.
     private var stepsVisible: Bool { showSteps ?? message.running }
 
-    private var stepLog: some View {
+    /// A list that folds away behind a one-line summary. Both the running
+    /// commentary and the list of what was made are asides — worth having,
+    /// almost never worth reading twice — and a column of them pushes the thing
+    /// you DID want to read off the top of the panel.
+    private func folded(_ lines: [String], title: String, summary: String,
+                        open: Bool, toggle: @escaping () -> Void,
+                        symbol: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { showSteps = !stepsVisible }
-            } label: {
+            Button(action: toggle) {
                 HStack(spacing: 3) {
-                    Image(systemName: stepsVisible ? "chevron.down" : "chevron.right")
+                    Image(systemName: open ? "chevron.down" : "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
-                    Text(stepsVisible ? "Working notes" : "\(message.steps.count) working notes")
+                    Text(open ? title : summary)
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             }
             .buttonStyle(.plain)
 
-            if stepsVisible {
-                // Monospaced digits so a column of percentages doesn't wobble as
-                // it counts, and a rule down the side so the notes read as an
-                // aside rather than as more of what was said.
+            if open {
                 HStack(alignment: .top, spacing: 7) {
                     Rectangle().fill(.quaternary).frame(width: 1)
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(message.steps.enumerated()), id: \.offset) { _, line in
-                            Text(line)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                            Group {
+                                if let symbol {
+                                    Label(line, systemImage: symbol)
+                                } else {
+                                    Text(line)
+                                }
+                            }
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
                 .transition(.opacity)
             }
         }
+    }
+
+    private var stepLog: some View {
+        folded(message.steps,
+               title: "Working notes",
+               summary: "\(message.steps.count) working notes",
+               open: stepsVisible,
+               toggle: { withAnimation(.easeOut(duration: 0.15)) { showSteps = !stepsVisible } })
     }
 
     var body: some View {
@@ -280,13 +298,14 @@ private struct MessageRow: View {
                 }
                 if !message.applied.isEmpty {
                     // What it actually did, after the fact — undo is right there, but
-                    // you should never have to guess what changed.
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(message.applied.enumerated()), id: \.offset) { _, line in
-                            Label(line, systemImage: "checkmark")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+                    // you should never have to guess what changed. Folded, because
+                    // by the time you read it the thing is already on the canvas.
+                    folded(message.applied,
+                           title: message.appliedNoun.capitalized,
+                           summary: "\(message.applied.count) \(message.appliedNoun)",
+                           open: showApplied,
+                           toggle: { withAnimation(.easeOut(duration: 0.15)) { showApplied.toggle() } },
+                           symbol: "checkmark")
                 }
                 if message.nothingHappened {
                     Label("No changes were made", systemImage: "circle.slash")

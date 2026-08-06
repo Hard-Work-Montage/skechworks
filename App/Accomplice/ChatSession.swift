@@ -10,6 +10,9 @@ struct ChatMessage: Identifiable {
     var text: String
     /// One line per command that ran, so what changed is never a guess.
     var applied: [String] = []
+    /// What that list is a list OF, for the fold-away summary. "6 shapes" reads
+    /// as a result; "6 changes" reads as an edit; "6 things" reads as nothing.
+    var appliedNoun = "changes"
     /// Held back pending a yes — only for the destructive-or-huge case.
     var pending: [DocumentCommand] = []
     /// Commands that arrived but couldn't be read.
@@ -84,12 +87,14 @@ final class ChatSession: ObservableObject {
     }
 
     /// Closes it out. The spinner stops and the log stays.
-    func endActivity(_ id: UUID, text: String, applied: [String] = [], failed: Bool = false) {
+    func endActivity(_ id: UUID, text: String, applied: [String] = [],
+                     noun: String = "changes", failed: Bool = false) {
         stopHandler = nil
         guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[i].running = false
         messages[i].text = text
         messages[i].applied = applied
+        messages[i].appliedNoun = noun
         if failed { messages[i].role = .error }
     }
 
