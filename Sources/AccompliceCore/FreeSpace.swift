@@ -20,7 +20,7 @@ extension Page {
     /// Wide enough that two boards read as two drawings rather than one wide
     /// one. Ten points looked deliberate in a diagram and cramped on a canvas,
     /// where the label above a board needs somewhere to sit.
-    public static let boardGap: CGFloat = 30
+    public static let boardGap: CGFloat = 40
 
     public func freeSlot(size: CGSize, rightOf anchor: CGRect,
                          gap: CGFloat = Page.boardGap, columns: Int = 8) -> CGRect {

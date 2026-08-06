@@ -46,10 +46,37 @@ public enum Compare {
         func isInk(_ p: [UInt8], _ i: Int) -> Bool {
             max(abs(Int(p[i]) - br), abs(Int(p[i + 1]) - bg), abs(Int(p[i + 2]) - bb)) > 48
         }
+        // Ink in the right place is only half of it: the ink has to be roughly
+        // the right colour too. Without this the score is colour-blind — a heart
+        // filled solid black agrees with a heart filled red exactly as well as
+        // one filled red does, because both are simply "not the background". A
+        // model painted over a picture and the loop had no way to object.
+        //
+        // Generous on purpose. Antialiasing along every edge lands between the
+        // two colours, and shading a flat colour slightly differently is a
+        // drawing decision rather than a mistake. This is here to catch black
+        // where red belongs, not to grade a swatch.
+        func sameColour(_ i: Int) -> Bool {
+            max(abs(Int(a[i]) - Int(b[i])),
+                abs(Int(a[i + 1]) - Int(b[i + 1])),
+                abs(Int(a[i + 2]) - Int(b[i + 2]))) <= 72
+        }
+
+        /// Well clear of the background, rather than merely not-background.
+        ///
+        /// Only these are judged on colour. Every edge in both pictures is a
+        /// ramp of part-way pixels, and two renders of the same black line
+        /// disagree along it by more than any sane tolerance — holding those to
+        /// a colour test punishes a perfect trace for having edges.
+        func solid(_ p: [UInt8], _ i: Int) -> Bool {
+            max(abs(Int(p[i]) - br), abs(Int(p[i + 1]) - bg), abs(Int(p[i + 2]) - bb)) > 140
+        }
+
         var both = 0, either = 0
         for i in stride(from: 0, to: a.count, by: 4) {
             let x = isInk(a, i), y = isInk(b, i)
-            if x && y { both += 1 }
+            let judged = solid(a, i) && solid(b, i)
+            if x && y, !judged || sameColour(i) { both += 1 }
             if x || y { either += 1 }
         }
         return either == 0 ? 1 : Double(both) / Double(either)
