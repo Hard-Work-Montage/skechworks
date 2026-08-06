@@ -65,9 +65,14 @@ enum AIDraw {
         var bestScore = Compare.render(best, bounds: area, matching: source)
             .map { Compare.inkAgreement($0, source) } ?? 0
 
+        // Thickness is measured off the source and told, not left to the eye —
+        // a wrong strokeWidth caps the score on its own, and looks like a
+        // placement problem the loop then chases for the rest of its passes.
+        let opening = [stats.summary, stats.strokeWidthHint(for: size), "Redraw this picture."]
+            .compactMap { $0 }.joined(separator: "\n\n")
         var messages: [ModelConnector.Message] = [
             .system(ModelPrompt.trace(width: size.width, height: size.height)),
-            .user("\(stats.summary)\n\nRedraw this picture.", images: [sourcePNG]),
+            .user(opening, images: [sourcePNG]),
         ]
         var say = ""
         var used = 0

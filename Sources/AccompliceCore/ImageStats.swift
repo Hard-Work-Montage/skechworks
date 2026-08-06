@@ -54,6 +54,17 @@ public struct ImageStats: Sendable, Equatable {
     /// instead of guessing — the same reasoning as handing over the palette rather
     /// than asking it to read colours off pixels.
     public let inkGrid: [[Int]]
+    /// How thick the lines are, as a fraction of the picture's side. 0 when
+    /// there's no ink.
+    ///
+    /// The prompt asks for a strokeWidth on every path and nothing here used to
+    /// measure one, so the model picked a number by eye. That single guess
+    /// caps the score on its own: with the geometry exactly right, drawing a
+    /// 14px line at 24px scores 65% and at 32px scores 50%, and the loop then
+    /// spends its remaining passes moving shapes that were never in the wrong
+    /// place. Same reasoning as handing over the palette instead of asking it
+    /// to read colours off pixels.
+    public let strokeWidth: Double
     public let verdict: Verdict
 
     public static func == (a: ImageStats, b: ImageStats) -> Bool {
@@ -72,7 +83,7 @@ public struct ImageStats: Sendable, Equatable {
         guard let pixels = flatten(image, side: side) else {
             return ImageStats(uniqueColors: 0, dominantCoverage: 0, flatShare: 0,
                               edgeDensity: 0, palette: [], inkBounds: .zero, inkGrid: [],
-                              verdict: .photographic)
+                              strokeWidth: 0, verdict: .photographic)
         }
 
         // Four bits a channel. Fine enough to keep colours a person would call
@@ -160,9 +171,15 @@ public struct ImageStats: Sendable, Equatable {
             verdict = .detailed
         }
 
+        // Measured off a finer copy than the rest of this: at 144 samples a
+        // typical line is only a few pixels wide, and rounding to the nearest
+        // one is a 20% error in the number the model is about to be handed.
+        let thickness = strokeWidth(of: image, background: (bgr, bgg, bgb))
+
         return ImageStats(uniqueColors: unique, dominantCoverage: coverage, flatShare: flat,
                           edgeDensity: density, palette: Array(palette),
-                          inkBounds: bounds, inkGrid: grid, verdict: verdict)
+                          inkBounds: bounds, inkGrid: grid, strokeWidth: thickness,
+                          verdict: verdict)
     }
 
     /// The measurements as the model should be told them.
@@ -185,6 +202,69 @@ public struct ImageStats: Sendable, Equatable {
     }
 
     private func pct(_ v: CGFloat) -> String { "\(Int((v * 100).rounded()))%" }
+
+    /// The typical thickness of a line, in the coordinates the drawing will use.
+    ///
+    /// Given as a number to put in strokeWidth rather than a fraction to convert,
+    /// because the conversion is arithmetic done badly under load.
+    public func strokeWidthHint(for size: CGSize) -> String? {
+        guard strokeWidth > 0 else { return nil }
+        let px = strokeWidth * Double(min(size.width, size.height))
+        guard px >= 1 else { return nil }
+        return "the lines are about \(Int(px.rounded())) thick — use that as strokeWidth "
+             + "unless a part is visibly heavier or lighter than the rest"
+    }
+
+    /// Median thickness of the ink, as a fraction of the picture's side.
+    ///
+    /// For every inked pixel, the shorter of the horizontal and vertical runs it
+    /// sits in. Down the length of a stroke that shorter run IS the stroke's
+    /// width, whichever way the stroke happens to run; the median then shrugs off
+    /// corners and joins, where both runs are short, and filled regions, where
+    /// both are long.
+    static func strokeWidth(of image: CGImage, background: (Int, Int, Int),
+                            samples: Int = 288) -> Double {
+        let side = max(32, samples)
+        guard let pixels = flatten(image, side: side) else { return 0 }
+        let (br, bg, bb) = background
+        func inked(_ x: Int, _ y: Int) -> Bool {
+            let i = (y * side + x) * 4
+            return max(abs(Int(pixels[i]) - br), abs(Int(pixels[i + 1]) - bg),
+                       abs(Int(pixels[i + 2]) - bb)) > 48
+        }
+
+        var horizontal = [Int](repeating: 0, count: side * side)
+        var vertical = [Int](repeating: 0, count: side * side)
+        for y in 0..<side {
+            var x = 0
+            while x < side {
+                guard inked(x, y) else { x += 1; continue }
+                var end = x
+                while end < side, inked(end, y) { end += 1 }
+                for k in x..<end { horizontal[y * side + k] = end - x }
+                x = end
+            }
+        }
+        for x in 0..<side {
+            var y = 0
+            while y < side {
+                guard inked(x, y) else { y += 1; continue }
+                var end = y
+                while end < side, inked(x, end) { end += 1 }
+                for k in y..<end { vertical[k * side + x] = end - y }
+                y = end
+            }
+        }
+
+        var widths: [Int] = []
+        widths.reserveCapacity(side * side / 8)
+        for i in 0..<(side * side) where horizontal[i] > 0 {
+            widths.append(min(horizontal[i], vertical[i]))
+        }
+        guard !widths.isEmpty else { return 0 }
+        widths.sort()
+        return Double(widths[widths.count / 2]) / Double(side)
+    }
 
     private static func flatten(_ image: CGImage, side: Int) -> [UInt8]? {
         let bytesPerRow = side * 4

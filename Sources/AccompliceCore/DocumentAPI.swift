@@ -892,6 +892,13 @@ public enum ModelPrompt {
         far; red beside grey means it sits to one side; grey with no red near it
         means you have missed something out entirely.
 
+        Read thickness there too, because it is the one error that looks like
+        every other one. Red down BOTH sides of a black line means your stroke is
+        too thick; a thin black line with grey down both sides of it means yours
+        is too thin. Fix strokeWidth before you move anything — a line of the
+        wrong weight scores badly from exactly the right place, and chasing that
+        with position is how a drawing gets worse.
+
         \(report)
 
         Fix the worst of it. Change what is wrong rather than starting over: move,

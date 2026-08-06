@@ -19,6 +19,10 @@ which is the one hard requirement. Everything below is a one-time setup.
       changes and all, then runs the suite over there.
 - [x] Checked the things that quietly break this: 73 GB free, a real framebuffer,
       sleep already disabled.
+- [x] Confirmed the copied binary runs. It currently hangs on `xcodebuild
+      -license check`, waiting for an agreement nobody can accept over SSH —
+      which is step 1 below, and the reason it has to be step 1. If any xcodebuild
+      command appears to hang forever before you've done that, this is why.
 
 ## What needs you, at the monitor
 
@@ -29,7 +33,8 @@ window to click in.
       Terminal on Burnie itself:
     - [ ] `ssh burnie@100.105.168.11`
     - [ ] `sudo xcode-select -s /Applications/Xcode.app`
-    - [ ] `sudo xcodebuild -license accept`
+    - [ ] `sudo xcodebuild -license accept` — do this before anything else asks
+          xcodebuild for anything, or it sits waiting on the licence forever.
     - [ ] `sudo xcodebuild -runFirstLaunch` — installs the bits Xcode downloads
           on first run. Takes a couple of minutes.
     - [ ] Check it took: `xcodebuild -version` should print `Xcode 26.6` instead
