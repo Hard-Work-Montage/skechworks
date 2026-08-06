@@ -105,7 +105,7 @@ enum AIDraw {
             // size for nothing.
             let asked = trimmed(messages)
             let turn: ModelTurn
-            if pass == 1, attempts > 1 {
+            if pass == 1, tier.attempts > 1 {
                 // The opening decides the whole structure and the cheap model is
                 // streaky at it — the same prompt scored 22% one run and 41% the
                 // next. Ask a few times at once and keep the best drawing rather
@@ -116,7 +116,7 @@ enum AIDraw {
                                              page: best, bounds: area, source: source,
                                              progress: progress)
             } else {
-                turn = try await connector.respond(to: asked, purpose: .trace).turn
+                turn = try await connector.respond(to: asked, purpose: tier).turn
             }
             if !turn.say.isEmpty { say = turn.say }
             // The first pass writes the parts list and later passes correct
@@ -206,17 +206,20 @@ enum AIDraw {
         return Outcome(layers: best.layers, score: bestScore, passes: used, say: say, scores: scores)
     }
 
-    /// How many times to ask for the opening drawing, keeping the best.
+    /// Which trace model to use, and with it how long to wait and how many
+    /// openings to draw.
     ///
-    /// The cheap model is wildly streaky at the opening and steady at nothing
-    /// else. Six runs of one prompt scored 28, 33, 38, 55, 57 and 61 — so which
-    /// drawing you get is mostly luck, and buying more luck is a penny a go.
+    /// `.trace` is Gemini Flash: eight seconds and a fifth of a cent, wildly
+    /// streaky — six runs of one prompt scored 28, 33, 38, 55, 57 and 61 — so
+    /// it draws five at once and keeps the best, which costs five cents and no
+    /// extra waiting.
     ///
-    /// Five rather than three because the wall clock doesn't move: they go at
-    /// once, and six concurrent calls came back in the nine seconds one takes.
-    /// Set this to 1 for a slow or expensive model, where neither of those
-    /// things is true.
-    static let attempts = 5
+    /// `.traceBest` is Fable: four minutes and 88 cents, and 73% against the
+    /// cheap model's 65. One opening, because five would be $4.40 and no
+    /// quicker than the slowest of them.
+    ///
+    /// One line, so switching tiers is one line.
+    static let tier: ModelConnector.Purpose = .traceBest
 
     /// Draws the opening `attempts` times over and returns whichever scored
     /// best. A failed attempt is ignored rather than fatal; only every one
@@ -228,9 +231,9 @@ enum AIDraw {
         var failure: Error?
 
         await withTaskGroup(of: Result<ModelTurn, Error>.self) { group in
-            for _ in 0..<attempts {
+            for _ in 0..<tier.attempts {
                 group.addTask {
-                    do { return .success(try await connector.respond(to: messages, purpose: .trace).turn) }
+                    do { return .success(try await connector.respond(to: messages, purpose: tier).turn) }
                     catch { return .failure(error) }
                 }
             }

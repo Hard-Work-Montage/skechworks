@@ -160,16 +160,34 @@ struct ModelConnector {
     /// right one is only worth paying for the job that needs it.
     enum Purpose: String {
         case chat
+        /// The everyday trace: a cheap, quick, streaky model.
         case trace
+        /// The good one, when the drawing matters more than the wait.
+        case traceBest = "trace_best"
 
-        /// How long to wait. A trace goes to a much stronger and much slower
-        /// model — a measured pass took 277 seconds against Sonnet's twenty —
-        /// and the old flat two minutes hung up on it every time, reporting a
-        /// model that was working perfectly well as unreachable.
+        /// How long to wait. The two trace models are three hundred seconds
+        /// apart — a Fable pass measured 277 — and a flat two minutes hung up
+        /// on it every time, reporting a model that was working perfectly well
+        /// as unreachable.
         var timeout: TimeInterval {
             switch self {
             case .chat: return 120
-            case .trace: return 420
+            case .trace: return 120
+            case .traceBest: return 420
+            }
+        }
+
+        /// How many openings to draw at once and pick between.
+        ///
+        /// Buying more rolls of the dice only makes sense when a roll is cheap
+        /// and quick. Five of the cheap model costs five cents and no extra
+        /// waiting; five of the expensive one would be $4.40 and no faster than
+        /// the slowest of them.
+        var attempts: Int {
+            switch self {
+            case .chat: return 1
+            case .trace: return 5
+            case .traceBest: return 1
             }
         }
     }
