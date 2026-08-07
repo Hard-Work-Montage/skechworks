@@ -522,17 +522,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ sender: NSApplication, open urls: [URL]) {
         pendingURLs.append(contentsOf: urls)
         flushPending()
-        // Mid-session opens that found no empty window each get their own. During
-        // launch the accounting in applicationDidFinishLaunching handles it — the
-        // initial window hasn't appeared yet, and requesting one here as well is
-        // a spare untitled tab waiting to happen.
-        if sessionRestoreComplete {
-            for _ in pendingURLs { newDocumentWindow() }
-        }
     }
 
     /// Hands queued work to empty windows only. A window showing a document keeps
     /// it — pending files never overwrite the tab you're looking at.
+    /// A window has been asked for and hasn't appeared yet, so the next thing
+    /// that can't be placed waits for it rather than asking again.
+    private var awaitingWindow = false
+
     private func flushPending() {
         while !pendingURLs.isEmpty {
             let next = pendingURLs[0]
@@ -545,7 +542,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
                 continue
             }
-            guard let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) else { break }
+            guard let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) else {
+                // Nothing to load into. Ask for a window and come back when it
+                // registers, rather than leaving the file queued forever — a
+                // document that never appears is indistinguishable from the app
+                // ignoring you, which is exactly what it looked like.
+                if !awaitingWindow {
+                    awaitingWindow = true
+                    newDocumentWindow()
+                }
+                return
+            }
+            awaitingWindow = false
             empty.open(pendingURLs.removeFirst())
             // Opening a file from Finder should put you in front of it. Without
             // this the document loaded into a tab behind whatever you were
