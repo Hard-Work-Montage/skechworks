@@ -4,6 +4,12 @@ import SwiftUI
 
 enum ChatRole { case user, assistant, error }
 
+/// Something worth money, waiting on a yes.
+struct PaidOffer {
+    var label: String
+    var run: @MainActor () -> Void
+}
+
 struct ChatMessage: Identifiable {
     let id = UUID()
     var role: ChatRole
@@ -21,6 +27,14 @@ struct ChatMessage: Identifiable {
     var nothingHappened = false
     var confirmPrompt = ""
     var awaitingConfirmation = false
+
+    /// An offer to spend money, which is never taken up on its own.
+    ///
+    /// Remove fills a hole from its surroundings for nothing, and grades what
+    /// it did. When the surroundings are too busy for that to be honest — a
+    /// photograph rather than flat artwork — it says so and leaves this behind
+    /// rather than quietly billing forty cents for the better answer.
+    var offer: PaidOffer?
 
     /// A tool working, rather than something said. Shows a spinner while it runs
     /// and keeps its log afterwards, which is the point: the canvas status line
@@ -130,6 +144,20 @@ final class ChatSession: ObservableObject {
         messages[i].applied = applied
         messages[i].appliedNoun = noun
         if failed { messages[i].role = .error }
+    }
+
+    /// Leaves a button in the transcript rather than spending on the person's
+    /// behalf. The last entry is the one that just explained why.
+    func offerPaidRemove(label: String, run: @escaping @MainActor () -> Void) {
+        guard let i = messages.indices.last else { return }
+        messages[i].offer = PaidOffer(label: label) { [weak self] in
+            // One press only: the offer goes as it is taken, so a second click
+            // on a stale button can't charge twice.
+            if let self, let j = self.messages.firstIndex(where: { $0.offer != nil }) {
+                self.messages[j].offer = nil
+            }
+            run()
+        }
     }
 
     func send(_ text: String, store: DocumentStore, settings: ModelConnector.Settings) {

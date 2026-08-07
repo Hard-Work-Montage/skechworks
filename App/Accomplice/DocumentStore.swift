@@ -1539,7 +1539,38 @@ final class DocumentStore: ObservableObject {
         status = "Box the thing that should go"
     }
 
-    func removeRegion(_ id: String, rect: CGRect) {
+    /// Puts new pixels on a bitmap layer, filed under a key of their own.
+    ///
+    /// Whatever comes back has the adjustments and the crop already baked in,
+    /// because that is what was sent out — leaving them set would apply them a
+    /// second time and the picture would darken a little every removal.
+    private func swapPixels(_ id: String, png: Data, actionName: String) {
+        guard let src = source else { return }
+        let key = "images/\(Zip.crc32(png))-\(png.count).png"
+        source = src.adding(image: png, key: key)
+        edit(id, actionName: actionName) { layer in
+            layer.kind = .bitmap(imageRef: key)
+            layer.brightness = 0
+            layer.contrast = 1
+            layer.saturation = 1
+            layer.cropRect = nil
+        }
+    }
+
+    /// Takes the boxed thing out of a picture.
+    ///
+    /// Does it here, for nothing, and shows you the answer. Most of what gets
+    /// boxed sits on flat artwork or a soft gradient, where continuing the
+    /// surroundings into the hole IS the right answer — a model spends two
+    /// minutes and forty cents arriving at the same place a shade off.
+    ///
+    /// The model is always one press away and never runs on its own. Grading
+    /// the local fill and gating on the grade was the first design, and it was
+    /// wrong twice over: the score can only see the ring around the box, so an
+    /// object poking out of the box by a few pixels reads as "too busy here"
+    /// even when the fill is perfect. You can just look at it. The grade is
+    /// worth saying out loud and not worth deciding on.
+    func removeRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
         guard rect.width > 1, rect.height > 1,
               let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref] else { return }
@@ -1561,6 +1592,40 @@ final class DocumentStore: ObservableObject {
                           width: rect.width / l.frame.width, height: rect.height / l.frame.height)
             .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         guard unit.width > 0.001, unit.height > 0.001 else { return }
+
+        let paid = String(format: "Use the model ($%.2f)", ModelConnector.removePrice)
+
+        if !usingModel {
+            let entry = chat.beginActivity("Remove")
+            let pixels = CGRect(x: unit.minX * CGFloat(baked.width),
+                                y: unit.minY * CGFloat(baked.height),
+                                width: unit.width * CGFloat(baked.width),
+                                height: unit.height * CGFloat(baked.height))
+            if let attempt = Heal.fill(baked, box: pixels), let png = Renderer.png(attempt.image) {
+                swapPixels(id, png: png, actionName: "Remove")
+                chat.note(entry, attempt.spread < 6
+                          ? "Everything around the box is one colour"
+                          : String(format: "The colour around the box moves by %.0f of 255",
+                                   attempt.spread))
+                chat.note(entry, String(format: "Continuing it inward is off by %.0f of 255 where I could check",
+                                        attempt.error))
+                chat.endActivity(entry, text: attempt.isTrusted
+                                 ? "Filled it in from what was around it. Nothing was sent anywhere."
+                                 : "Filled it in from what was around it, but it's busy here — look before you keep it.")
+                status = "Removed"
+                pixelSelectRect = nil
+            } else {
+                chat.endActivity(entry, text: "The box leaves nothing to fill from.")
+                status = "Box a smaller part of it"
+            }
+            // Always offered, never taken. Whether the local fill is good enough
+            // is something you can see and a number can't.
+            chat.offerPaidRemove(label: paid) { [weak self] in
+                self?.removeRegion(id, rect: rect, usingModel: true)
+            }
+            return
+        }
+
         var stopped = false
         let entry = chat.beginActivity("Remove") { [weak self] in
             stopped = true
@@ -1578,17 +1643,8 @@ final class DocumentStore: ObservableObject {
                     status = "Remove failed: unreadable image"
                     return
                 }
-                let key = "images/\(Zip.crc32(result.png))-\(result.png.count).png"
-                source = src.adding(image: result.png, key: key)
-                edit(id, actionName: "Remove") { layer in
-                    layer.kind = .bitmap(imageRef: key)
-                    // The reply has the adjustments and crop baked in; leaving
-                    // them on would apply them twice.
-                    layer.brightness = 0
-                    layer.contrast = 1
-                    layer.saturation = 1
-                    layer.cropRect = nil
-                }
+                _ = src
+                swapPixels(id, png: result.png, actionName: "Remove")
                 let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
                 chat.endActivity(entry, text: "Removed it" + left)
                 status = "Removed" + left

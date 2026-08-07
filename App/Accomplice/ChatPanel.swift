@@ -288,6 +288,12 @@ private struct MessageRow: View {
                            toggle: { withAnimation(.easeOut(duration: 0.15)) { showApplied.toggle() } },
                            symbol: "checkmark")
                 }
+                if let offer = message.offer {
+                    // Its own button, not the confirm bar above: that one is
+                    // about undoing a big edit, this one is about spending.
+                    Button(offer.label) { offer.run() }
+                        .controlSize(.small)
+                }
                 if message.nothingHappened {
                     Label("No changes were made", systemImage: "circle.slash")
                         .font(.caption).foregroundStyle(.orange)

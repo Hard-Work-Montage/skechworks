@@ -359,6 +359,13 @@ struct ModelConnector {
         return (svg, json["credits_remaining"] as? Double)
     }
 
+    /// What one Remove costs at the service, in dollars.
+    ///
+    /// A copy of the server's price, kept only so the button that spends it can
+    /// say what it spends. The server charges what the server charges; if the
+    /// two ever disagree the transcript prints the real balance afterwards.
+    static let removePrice = 0.40
+
     /// Tools ▸ Remove: a bitmap and the user's box go to the account service,
     /// the same image comes back with whatever the box marked painted out.
     /// The rect is in unit coordinates of the image.
