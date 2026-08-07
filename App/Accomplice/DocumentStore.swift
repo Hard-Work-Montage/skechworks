@@ -1893,15 +1893,33 @@ final class DocumentStore: ObservableObject {
             return l
         }
         guard !layers.isEmpty else { return }
+        var scratch = Page(name: "clip")
+        scratch.layers = layers
+
+        // Four ways of saying the same thing, best first, because a pasteboard is
+        // a negotiation: whoever receives it takes the first type it understands.
+        //
+        // Accomplice takes the native one and gets everything back. A vector
+        // program takes the SVG. Everything ELSE on the machine — a browser, Mail,
+        // Preview, a chat window — wants a bitmap, and without one it sees a
+        // string of SVG markup and reports that you pasted something that wasn't
+        // an image. That is the whole reason a copy out of here landed nowhere.
         let pb = NSPasteboard.general
         pb.clearContents()
-        // Native type for full fidelity; SVG alongside it so a shape can be pasted
-        // straight into another program.
+        pb.declareTypes([Self.pasteboardType, .png, .tiff, .string], owner: nil)
+
         if let d = try? AcmplcFile.encodeClipboard(layers: layers, images: images) {
             pb.setData(d, forType: Self.pasteboardType)
         }
-        var scratch = Page(name: "clip")
-        scratch.layers = layers
+        if let bitmap = Renderer(images: images, background: nil)
+            .render(page: scratch, maxDimension: 2048) {
+            if let png = Renderer.png(bitmap) { pb.setData(png, forType: .png) }
+            // TIFF as well: a few older Cocoa apps ask for nothing else.
+            let rep = NSBitmapImageRep(cgImage: bitmap)
+            if let tiff = rep.representation(using: .tiff, properties: [:]) {
+                pb.setData(tiff, forType: .tiff)
+            }
+        }
         pb.setString(SVGWriter(images: images).svg(page: scratch), forType: .string)
     }
 
@@ -2273,6 +2291,28 @@ final class DocumentStore: ObservableObject {
     static func isDocument(_ url: URL) -> Bool { DocumentKind.isDocument(url) }
 
     /// A dropped file: open documents, place everything else we can decode.
+    /// Image bytes that never had a file: a screenshot shelf, a drag off a web
+    /// page, a promise the sender resolved in memory.
+    ///
+    /// Normalised to PNG on the way in rather than trusted. What arrives is
+    /// whatever the sender had — TIFF as often as not — and the archive stores
+    /// assets under a .png name, so a TIFF filed as a PNG is a document that
+    /// opens fine here and confuses everything else that reads the zip.
+    func acceptDroppedImage(_ data: Data, name: String?) {
+        let png: Data
+        if let image = BitmapImage.load(data)?.image, let encoded = Renderer.png(image) {
+            png = encoded
+        } else {
+            png = data
+        }
+        let base = (name as NSString?)?.deletingPathExtension
+        guard placeImage(png, name: base?.isEmpty == false ? base! : "Dropped image") else {
+            status = "That image couldn't be read"
+            NSSound.beep()
+            return
+        }
+    }
+
     func acceptDropped(_ url: URL) {
         if Self.isDocument(url) { open(url); return }
         guard let data = try? Data(contentsOf: url),

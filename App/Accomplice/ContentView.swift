@@ -165,12 +165,26 @@ struct ContentView: View {
             // visible the first time you press it.
             showCommandBar.toggle()
         }
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+        // A file on disk is only one of the ways an image arrives. Arc's screenshot
+        // shelf, a drag out of Preview, an image dragged straight off a web page —
+        // none of those are a path, they are bytes, and accepting only .fileURL
+        // turned every one of them into a refused drop for no visible reason.
+        .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
             guard let p = providers.first else { return false }
-            // Documents open; images (and anything else decodable) get placed. Routing
-            // everything through open() meant dropping a photo destroyed the document.
-            _ = p.loadObject(ofClass: URL.self) { url, _ in
-                if let url { Task { @MainActor in store.acceptDropped(url) } }
+            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                // Documents open; images get placed. Routing everything through
+                // open() meant dropping a photo destroyed the document.
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    if let url { Task { @MainActor in store.acceptDropped(url) } }
+                }
+                return true
+            }
+            // Read the name out here: the provider itself must not cross into the
+            // completion handler's isolation.
+            let suggested = p.suggestedName
+            p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                guard let data else { return }
+                Task { @MainActor in store.acceptDroppedImage(data, name: suggested) }
             }
             return true
         }

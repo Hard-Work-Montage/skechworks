@@ -740,3 +740,64 @@ extension DocumentStoreTests {
         XCTAssertTrue(ModelConnector.Failure.notSignedIn.errorDescription?.contains("Accomplice") == true)
     }
 }
+
+extension DocumentStoreTests {
+
+    /// Copying has to hand the rest of the machine something it can read.
+    ///
+    /// The pasteboard carried the native format and SVG-as-a-string, which is
+    /// perfect for Accomplice and for a vector program and useless to everything
+    /// else: paste into a browser, Mail or Preview and you got "that wasn't an
+    /// image", because a string of SVG markup is exactly that.
+    func testCopyingPutsABitmapOnThePasteboardForOtherApps() throws {
+        var shape = Layer(kind: .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 80, height: 80),
+                                             transform: nil), closed: true))
+        shape.name = "Dot"
+        shape.frame = CGRect(x: 10, y: 10, width: 80, height: 80)
+        shape.style.fills = [Fill(paint: .color(Color(r: 1, g: 0, b: 0, a: 1)))]
+        var page = Page(name: "P")
+        page.layers = [shape]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        store.selection = [shape.id]
+
+        NSPasteboard.general.clearContents()
+        store.copySelection()
+
+        let pb = NSPasteboard.general
+        XCTAssertNotNil(pb.data(forType: DocumentStore.pasteboardType),
+                        "Accomplice's own format should still be there, and first")
+        XCTAssertNotNil(pb.string(forType: .string), "SVG should still be there for vector apps")
+
+        let png = try XCTUnwrap(pb.data(forType: .png), "a browser needs a bitmap, not markup")
+        XCTAssertEqual(Array(png.prefix(4)), [0x89, 0x50, 0x4E, 0x47], "not a PNG")
+        XCTAssertNotNil(pb.data(forType: .tiff), "some older Cocoa apps ask for nothing but TIFF")
+    }
+
+    /// Images arrive as bytes as often as they arrive as files — a screenshot
+    /// shelf, a drag off a web page — and those used to be refused outright.
+    func testAnImageDroppedAsBytesIsPlaced() throws {
+        var doc = Document()
+        doc.pages = [Page(name: "P")]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        store.source = DocumentSource.eager(doc, images: [:])
+
+        let ctx = CGContext(data: nil, width: 24, height: 24, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 24, height: 24))
+        let tiff = NSBitmapImageRep(cgImage: ctx.makeImage()!).representation(using: .tiff, properties: [:])!
+
+        store.acceptDroppedImage(tiff, name: "Screenshot 2026-08-07.tiff")
+        let placed = try XCTUnwrap(store.page?.layers.first)
+        XCTAssertEqual(placed.name, "Screenshot 2026-08-07", "the extension shouldn't stay in the name")
+        guard case .bitmap(let ref) = placed.kind else { return XCTFail("not a bitmap") }
+        // Stored as a PNG rather than filed under a .png name while holding TIFF.
+        let bytes = try XCTUnwrap(store.images[ref])
+        XCTAssertEqual(Array(bytes.prefix(4)), [0x89, 0x50, 0x4E, 0x47], "should be normalised to PNG")
+    }
+}
