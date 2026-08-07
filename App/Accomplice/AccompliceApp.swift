@@ -148,6 +148,8 @@ struct AccompliceApp: App {
                 Button("Difference") { AppDelegate.shared?.active?.combineSelection(.difference) }
                     .shortcut("difference")
                 Divider()
+                Button("Convert to Outlines") { AppDelegate.shared?.active?.convertToOutlines() }
+                    .keyboardShortcut("o", modifiers: [.command, .option])
                 Button("Flatten") { AppDelegate.shared?.active?.flattenSelection() }
                     .shortcut("flatten")
                 Divider()

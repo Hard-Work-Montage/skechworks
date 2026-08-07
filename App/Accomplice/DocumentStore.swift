@@ -1030,6 +1030,26 @@ final class DocumentStore: ObservableObject {
     }
 
     /// Replaces a combined shape with the single path it draws.
+    /// Path ▸ Convert to Outlines: a stroke becomes a shape.
+    ///
+    /// The reason it exists: a border is a way of painting a path, not a shape,
+    /// so Subtract sees a circle where you can see a ring — and punches a disc
+    /// out of the background instead of a hole. Converting first makes the ring
+    /// real geometry, and the boolean does what you meant.
+    func convertToOutlines() {
+        let ids = selection
+        guard !ids.isEmpty else { status = "Select a shape or some text first"; return }
+        var done = 0
+        mutatePage("Convert to Outlines") { page in
+            for id in ids where page.convertToOutlines(id) { done += 1 }
+        }
+        // Nothing to convert is worth saying: a shape with no border looks
+        // exactly like one whose conversion silently failed.
+        status = done == 0
+            ? "Nothing to outline — that needs a border or some text"
+            : "Outlined \(done) \(done == 1 ? "shape" : "shapes")"
+    }
+
     func flattenSelection() {
         let ids = selection
         mutatePage("Flatten") { page in
