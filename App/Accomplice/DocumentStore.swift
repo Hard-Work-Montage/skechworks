@@ -1096,12 +1096,24 @@ final class DocumentStore: ObservableObject {
             status = "Vectorize needs your Accomplice account — connect it in Settings ▸ Model"
             return
         }
+        // Reported into the chat, the same as AI Draw. It takes a minute or two
+        // and the status line says one thing and then forgets it — so when the
+        // result is wrong there's nothing left saying what was asked for.
+        var stopped = false
+        let entry = chat.beginActivity("Vectorize") { [weak self] in
+            stopped = true
+            self?.vectorizeTask?.cancel()
+        }
+        chat.note(entry, "Tracing \(l.name.isEmpty ? "the picture" : l.name) — a minute or two")
+        chat.note(entry, "Style: \(style)")
         status = "Vectorizing… this takes a minute or two"
         let frame = l.frame
-        Task { @MainActor in
+        vectorizeTask = Task { @MainActor in
             do {
                 let result = try await ModelConnector.vectorize(png: data, style: style)
+                chat.note(entry, "Traced. Tidying the paths it came back with…")
                 guard let svgData = result.svg.data(using: .utf8) else {
+                    chat.endActivity(entry, text: "Vectorize failed: unreadable SVG", failed: true)
                     status = "Vectorize failed: unreadable SVG"
                     return
                 }
@@ -1152,19 +1164,33 @@ final class DocumentStore: ObservableObject {
                     }
                 }
                 selection = [group.id]
-                if let left = result.remaining {
-                    status = "Vectorized · $\(String(format: "%.2f", left)) in credits left"
-                } else {
-                    status = "Vectorized"
-                }
+                let paths = kids.count == 1 ? "1 path" : "\(kids.count) paths"
+                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                chat.endActivity(entry, text: "Traced \(paths)" + left,
+                                 applied: kids.map { $0.name.isEmpty ? "(unnamed)" : $0.name },
+                                 noun: kids.count == 1 ? "path" : "paths")
+                status = "Vectorized" + left
+            } catch is CancellationError {
+                chat.endActivity(entry, text: "Stopped.")
+                status = "Vectorize stopped"
             } catch {
+                // A cancelled request comes back as a transport failure, so the
+                // flag decides which it was rather than blaming the network for
+                // someone pressing Stop.
+                if stopped {
+                    chat.endActivity(entry, text: "Stopped.")
+                    status = "Vectorize stopped"
+                    return
+                }
+                chat.endActivity(entry, text: error.localizedDescription, failed: true)
                 status = "Vectorize failed: \(error.localizedDescription)"
             }
         }
     }
 
-    /// The run in flight, so it can be stopped.
+    /// The runs in flight, so they can be stopped.
     private var aiDrawTask: Task<Void, Never>?
+    private var vectorizeTask: Task<Void, Never>?
 
     /// Takes back the empty board a stopped run left behind.
     ///
