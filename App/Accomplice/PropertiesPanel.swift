@@ -666,28 +666,20 @@ struct PropertiesPanel: View {
         }
     }
 
-    @State private var textDraft = ""
-    @FocusState private var textDraftFocused: Bool
-
     private func text(_ t: TextRun, _ layer: Layer) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Text")
-            // The string itself. Fireworks users change template text all day —
-            // this being read-only was the single biggest hole in the panel.
-            TextField("Text", text: $textDraft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...6)
-                .font(.callout)
-                .focused($textDraftFocused)
-                .onAppear { textDraft = t.string }
-                .onChange(of: t.string) { _, s in if !textDraftFocused { textDraft = s } }
-                .onSubmit { commitTextString(layer.id, t) }
-                .onChange(of: textDraftFocused) { _, f in
-                    if !f { commitTextString(layer.id, t) }
-                }
+            // No copy of the words here. Double-clicking types them where they
+            // sit, in the face and colour they are actually in, which is a
+            // better editor than a grey box in a side panel could ever be.
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
-                    fontPicker(t, layer)
+                    // The family gets the whole row. Squeezed into half of one
+                    // it truncated to "Fi…", which names nothing.
+                    fontPicker(t, layer).gridCellColumns(2)
+                }
+                GridRow {
+                    facePicker(t, layer)
                     editableText("Size", t.fontSize, layer) { run, v in
                         run.fontSize = max(1, v)
                     }
@@ -716,12 +708,6 @@ struct PropertiesPanel: View {
         }
     }
 
-    private func commitTextString(_ id: String, _ t: TextRun) {
-        let s = textDraft
-        guard s != t.string, !s.isEmpty else { return }
-        store.editText(id, "Edit Text") { $0.string = s }
-    }
-
     /// A number field that writes into the layer's text run.
     private func editableText(_ label: String, _ value: CGFloat, _ l: Layer,
                               apply: @escaping (inout TextRun, CGFloat) -> Void) -> some View {
@@ -733,15 +719,39 @@ struct PropertiesPanel: View {
     /// Every family installed, with the current one checked. A font a designer owns
     /// is a font they might use — no curated shortlist.
     private func fontPicker(_ t: TextRun, _ l: Layer) -> some View {
-        HStack(spacing: 5) {
+        let family = Faces.family(of: t.fontName)
+        return HStack(spacing: 5) {
             Text("Font")
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(width: FieldMetrics.labelWidth, alignment: .leading)
-            FontFamilyPicker(current: t.fontName) { fam in
-                store.editText(l.id, "Change Font") { $0.fontName = fam }
+            FontPopUp(choices: Faces.families(including: family), current: family) { picked in
+                // Keep the weight when the family changes. Going from Helvetica
+                // Bold to Futura and landing on Futura Regular loses something
+                // nobody asked to lose.
+                let want = Faces.face(of: t.fontName)
+                guard let name = Faces.member(matching: want, in: picked) else { return }
+                store.editText(l.id, "Change Font") { $0.fontName = name }
             }
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier("font-picker")
+        }
+    }
+
+    /// The cuts this family ships. Most have Regular, Italic, Bold, Bold Italic;
+    /// a display face may have exactly one, and it still gets a menu with that
+    /// one in it rather than nothing — the row shouldn't appear and disappear.
+    private func facePicker(_ t: TextRun, _ l: Layer) -> some View {
+        let family = Faces.family(of: t.fontName)
+        let faces = Faces.members(of: family, fallback: t.fontName)
+        return HStack(spacing: 5) {
+            Text("Style")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: FieldMetrics.labelWidth, alignment: .leading)
+            FontPopUp(choices: faces, current: t.fontName) { name in
+                store.editText(l.id, "Change Style") { $0.fontName = name }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("font-face-picker")
         }
     }
 
@@ -1145,7 +1155,93 @@ private struct NumberField: View {
 /// since Fireworks has shown fonts. An NSPopUpButton underneath, because
 /// SwiftUI's Menu ignores per-item fonts on macOS; symbol fonts whose names
 /// would render as dingbats fall back to the system face.
-private struct FontFamilyPicker: NSViewRepresentable {
+/// Font families and the cuts inside them.
+///
+/// A text run stores one name and the canvas draws that name, which is right —
+/// but it means "Helvetica" and "Helvetica Bold" are two unrelated strings as
+/// far as the document is concerned. The panel has to put them back together:
+/// which family is this, which cut of it, and what else does the family have.
+///
+/// Family names are not always usable as font names. Eveleth ships one member
+/// called "Eveleth Clean Regular" and nothing named "Eveleth" at all, so a
+/// picker that wrote the family straight into the run named a font that does
+/// not exist.
+@MainActor
+enum Faces {
+    struct Choice: Equatable {
+        var value: String
+        var label: String
+        /// The name to draw the label in, so a menu of fonts looks like fonts.
+        var preview: String?
+    }
+
+    /// The family a font name belongs to, or the name itself when the machine
+    /// hasn't got it — a document naming a font you lack should still say so.
+    static func family(of name: String) -> String {
+        NSFont(name: name, size: 12)?.familyName ?? name
+    }
+
+    /// What this cut is called: "Bold", "Clean Regular", and so on.
+    static func face(of name: String) -> String {
+        members(of: family(of: name), fallback: name)
+            .first { $0.value == name }?.label ?? "Regular"
+    }
+
+    /// Three hundred families, built once. The properties panel re-renders on
+    /// every selection and every drag, and asking AppKit for the whole list and
+    /// mapping it each time made a menu nobody opened the most expensive thing
+    /// on screen.
+    private static let installed: [Choice] = NSFontManager.shared.availableFontFamilies
+        .map { Choice(value: $0, label: $0, preview: $0) }
+
+    static func families(including current: String) -> [Choice] {
+        // A missing font still has to be selectable, or the popup shows the
+        // first family in the list and the panel lies about the document.
+        guard !installed.contains(where: { $0.value == current }) else { return installed }
+        return (installed + [Choice(value: current, label: current, preview: nil)])
+            .sorted { $0.label < $1.label }
+    }
+
+    /// Likewise per family: the face list is asked for on every render of the
+    /// row, and it only changes when a font is installed.
+    private static var cachedMembers: [String: [Choice]] = [:]
+
+    /// availableMembers gives [postScriptName, faceName, weight, traits] per cut.
+    static func members(of family: String, fallback: String) -> [Choice] {
+        if let hit = cachedMembers[family] {
+            return hit.isEmpty ? [Choice(value: fallback, label: "Regular", preview: nil)] : hit
+        }
+        let raw = NSFontManager.shared.availableMembers(ofFontFamily: family) ?? []
+        let choices = raw.compactMap { m -> Choice? in
+            guard m.count >= 2, let name = m[0] as? String, let label = m[1] as? String
+            else { return nil }
+            return Choice(value: name, label: label, preview: name)
+        }
+        cachedMembers[family] = choices
+        return choices.isEmpty ? [Choice(value: fallback, label: "Regular", preview: nil)] : choices
+    }
+
+    /// The cut of `family` closest to one called `face`.
+    ///
+    /// By name first, because "Bold" means the same thing in both families. When
+    /// there is no such cut, whatever the family calls plain, and failing that
+    /// its first — never nothing, since the family was just chosen and has to
+    /// end up selected.
+    static func member(matching face: String, in family: String) -> String? {
+        let all = members(of: family, fallback: family)
+        if let exact = all.first(where: { $0.label.caseInsensitiveCompare(face) == .orderedSame }) {
+            return exact.value
+        }
+        if let plain = all.first(where: { $0.label.caseInsensitiveCompare("Regular") == .orderedSame }) {
+            return plain.value
+        }
+        return all.first?.value
+    }
+}
+
+/// A popup of fonts, each item shown in the font it names.
+private struct FontPopUp: NSViewRepresentable {
+    var choices: [Faces.Choice]
     var current: String
     var onPick: (String) -> Void
 
@@ -1157,23 +1253,37 @@ private struct FontFamilyPicker: NSViewRepresentable {
         button.font = NSFont.systemFont(ofSize: 12)
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let menu = NSMenu()
-        for fam in NSFontManager.shared.availableFontFamilies {
-            let item = NSMenuItem(title: fam, action: nil, keyEquivalent: "")
-            if let f = NSFont(name: fam, size: 13) {
-                item.attributedTitle = NSAttributedString(string: fam, attributes: [.font: f])
-            }
-            menu.addItem(item)
-        }
-        button.menu = menu
         return button
     }
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         context.coordinator.onPick = onPick
-        button.selectItem(withTitle: current)
-        // A font the document names but the machine lacks still shows its name.
-        if button.titleOfSelectedItem != current { button.setTitle(current) }
+        // Rebuilt only when the list really changed. Choosing a family changes
+        // the face list under it, and rebuilding on every pass would close the
+        // menu out from under a click.
+        if context.coordinator.choices.count != choices.count
+            || context.coordinator.choices.first != choices.first {
+            context.coordinator.choices = choices
+            let menu = NSMenu()
+            for c in choices {
+                let item = NSMenuItem(title: c.label, action: nil, keyEquivalent: "")
+                item.representedObject = c.value
+                if let preview = c.preview, let f = NSFont(name: preview, size: 13) {
+                    item.attributedTitle = NSAttributedString(string: c.label, attributes: [.font: f])
+                }
+                menu.addItem(item)
+            }
+            button.menu = menu
+        }
+        let wanted = button.menu?.items.firstIndex { $0.representedObject as? String == current }
+        if let wanted {
+            button.selectItem(at: wanted)
+        } else if let first = choices.first {
+            // Nothing matched, which means the run names a cut this family
+            // doesn't have. Show the family's own first rather than whatever
+            // item happens to be selected.
+            button.selectItem(withTitle: first.label)
+        }
     }
 
     /// SwiftUI sizes a representable from the view's intrinsic size, and a
@@ -1189,9 +1299,10 @@ private struct FontFamilyPicker: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         var onPick: (String) -> Void
+        var choices: [Faces.Choice] = []
         init(onPick: @escaping (String) -> Void) { self.onPick = onPick }
         @objc func picked(_ sender: NSPopUpButton) {
-            if let choice = sender.titleOfSelectedItem { onPick(choice) }
+            if let value = sender.selectedItem?.representedObject as? String { onPick(value) }
         }
     }
 }
