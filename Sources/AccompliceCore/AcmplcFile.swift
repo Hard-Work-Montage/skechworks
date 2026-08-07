@@ -143,6 +143,20 @@ public struct AcmplcFile {
     public static let suffix = "acmplc.png"
 
     /// The name without the compound extension: "Coin.acmplc.png" -> "Coin".
+    /// Whether a file was IMPORTED rather than opened as our own document.
+    ///
+    /// An import is a starting point, not a file to be written back to. Saving
+    /// our model into something still named .sketch or .svg makes a file whose
+    /// extension lies about what's in it, and does it by replacing the original.
+    /// The answer is a Save As, every time, and this is the list that decides.
+    public static func isImportedFormat(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        // An .acmplc.png is ours even though it ends in .png.
+        if name.hasSuffix(".acmplc.png") { return false }
+        return [ "sketch", "svg", "fig", "ai", "eps", "pdf" ]
+            .contains(url.pathExtension.lowercased())
+    }
+
     public static func baseName(_ name: String) -> String {
         var base = name
         if base.lowercased().hasSuffix("." + suffix) {

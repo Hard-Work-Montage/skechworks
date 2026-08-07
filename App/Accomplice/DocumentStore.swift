@@ -323,9 +323,15 @@ final class DocumentStore: ObservableObject {
                 // Imported SVG can't carry everything; say what was left out rather
                 // than letting it look like a faithful import.
                 if !notes.isEmpty { self.fontWarnings = notes.map { ("Import", $0) } }
-                // An imported SVG or plain image has no .acmplc.png behind it yet —
-                // saving must ask where, never overwrite the original in place.
-                if url.pathExtension.lowercased() == "svg" || importedImage {
+                // Anything that wasn't already an Accomplice document has no
+                // .acmplc.png behind it, so saving must ask where rather than
+                // write back over what was opened.
+                //
+                // A .sketch especially. Saving Accomplice's model into a file
+                // still called .sketch produces something Sketch can't read and
+                // this app can, sitting under a name that promises the opposite
+                // — and it would have replaced the original to do it.
+                if AcmplcFile.isImportedFormat(url) || importedImage {
                     self.url = nil
                     self.isDirty = true
                 }
