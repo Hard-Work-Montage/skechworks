@@ -378,6 +378,15 @@ final class DocumentStore: ObservableObject {
     // MARK: - Editing
 
     let undoManager = UndoManager()
+    /// A blank slate: no file behind it and nothing drawn on it, so a document
+    /// can be loaded here without destroying anything.
+    ///
+    /// Every way of opening a file has to agree on this, and they didn't. The
+    /// Finder path checked it, Open Recent checked something looser, and File ▸
+    /// Open didn't check at all — which is how opening comic 02 threw away the
+    /// window showing comic 01.
+    var isVacant: Bool { url == nil && !isDirty }
+
     @Published var isDirty = false {
         // The whole autosave contract in one place: dirty work schedules a recovery
         // snapshot, and anything that makes the document clean — a save, Don't Save,
@@ -2626,7 +2635,10 @@ final class DocumentStore: ObservableObject {
         p.canChooseDirectories = false
         p.allowsMultipleSelection = false
         p.message = "Open an Accomplice document (.acmplc.png) or a Sketch file"
-        if p.runModal() == .OK, let u = p.url { open(u) }
+        guard p.runModal() == .OK, let u = p.url else { return }
+        // Open opens a document. It has no business closing one, and replacing
+        // what this window is showing is closing one.
+        if isVacant { open(u) } else { AppDelegate.shared?.openInNewWindow(u) }
     }
 
     // MARK: - Export

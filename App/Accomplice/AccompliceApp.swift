@@ -53,14 +53,7 @@ struct AccompliceApp: App {
                 Menu("Open Recent") {
                     ForEach(recents.urls, id: \.self) { url in
                         Button(url.lastPathComponent) {
-                            if let store = AppDelegate.shared?.active,
-                               store.source != nil, store.url != nil {
-                                // A window already holding a document gets a new tab
-                                // rather than having its contents replaced.
-                                AppDelegate.shared?.openInNewWindow(url)
-                            } else {
-                                AppDelegate.shared?.active?.open(url)
-                            }
+                            AppDelegate.shared?.openSomewhere(url)
                         }
                     }
                     if !recents.urls.isEmpty {
@@ -336,7 +329,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// whatever is already open alone.
     func openInNewWindow(_ url: URL) {
         pendingURLs.append(url)
-        newDocumentWindow()
+        // Through the queue rather than straight to a new window, so this gets
+        // the same two checks Finder opens get: a file already open comes
+        // forward instead of opening twice, and an empty tab elsewhere is used
+        // before another one is minted.
+        flushPending()
+    }
+
+    /// Puts a document on screen without taking one off. The window in front
+    /// takes it only if it is a blank slate; otherwise the file gets its own
+    /// tab. Every menu that opens something goes through here.
+    func openSomewhere(_ url: URL) {
+        if let store = active, store.isVacant {
+            store.open(url)
+        } else {
+            openInNewWindow(url)
+        }
     }
 
     override init() {
@@ -542,7 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.activate(ignoringOtherApps: true)
                 continue
             }
-            guard let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) else {
+            guard let empty = stores.last(where: \.isVacant) else {
                 // Nothing to load into. Ask for a window and come back when it
                 // registers, rather than leaving the file queued forever — a
                 // document that never appears is indistinguishable from the app
@@ -564,7 +572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // One recovery per fresh window: only an untitled, untouched window takes
         // one — never a document mid-edit.
         while !pendingRecoveries.isEmpty,
-              let empty = stores.last(where: { $0.url == nil && !$0.isDirty }) {
+              let empty = stores.last(where: \.isVacant) {
             empty.restoreFromRecovery(pendingRecoveries.removeFirst())
         }
     }
