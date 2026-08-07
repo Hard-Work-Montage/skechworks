@@ -1199,6 +1199,7 @@ final class DocumentStore: ObservableObject {
     /// The runs in flight, so they can be stopped.
     private var aiDrawTask: Task<Void, Never>?
     private var vectorizeTask: Task<Void, Never>?
+    private var removeTask: Task<Void, Never>?
 
     /// Takes back the empty board a stopped run left behind.
     ///
@@ -1523,6 +1524,21 @@ final class DocumentStore: ObservableObject {
     /// with the whole image; the service works out what the box means to remove
     /// and sends the image back with it painted out. Only the boxed region can
     /// change, so the swap is safe to drop straight over the old pixels.
+    /// Tools ▸ Remove. Acts on the box already drawn on a picture; failing that,
+    /// arms the tool so the next drag draws one.
+    ///
+    /// Double-clicking into a bitmap puts the canvas in pixel-select, which
+    /// swallows every drag — so picking Remove and dragging did nothing at all,
+    /// because the box never reached the tool.
+    func beginRemove() {
+        if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
+            removeRegion(id, rect: rect)
+            return
+        }
+        tool = .remove
+        status = "Box the thing that should go"
+    }
+
     func removeRegion(_ id: String, rect: CGRect) {
         guard rect.width > 1, rect.height > 1,
               let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
@@ -1545,11 +1561,20 @@ final class DocumentStore: ObservableObject {
                           width: rect.width / l.frame.width, height: rect.height / l.frame.height)
             .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         guard unit.width > 0.001, unit.height > 0.001 else { return }
+        var stopped = false
+        let entry = chat.beginActivity("Remove") { [weak self] in
+            stopped = true
+            self?.removeTask?.cancel()
+        }
+        chat.note(entry, "Taking a piece out of \(l.name.isEmpty ? "the picture" : l.name) — a minute or two")
+        chat.note(entry, String(format: "The box covers %.0f%% of it", Double(unit.width * unit.height) * 100))
         status = "Removing… this takes a minute or two"
-        Task { @MainActor in
+        removeTask = Task { @MainActor in
             do {
                 let result = try await ModelConnector.remove(png: data, rect: unit)
+                chat.note(entry, "Filled in. Putting it back on the canvas…")
                 guard let src = source, BitmapImage.load(result.png) != nil else {
+                    chat.endActivity(entry, text: "Remove failed: unreadable image", failed: true)
                     status = "Remove failed: unreadable image"
                     return
                 }
@@ -1564,12 +1589,22 @@ final class DocumentStore: ObservableObject {
                     layer.saturation = 1
                     layer.cropRect = nil
                 }
-                if let left = result.remaining {
-                    status = "Removed · $\(String(format: "%.2f", left)) in credits left"
-                } else {
-                    status = "Removed"
-                }
+                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                chat.endActivity(entry, text: "Removed it" + left)
+                status = "Removed" + left
+                // The box has been used; leaving it standing invites a second
+                // removal of a region that isn't there any more.
+                pixelSelectRect = nil
+            } catch is CancellationError {
+                chat.endActivity(entry, text: "Stopped.")
+                status = "Remove stopped"
             } catch {
+                if stopped {
+                    chat.endActivity(entry, text: "Stopped.")
+                    status = "Remove stopped"
+                    return
+                }
+                chat.endActivity(entry, text: error.localizedDescription, failed: true)
                 status = "Remove failed: \(error.localizedDescription)"
             }
         }

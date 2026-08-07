@@ -216,7 +216,7 @@ struct AccompliceApp: App {
                 Divider()
                 // The two that call a model, set apart the way Adam asked.
                 Section("AI Tools") {
-                    Button("Remove") { AppDelegate.shared?.active?.tool = .remove }
+                    Button("Remove") { AppDelegate.shared?.active?.beginRemove() }
                     Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }
                 }
