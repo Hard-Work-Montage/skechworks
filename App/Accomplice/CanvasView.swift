@@ -343,6 +343,12 @@ final class PageCanvas: NSView {
     /// for no reason.
     private var snapTargets: [CGRect] = []
     private var marqueeing = false
+    /// The rubber band is picking POINTS on the path being edited, not layers.
+    ///
+    /// Same band, same drag, different catch. Inside a path, layers are not what
+    /// anyone is reaching for, and picking a run of points one shift-click at a
+    /// time is the sort of thing a person gives up on.
+    private var marqueeingPoints = false
 
     /// Which resize handle is being dragged, if any.
     ///
@@ -1839,6 +1845,17 @@ final class PageCanvas: NSView {
             }
         }
 
+        // Editing a path and pressing where no point or handle is: band-select
+        // points. Shift adds to what's already picked, matching the layer band
+        // above it and every other selection in the app.
+        if editPath != nil, !isOnPointOrHandle(p) {
+            marqueeingPoints = true
+            marqueeing = true
+            if !extend { selectedPoints = [] }
+            pressExtended = extend
+            return
+        }
+
         if rotateCornerUnder(p) != nil, let r = selectionBounds {
             let centre = CGPoint(x: r.midX, y: r.midY)
             rotating = (centre, atan2(p.y - centre.y, p.x - centre.x))
@@ -2381,10 +2398,24 @@ final class PageCanvas: NSView {
         }
         if marqueeing {
             marqueeing = false
-            if let m = marquee, m.width > 2, m.height > 2 {
+            let band = marquee
+            marquee = nil
+            if marqueeingPoints {
+                marqueeingPoints = false
+                if let m = band, let vp = editPath, m.width > 2, m.height > 2 {
+                    let caught = vp.points.enumerated()
+                        .filter { m.contains($0.element.point) }.map(\.offset)
+                    // A band that catches nothing means "start again", not "keep
+                    // what you had" — the same as dragging one on a blank canvas.
+                    selectedPoints = pressExtended ? selectedPoints.union(caught) : Set(caught)
+                    lastTouchedPoint = selectedPoints.sorted().first
+                }
+                needsDisplay = true
+                return
+            }
+            if let m = band, m.width > 2, m.height > 2 {
                 onMarquee?(m, event.modifierFlags.contains(.shift))
             }
-            marquee = nil
             needsDisplay = true
             return
         }

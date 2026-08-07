@@ -127,6 +127,19 @@ public struct VectorPath: Sendable {
     public init(cgPath: CGPath) {
         var pts: [VectorPoint] = []
         var isClosed = false
+
+        /// A control point sitting on its own anchor is not a handle.
+        ///
+        /// Every curve segment carries two controls, and a straight point next to
+        /// a curved one contributes its own position as one of them. Read back
+        /// literally, that point comes out of the round trip holding a
+        /// zero-length handle — invisible, on top of the anchor, and first in
+        /// line for the pointer, because handles are hit-tested before anchors.
+        /// So a point set straight could be seen but not grabbed: the drag took
+        /// the handle every time.
+        func real(_ control: CGPoint, _ anchor: CGPoint) -> Bool {
+            abs(control.x - anchor.x) > 0.001 || abs(control.y - anchor.y) > 0.001
+        }
         cgPath.applyWithBlock { e in
             let p = e.pointee.points
             switch e.pointee.type {
@@ -135,13 +148,15 @@ public struct VectorPath: Sendable {
             case .addLineToPoint:
                 pts.append(VectorPoint(p[0]))
             case .addCurveToPoint:
-                if !pts.isEmpty {
+                if !pts.isEmpty, real(p[0], pts[pts.count - 1].point) {
                     pts[pts.count - 1].curveFrom = p[0]
                     pts[pts.count - 1].hasCurveFrom = true
                 }
                 var next = VectorPoint(p[2])
-                next.curveTo = p[1]
-                next.hasCurveTo = true
+                if real(p[1], p[2]) {
+                    next.curveTo = p[1]
+                    next.hasCurveTo = true
+                }
                 pts.append(next)
             case .addQuadCurveToPoint:
                 // Quadratic -> cubic: controls sit two-thirds of the way to the quad's.
@@ -150,11 +165,15 @@ public struct VectorPath: Sendable {
                                  y: last.point.y + 2.0 / 3 * (p[0].y - last.point.y))
                 let c2 = CGPoint(x: p[1].x + 2.0 / 3 * (p[0].x - p[1].x),
                                  y: p[1].y + 2.0 / 3 * (p[0].y - p[1].y))
-                pts[pts.count - 1].curveFrom = c1
-                pts[pts.count - 1].hasCurveFrom = true
+                if real(c1, last.point) {
+                    pts[pts.count - 1].curveFrom = c1
+                    pts[pts.count - 1].hasCurveFrom = true
+                }
                 var next = VectorPoint(p[1])
-                next.curveTo = c2
-                next.hasCurveTo = true
+                if real(c2, p[1]) {
+                    next.curveTo = c2
+                    next.hasCurveTo = true
+                }
                 pts.append(next)
             case .closeSubpath:
                 isClosed = true
