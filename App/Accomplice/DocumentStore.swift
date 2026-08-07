@@ -272,6 +272,15 @@ final class DocumentStore: ObservableObject {
                         } catch {
                             failure = "\(error)"
                         }
+                    } else if ext == "fig" {
+                        var reader = FigReader()
+                        do {
+                            let doc = try reader.read(url: url)
+                            made = DocumentSource.eager(doc, images: reader.images)
+                            notes = reader.warnings
+                        } catch {
+                            failure = "\(error)"
+                        }
                     } else if let data = try? Data(contentsOf: url),
                               let bitmap = BitmapImage.load(data) {
                         // A plain image: open it as a picture on the canvas, at its

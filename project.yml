@@ -92,6 +92,11 @@ targets:
             LSHandlerRank: Alternate
             CFBundleTypeExtensions:
               - sketch
+          - CFBundleTypeName: Figma Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            CFBundleTypeExtensions:
+              - fig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
