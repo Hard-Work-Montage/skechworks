@@ -157,7 +157,9 @@ public enum Zip {
         Data([UInt8(v & 0xff), UInt8((v >> 8) & 0xff), UInt8((v >> 16) & 0xff), UInt8((v >> 24) & 0xff)])
     }
 
-    private static func inflate(_ src: Data, expected: Int) -> Data? {
+    /// Raw DEFLATE, no zlib wrapper. Shared with the Figma reader, whose chunks
+    /// are deflated the same way a zip entry is.
+    static func inflate(_ src: Data, expected: Int) -> Data? {
         if src.isEmpty { return Data() }
         // Generous headroom: `expected` can be 0 when a writer used a data descriptor.
         var cap = max(expected, src.count * 8) + 8192
