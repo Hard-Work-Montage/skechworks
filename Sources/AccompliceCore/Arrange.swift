@@ -186,12 +186,33 @@ extension Page {
                 if ls[i].id == id {
                     // An empty group ungroups to nothing: the shell goes. Skipping
                     // them left husks that "ungroup everything" could never clear.
-                    guard case .group(let kids) = ls[i].kind else { return true }
+                    //
+                    // A boolean group comes apart the same way. Union and
+                    // Subtract are groups with a rule attached, and leaving them
+                    // out meant Ungroup was in the menu, did nothing, and said
+                    // nothing — so a subtract you wanted to adjust was a subtract
+                    // you had to undo your way back out of.
+                    let kids: [Layer]
+                    let wasBoolean: Bool
+                    switch ls[i].kind {
+                    case .group(let k): kids = k; wasBoolean = false
+                    case .shapeGroup(let k, _): kids = k; wasBoolean = true
+                    default: return true
+                    }
                     let origin = ls[i].frame.origin
+                    // A boolean group paints the combined shape, so its members
+                    // often carry no fill of their own. Released as they stand
+                    // they'd come back invisible, which looks like Ungroup having
+                    // deleted them.
+                    let style = ls[i].style
                     let promoted = kids.map { child -> Layer in
                         var c = child
                         c.frame.origin = CGPoint(x: c.frame.minX + origin.x,
                                                  y: c.frame.minY + origin.y)
+                        if wasBoolean, c.style.fills.isEmpty, c.style.borders.isEmpty {
+                            c.style.fills = style.fills
+                            c.style.borders = style.borders
+                        }
                         return c
                     }
                     freed = promoted.map(\.id)
