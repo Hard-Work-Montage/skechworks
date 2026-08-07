@@ -672,38 +672,39 @@ struct PropertiesPanel: View {
             // No copy of the words here. Double-clicking types them where they
             // sit, in the face and colour they are actually in, which is a
             // better editor than a grey box in a side panel could ever be.
+            // Both menus take a whole row. Half a row truncates a family to
+            // "Fi…" and a style to "Se…", and a menu you have to open to read
+            // is not telling you anything. The numbers pair up underneath, and
+            // Line rides alongside the alignment buttons, which are the only
+            // other thing here of a fixed width.
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow { fontPicker(t, layer).gridCellColumns(2) }
+                GridRow { facePicker(t, layer).gridCellColumns(2) }
                 GridRow {
-                    // The family gets the whole row. Squeezed into half of one
-                    // it truncated to "Fi…", which names nothing.
-                    fontPicker(t, layer).gridCellColumns(2)
-                }
-                GridRow {
-                    facePicker(t, layer)
                     editableText("Size", t.fontSize, layer) { run, v in
                         run.fontSize = max(1, v)
                     }
+                    editableText("Kern", t.kerning, layer) { run, v in run.kerning = v }
                 }
                 GridRow {
-                    editableText("Kern", t.kerning, layer) { run, v in run.kerning = v }
+                    Picker("", selection: Binding(
+                        get: { alignIndex(t) },
+                        set: { i in
+                            let all: [CTTextAlignment] = [.left, .right, .center, .justified]
+                            store.editText(layer.id, "Align Text") { $0.alignment = all[i] }
+                        }
+                    )) {
+                        Image(systemName: "text.alignleft").tag(0)
+                        Image(systemName: "text.aligncenter").tag(2)
+                        Image(systemName: "text.alignright").tag(1)
+                        Image(systemName: "text.justify").tag(3)
+                    }
+                    .labelsHidden().pickerStyle(.segmented)
                     editableText("Line", t.lineHeight, layer) { run, v in
                         run.lineHeight = max(0, v)
                     }
                 }
             }
-            Picker("", selection: Binding(
-                get: { alignIndex(t) },
-                set: { i in
-                    let all: [CTTextAlignment] = [.left, .right, .center, .justified]
-                    store.editText(layer.id, "Align Text") { $0.alignment = all[i] }
-                }
-            )) {
-                Image(systemName: "text.alignleft").tag(0)
-                Image(systemName: "text.aligncenter").tag(2)
-                Image(systemName: "text.alignright").tag(1)
-                Image(systemName: "text.justify").tag(3)
-            }
-            .labelsHidden().pickerStyle(.segmented)
             curve(t, layer)
         }
     }
