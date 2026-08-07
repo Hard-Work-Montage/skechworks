@@ -1,0 +1,8 @@
+// Written out rather than left to SwiftPM, because two build systems have to
+// agree on it: SwiftPM makes CZstd a target of its own, while the Xcode project
+// compiles the same C straight into the framework. One map, one module name,
+// one import that works in both.
+module CZstd {
+    header "CZstd.h"
+    export *
+}

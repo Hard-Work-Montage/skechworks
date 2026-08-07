@@ -1,5 +1,20 @@
 import Foundation
 
+/// zstd's two entry points, named rather than imported.
+///
+/// The decompressor is compiled into this framework by Xcode and built as a
+/// separate C module by SwiftPM. Importing it works in one and not the other,
+/// and making a framework re-export someone else's Clang module to call two
+/// functions is a lot of build system for very little. Naming the symbols links
+/// the same way under both, and a signature that didn't match upstream would
+/// fail at link time rather than quietly.
+@_silgen_name("ZSTD_decompress")
+private func zstd_decompress(_ dst: UnsafeMutableRawPointer?, _ dstCapacity: Int,
+                             _ src: UnsafeRawPointer?, _ srcSize: Int) -> UInt
+
+@_silgen_name("ZSTD_getFrameContentSize")
+private func zstd_contentSize(_ src: UnsafeRawPointer?, _ srcSize: Int) -> UInt64
+
 /// Unpacking a Figma document far enough to read it.
 ///
 /// A .fig is a header, then a run of deflated chunks. The FIRST chunk is the
@@ -29,7 +44,7 @@ public enum FigFile {
             case .notAFigmaFile: return "That isn't a Figma file."
             case .noDocument: return "The Figma file has no document in it."
             case .needsZstd:
-                return "This Figma file is compressed with zstd, which this build can't read yet."
+                return "This Figma file is compressed in a way that couldn't be read."
             }
         }
     }
@@ -59,9 +74,14 @@ public enum FigFile {
             guard size >= 0, i + size <= data.endIndex else { break }
             let piece = data.subdata(in: i..<(i + size))
             i += size
-            if isZstd(piece) { throw Failure.needsZstd }
-            // The schema chunk is deflated; blobs later on may not be.
-            chunks.append(Zip.inflate(piece, expected: size * 8) ?? piece)
+            // Figma deflates the schema and zstd-compresses the document, so
+            // both live in the same run of chunks and each says which it is.
+            if isZstd(piece) {
+                guard let out = unzstd(piece) else { throw Failure.needsZstd }
+                chunks.append(out)
+            } else {
+                chunks.append(Zip.inflate(piece, expected: size * 8) ?? piece)
+            }
         }
 
         guard chunks.count >= 2 else { throw Failure.noDocument }
@@ -85,6 +105,40 @@ public enum FigFile {
         }
         if let canvas = entries["canvas.fig"] { return canvas }
         throw Failure.notAFigmaFile
+    }
+
+    /// Decompresses a zstd frame.
+    ///
+    /// The frame usually declares its own size, which makes this one allocation
+    /// and one call. When it doesn't — a stream written without knowing the
+    /// total — the size comes back as unknown and the buffer is grown instead
+    /// of trusting a number that isn't there.
+    static func unzstd(_ src: Data) -> Data? {
+        let declared = src.withUnsafeBytes { zstd_contentSize($0.baseAddress, src.count) }
+        let unknown = UInt64.max                    // ZSTD_CONTENTSIZE_UNKNOWN
+        let bad = UInt64.max - 1                    // ZSTD_CONTENTSIZE_ERROR
+        if declared == bad { return nil }
+
+        var capacity = declared == unknown ? max(src.count * 8, 1 << 16) : Int(declared)
+        for _ in 0..<6 {
+            var out = Data(count: capacity)
+            let written = out.withUnsafeMutableBytes { d -> Int in
+                src.withUnsafeBytes { s -> Int in
+                    // zstd reports errors as enormous unsigned values, so this
+                    // is compared as a size, never converted to a signed count
+                    // and hoped about.
+                    let n = zstd_decompress(d.baseAddress, capacity, s.baseAddress, src.count)
+                    return n <= UInt(capacity) ? Int(n) : -1
+                }
+            }
+            if written >= 0 {
+                out.count = written
+                return out
+            }
+            guard declared == unknown else { return nil }
+            capacity *= 4
+        }
+        return nil
     }
 
     private static func u32(_ d: Data, at i: Int) -> UInt32 {

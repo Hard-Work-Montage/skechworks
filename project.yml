@@ -14,10 +14,20 @@ targets:
     platform: macOS
     sources:
       - path: Sources/AccompliceCore
+      # zstd travels inside the framework rather than as a target of its own.
+      # SwiftPM builds it as a separate C module; Xcode compiles the same C into
+      # this framework and reaches it through the bridging header below, so both
+      # front ends get one copy of one decompressor.
+      - path: Sources/CZstd
+        excludes:
+          - "include/**"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.AccompliceCore
         SWIFT_VERSION: "6.0"
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/Sources/CZstd/lib $(SRCROOT)/Sources/CZstd/lib/common $(SRCROOT)/Sources/CZstd/include"
+        GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) ZSTD_DISABLE_ASM=1"
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Sources/CZstd/include"
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
         GENERATE_INFOPLIST_FILE: YES
