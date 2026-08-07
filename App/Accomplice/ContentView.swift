@@ -179,6 +179,13 @@ struct ContentView: View {
     /// Properties over chat, split vertically — the same shape as pages over layers on
     /// the left. A separate inspector column made four panels, which is one more than
     /// any of them deserved.
+    /// Folded away, the conversation is a title bar. Remembered between
+    /// launches: someone who works with it shut wants it shut tomorrow too.
+    @AppStorage("chatCollapsed") private var chatCollapsed = false
+
+    /// railHeader's own height: 12pt semibold on 10 above and 6 below.
+    private var headerHeight: CGFloat { 31 }
+
     private var rightRail: some View {
         Group {
             if showCommandBar {
@@ -192,6 +199,18 @@ struct ContentView: View {
                         // notes when it matters.
                         railHeader("Accomplice Chat", count: nil, help: "Using \(chatModel)") {
                             Button {
+                                withAnimation(.easeOut(duration: 0.15)) { chatCollapsed.toggle() }
+                            } label: {
+                                Image(systemName: chatCollapsed ? "plus" : "minus")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .frame(width: 13, height: 13)
+                                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help(chatCollapsed ? "Show the conversation" : "Fold it away")
+                        } accessory: {
+                            Button {
                                 store.chat.messages.removeAll()
                             } label: { Image(systemName: "trash") }
                                 .buttonStyle(.plain)
@@ -199,9 +218,16 @@ struct ContentView: View {
                                 .help("Clear conversation")
                                 .disabled(store.chat.messages.isEmpty)
                         }
-                        ChatPanel().environmentObject(store)
+                        if !chatCollapsed {
+                            ChatPanel().environmentObject(store)
+                        }
                     }
-                    .frame(minHeight: 200)
+                    // Folded, it is exactly its own header, so the properties
+                    // above get every point the chat gives up. A minHeight
+                    // alone wouldn't do it: VSplitView hands a pane whatever is
+                    // left over regardless of what's drawn in it.
+                    .frame(minHeight: chatCollapsed ? headerHeight : 200,
+                           maxHeight: chatCollapsed ? headerHeight : .infinity)
                 }
             } else {
                 properties
@@ -292,13 +318,16 @@ struct ContentView: View {
 
 
     @ViewBuilder
-    private func railHeader<Accessory: View>(_ title: String, count: Int?, help: String? = nil,
-                                             @ViewBuilder accessory: () -> Accessory = { EmptyView() })
-        -> some View {
+    private func railHeader<Accessory: View, Leading: View>(
+        _ title: String, count: Int?, help: String? = nil,
+        @ViewBuilder leading: () -> Leading = { EmptyView() },
+        @ViewBuilder accessory: () -> Accessory = { EmptyView() }
+    ) -> some View {
         // Sentence case in the text colour, not tiny grey capitals. These are section
         // names you read at a glance while working, and Sketch has it right: they
         // belong to the content, not to the chrome.
         HStack(spacing: 6) {
+            leading()
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.primary)

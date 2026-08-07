@@ -116,9 +116,10 @@ final class ChatSession: ObservableObject {
     func beginActivity(_ title: String, onStop: (() -> Void)? = nil) -> UUID {
         stopHandler = onStop
         // Reporting into a panel that is closed is the same as not reporting, and
-        // this is now the only place the run is described. Same key ContentView
-        // binds its toggle to, so the panel opens.
+        // this is now the only place the run is described. Same keys ContentView
+        // binds to, so the panel opens and unfolds.
         UserDefaults.standard.set(true, forKey: "showChat")
+        UserDefaults.standard.set(false, forKey: "chatCollapsed")
         var m = ChatMessage(role: .assistant, text: title)
         m.activity = true
         m.running = true
