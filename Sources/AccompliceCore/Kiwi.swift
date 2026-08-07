@@ -58,18 +58,18 @@ public enum Kiwi {
 
     public struct Schema {
         public struct Field {
-            var name: String
-            var type: Int32
-            var isArray: Bool
-            var value: UInt32
+            public var name: String
+            public var type: Int32
+            public var isArray: Bool
+            public var value: UInt32
         }
         public struct Definition {
-            var name: String
+            public var name: String
             /// 0 enum, 1 struct, 2 message.
-            var kind: UInt8
-            var fields: [Field]
+            public var kind: UInt8
+            public var fields: [Field]
         }
-        var definitions: [Definition]
+        public var definitions: [Definition]
 
         public func index(of name: String) -> Int? {
             definitions.firstIndex { $0.name == name }

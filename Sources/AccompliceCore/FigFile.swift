@@ -22,13 +22,25 @@ public enum FigFile {
     public enum Failure: LocalizedError {
         case notAFigmaFile
         case noDocument
+        case needsZstd
 
         public var errorDescription: String? {
             switch self {
             case .notAFigmaFile: return "That isn't a Figma file."
             case .noDocument: return "The Figma file has no document in it."
+            case .needsZstd:
+                return "This Figma file is compressed with zstd, which this build can't read yet."
             }
         }
+    }
+
+    /// Zstandard's frame magic. Figma deflates the schema and zstd-compresses the
+    /// document, and macOS has no zstd — Compression offers zlib, lzma, lz4,
+    /// brotli and lzfse and nothing else. Recognised here so the file says what's
+    /// wrong instead of decoding rubbish into an empty document.
+    private static func isZstd(_ d: Data) -> Bool {
+        d.count >= 4 && d[d.startIndex] == 0x28 && d[d.startIndex + 1] == 0xB5
+            && d[d.startIndex + 2] == 0x2F && d[d.startIndex + 3] == 0xFD
     }
 
     public static func unpack(url: URL) throws -> Unpacked {
@@ -47,7 +59,8 @@ public enum FigFile {
             guard size >= 0, i + size <= data.endIndex else { break }
             let piece = data.subdata(in: i..<(i + size))
             i += size
-            // The first chunks are deflated; image blobs later on are not.
+            if isZstd(piece) { throw Failure.needsZstd }
+            // The schema chunk is deflated; blobs later on may not be.
             chunks.append(Zip.inflate(piece, expected: size * 8) ?? piece)
         }
 
