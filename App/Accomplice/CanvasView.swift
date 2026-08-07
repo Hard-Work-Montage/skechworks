@@ -252,6 +252,23 @@ final class PageCanvas: NSView {
         lastTouchedPoint = selectedPoints.contains(i) ? i : selectedPoints.sorted().first
     }
 
+    /// Cuts the standing pixel box out of the bitmap it was drawn on.
+    ///
+    /// Returns false when there's nothing selected inside a picture, so Delete
+    /// falls through to its usual meaning.
+    private func eraseSelectedPixels() -> Bool {
+        guard let id = pixelSelectID, let box = pixelDraft,
+              let t = transformOf(id, in: page?.layers ?? [], base: .identity) else { return false }
+        // The box is kept in page coordinates so it survives the view scrolling
+        // and zooming under it; the erase wants it in the layer's own.
+        let local = box.applying(t.inverted())
+        guard local.width > 1, local.height > 1 else { return false }
+        onEraseRect?(id, local)
+        pixelDraft = nil
+        needsDisplay = true
+        return true
+    }
+
     /// Moves every picked point. One arrow press, one undo step, like nudging a layer.
     @discardableResult
     private func nudgePoints(_ dx: CGFloat, _ dy: CGFloat) -> Bool {
@@ -2492,6 +2509,10 @@ final class PageCanvas: NSView {
         case 51, 117:  // delete
             // Picked points go first; otherwise the layer selection goes.
             if removeSelectedPoints() { return }
+            // Inside a bitmap with a box drawn on it, Delete means those pixels.
+            // It used to mean the whole picture — you selected the legs off a
+            // television and lost the television.
+            if eraseSelectedPixels() { return }
             onDelete?()
             return
         case 24 where event.modifierFlags.contains(.command):   // ⌘= — unshifted ⌘+

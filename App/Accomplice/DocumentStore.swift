@@ -607,6 +607,14 @@ final class DocumentStore: ObservableObject {
     /// Deletes everything selected as ONE undo step, restoring each layer to its exact
     /// place in the tree on undo — including nested ones.
     func deleteSelection() {
+        // Inside a picture with a box drawn on it, Delete means those pixels.
+        // The key on the canvas already knew that; the menu item didn't, and the
+        // two disagreeing about what Delete means is worse than either answer.
+        if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
+            eraseRect(id, rect: rect)
+            pixelSelectRect = nil
+            return
+        }
         guard let src = source, var p = page, !selection.isEmpty else { return }
         var removed: [(parent: String?, index: Int, layer: Layer)] = []
         // Deepest-last so re-inserting in reverse rebuilds the tree correctly.
