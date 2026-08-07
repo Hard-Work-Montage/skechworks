@@ -102,7 +102,6 @@ struct PageListView: NSViewRepresentable {
             let cell = (t.makeView(withIdentifier: id, owner: self) as? NSTableCellView)
                 ?? Self.makeCell(id)
             cell.textField?.stringValue = page.name
-            (cell.subviews.last as? NSTextField)?.stringValue = "\(page.layerCount)"
             cell.setAccessibilityIdentifier("page-\(page.name)")
             cell.textField?.setAccessibilityIdentifier("page-\(page.name)")
             return cell
@@ -115,19 +114,15 @@ struct PageListView: NSViewRepresentable {
             name.translatesAutoresizingMaskIntoConstraints = false
             name.lineBreakMode = .byTruncatingTail
             name.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            let count = NSTextField(labelWithString: "")
-            count.translatesAutoresizingMaskIntoConstraints = false
-            count.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
-            count.textColor = .tertiaryLabelColor
             cell.addSubview(name)
-            cell.addSubview(count)
             cell.textField = name
+            // The whole row is the name now. It used to end in a layer count,
+            // which is a number you can't do anything with sitting where a long
+            // page name wants to be.
             NSLayoutConstraint.activate([
                 name.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                name.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
                 name.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                count.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: 6),
-                count.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                count.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
             return cell
         }

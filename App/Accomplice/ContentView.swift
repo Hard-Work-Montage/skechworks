@@ -211,7 +211,7 @@ struct ContentView: View {
                         // worth being able to check and not worth a line of its
                         // own — it rarely changes, and a run says so in its own
                         // notes when it matters.
-                        railHeader("Accomplice Chat", count: nil, help: "Using \(chatModel)") {
+                        railHeader("Accomplice Chat", help: "Using \(chatModel)") {
                             Button {
                                 withAnimation(.easeOut(duration: 0.15)) { chatCollapsed.toggle() }
                             } label: {
@@ -252,7 +252,7 @@ struct ContentView: View {
 
     private var properties: some View {
         VStack(alignment: .leading, spacing: 0) {
-            railHeader("Properties", count: nil)
+            railHeader("Properties")
             PropertiesPanel(layer: selectedLayer, pageName: store.page?.name,
                             selectionCount: selectionCount)
         }
@@ -287,7 +287,7 @@ struct ContentView: View {
 
     private var pageList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            railHeader("Pages", count: store.source?.pageCount) {
+            railHeader("Pages") {
                 Button { store.addPage() } label: { Image(systemName: "plus") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                     .help("Add a page")
@@ -318,7 +318,7 @@ struct ContentView: View {
 
     private var layerList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            railHeader("Layers", count: store.page?.layers.count)
+            railHeader("Layers")
             if let page = store.page {
                 LayerOutline(nodes: page.layers.map(LayerNode.init),
                              revision: store.revision &+ store.pageToken,
@@ -333,7 +333,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func railHeader<Accessory: View, Leading: View>(
-        _ title: String, count: Int?, help: String? = nil,
+        _ title: String, help: String? = nil,
         @ViewBuilder leading: () -> Leading = { EmptyView() },
         @ViewBuilder accessory: () -> Accessory = { EmptyView() }
     ) -> some View {
@@ -347,9 +347,6 @@ struct ContentView: View {
                 .foregroundStyle(.primary)
                 .help(help ?? "")
             Spacer()
-            if let count {
-                Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-            }
             accessory()
         }
         .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
