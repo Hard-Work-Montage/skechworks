@@ -357,6 +357,15 @@ public struct Layer: @unchecked Sendable {
             }
         }
 
+        // An artboard is a frame around work, not a container that owns its
+        // size. Making it bigger gives you more room; it does not make the
+        // drawing bigger. Sketch changed this and it is a large part of why
+        // this app exists.
+        if isArtboard {
+            frame.size = newSize
+            return
+        }
+
         switch kind {
         case .path(let p, let closed):
             kind = .path(p.transformed(by: scale), closed: closed)

@@ -186,9 +186,24 @@ extension Page {
             let moved = CGPoint(x: anchor.x + (absolute.x - anchor.x) * scale.width,
                                 y: anchor.y + (absolute.y - anchor.y) * scale.height)
             updateLayer(id) { l in
+                let wasAt = l.frame.origin
                 l.frame.origin = CGPoint(x: moved.x - parent.x, y: moved.y - parent.y)
                 l.resize(to: CGSize(width: max(1, start.width * scale.width),
                                     height: max(1, start.height * scale.height)))
+
+                // Dragging a board's left or top edge moves the board itself.
+                // Its contents are stored relative to it, so left alone they'd
+                // slide across the canvas with the edge — the art has to be
+                // walked back by however far the board moved to stay where it
+                // was put.
+                let shift = CGPoint(x: l.frame.minX - wasAt.x, y: l.frame.minY - wasAt.y)
+                guard l.isArtboard, shift.x != 0 || shift.y != 0,
+                      case .group(var kids) = l.kind else { return }
+                for i in kids.indices {
+                    kids[i].frame.origin.x -= shift.x
+                    kids[i].frame.origin.y -= shift.y
+                }
+                l.kind = .group(kids)
             }
         }
     }
