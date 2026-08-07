@@ -1134,7 +1134,7 @@ final class PageCanvas: NSView {
         // old ones.
         tf.font = NSFont(name: run.fontName, size: max(4, run.fontSize * scale))
             ?? .systemFont(ofSize: max(4, run.fontSize * scale))
-        tf.textColor = NSColor(cgColor: run.color.cg) ?? .labelColor
+        tf.textColor = NSColor(cgColor: textColor(of: l, run: run).cg) ?? .labelColor
         tf.alignment = switch run.alignment {
         case .center: .center
         case .right: .right
@@ -1152,6 +1152,8 @@ final class PageCanvas: NSView {
         // it just started, which is what made renaming in the layer list look dead.
         if let editor = tf.currentEditor() as? NSTextView {
             editor.selectAll(nil)
+            // A black caret on a dark bubble is a caret you can't find.
+            editor.insertionPointColor = tf.textColor ?? .labelColor
             // Match the artwork's leading so the lines sit where they will sit once
             // committed. lineHeightMultiple takes the same ratio the layer stores.
             let style = NSMutableParagraphStyle()

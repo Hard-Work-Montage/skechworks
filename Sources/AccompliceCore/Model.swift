@@ -581,6 +581,25 @@ public struct AutoShape: Sendable, Equatable {
     }
 }
 
+/// The colour a text layer's words actually come out.
+///
+/// The canvas fills a text layer's glyphs from its style, like any other
+/// shape, and only falls back to the run's own colour when the layer has no
+/// fill at all. The two disagree constantly — a text layer that arrives from
+/// Sketch or Figma, or gets recoloured in the inspector, carries a fill and
+/// still has the run's default black underneath. Anything reading run.color
+/// on its own shows black where the artwork is green, which on a dark
+/// background is invisible.
+public func textColor(of layer: Layer, run: TextRun) -> Color {
+    for f in layer.style.fills {
+        if case .color(let c) = f.paint, c.a * f.opacity > 0.01 { return c }
+    }
+    // A gradient can't be one colour, and neither can nothing. The run's own
+    // colour is what the canvas would use if the fill went away, so it is the
+    // closest honest answer.
+    return run.color
+}
+
 public struct TextRun: @unchecked Sendable {
     public var string: String = ""
     public var fontName: String = "Helvetica"

@@ -21,8 +21,14 @@ extension Page {
             else { return false }
             updateLayer(id) { l in
                 l.kind = .path(glyphs, closed: true)
-                l.style.fills = [Fill(paint: .color(run.color))]
-                l.style.borders = []
+                // The style carries over untouched. The canvas already fills
+                // glyphs from it, so text with a green fill was green before
+                // and has to be green after — overwriting it with the run's
+                // colour turned every imported text layer black the moment it
+                // stopped being text. Only a layer with no fill at all needs
+                // the run's colour written down, since that is what the canvas
+                // was falling back to.
+                if l.style.fills.isEmpty { l.style.fills = [Fill(paint: .color(run.color))] }
             }
             return true
         }
