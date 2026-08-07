@@ -184,29 +184,53 @@ extension Page {
             }
         }
         walk(layers, 0)
-        if count >= maxLayers { lines.append("… truncated at \(maxLayers) layers") }
+
+        // A census of every colour in the page, whether or not its layers made the
+        // list. Without this, truncation doesn't just hide layers — it hides that
+        // they exist at all, and a model reading the first 200 of an 828-layer
+        // import concludes, correctly and uselessly, that the colour you asked
+        // about isn't in the document. A traced file opens with several hundred
+        // seam paths at the top, so the visible 200 can be entirely one thing.
+        var fillTally: [String: Int] = [:]
+        var strokeTally: [String: Int] = [:]
+        var everything = 0
+        func census(_ ls: [Layer]) {
+            for l in ls {
+                everything += 1
+                if let f = l.firstFillHex { fillTally[f, default: 0] += 1 }
+                if let b = l.style.borders.first { strokeTally[b.color.hex, default: 0] += 1 }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _): census(k)
+                default: continue
+                }
+            }
+        }
+        census(layers)
+
+        if count >= maxLayers {
+            let rest = everything - count
+            lines.append("… \(rest) more layers not listed.")
+            lines.append("The counts below cover the WHOLE page, and select reaches all of it.")
+        }
+        func tally(_ counts: [String: Int], _ label: String) {   // whole page, not just the listing
+            guard !counts.isEmpty else { return }
+            let ranked = counts.sorted { a, b in
+                a.value == b.value ? a.key < b.key : a.value > b.value
+            }
+            var parts: [String] = []
+            for entry in ranked.prefix(16) { parts.append("\(entry.key)×\(entry.value)") }
+            var line = "\(label) across every layer, listed above or not: " + parts.joined(separator: ", ")
+            if counts.count > 16 { line += ", and \(counts.count - 16) more" }
+            lines.append(line)
+        }
+        lines.append("\(everything) layers in total")
+        tally(fillTally, "fills")
+        tally(strokeTally, "strokes")
 
         // The tree above truncates, but colour questions ("delete everything with
         // this fill") need the WHOLE page's palette — a model that can't see a
         // colour concludes it doesn't exist and refuses to touch it. A vectorized
         // trace put the colour a user asked about at layer 700 of 900.
-        var fills: [String: Int] = [:]
-        func tally(_ ls: [Layer]) {
-            for l in ls {
-                if let f = l.firstFillHex { fills[f.lowercased(), default: 0] += 1 }
-                switch l.kind {
-                case .group(let k), .shapeGroup(let k, _): tally(k)
-                default: break
-                }
-            }
-        }
-        tally(layers)
-        if !fills.isEmpty {
-            let sorted = fills.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }
-            let shown = sorted.prefix(40).map { "\($0.key) ×\($0.value)" }.joined(separator: "  ")
-            let more = sorted.count > 40 ? "  … \(sorted.count - 40) more" : ""
-            lines.append("fills used (every layer, including any truncated above): \(shown)\(more)")
-        }
         return lines.joined(separator: "\n")
     }
 }
