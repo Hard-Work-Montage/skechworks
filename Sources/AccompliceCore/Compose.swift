@@ -21,6 +21,35 @@ public enum Compose {
         return t.translatedBy(x: -cx, y: -cy)
     }
 
+    /// Where a layer's frame has to sit once its path has been renormalised to
+    /// start at the origin, so the shape doesn't budge on screen.
+    ///
+    /// Editing a path leaves its points wherever they were dragged to, which is
+    /// rarely flush with the frame. The path gets shifted back to 0,0 and the
+    /// frame is meant to absorb the difference. Adding the shift to the frame
+    /// origin does that — but only for a layer that isn't flipped or rotated.
+    ///
+    /// A flip mirrors the path about the CENTRE of the frame, so changing the
+    /// frame moves the mirror. Pull the leftmost point of a flipped shape to the
+    /// right and the naive sum moves the frame left by exactly as much as the
+    /// mirror moves the point right; the two cancel and the point lands back
+    /// where it started. Which is what "I move them right and they go left"
+    /// looks like from the outside.
+    ///
+    /// Solved rather than special-cased: the layer's own transform says where
+    /// the path's corner sits now, the same transform at the origin says where
+    /// the renormalised corner would sit, and the frame origin is the difference.
+    /// Rotation comes out in the wash, since both transforms share a linear part
+    /// and only their translations differ.
+    public static func reframed(_ l: Layer, localBounds box: CGRect) -> CGRect {
+        var atOrigin = l
+        atOrigin.frame = CGRect(origin: .zero, size: box.size)
+        let now = box.origin.applying(transform(l))
+        let renormalised = CGPoint.zero.applying(transform(atOrigin))
+        return CGRect(origin: CGPoint(x: now.x - renormalised.x, y: now.y - renormalised.y),
+                      size: box.size)
+    }
+
     /// The layer's outline in its OWN local space, with all boolean ops applied.
     /// Returns nil for anything that isn't a shape (text, bitmaps, plain groups).
     public static func resolvedPath(_ l: Layer) -> CGPath? {

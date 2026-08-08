@@ -2428,7 +2428,10 @@ final class DocumentStore: ObservableObject {
         let box = cg.boundingBoxOfPath
         guard box.width.isFinite, box.height.isFinite else { return }
         edit(layerID, actionName: actionName) { l in
-            let origin = CGPoint(x: l.frame.minX + box.minX, y: l.frame.minY + box.minY)
+            // Solved through the layer's own transform, because a flip mirrors
+            // the path about the frame's centre — so moving the frame moves the
+            // mirror, and the naive sum cancels the edit out.
+            let placed = Compose.reframed(l, localBounds: box)
             let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
             l.kind = .path(local, closed: vp.closed)
             l.curveModes = vp.points.map(\.mode)
@@ -2436,7 +2439,7 @@ final class DocumentStore: ObservableObject {
             // does not grow an array of identical numbers in its file.
             let radii = vp.points.map(\.cornerRadius)
             l.cornerRadii = radii.contains { $0 >= 0 } ? radii : []
-            l.frame = CGRect(origin: origin, size: box.size)
+            l.frame = placed
         }
     }
 
