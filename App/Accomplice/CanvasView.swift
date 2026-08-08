@@ -2410,7 +2410,16 @@ final class PageCanvas: NSView {
     override func mouseUp(with event: NSEvent) {
         if cropDrag != nil { cropDrag = nil; return }
         if warpDrag != nil {
-            warpDrag = nil; skewDrag = nil
+            warpDrag = nil
+            onWarpEnd?()
+            return
+        }
+        // Its own guard. Clearing it inside the warp's block was the same as
+        // never clearing it: a skew drag sets skewDrag and leaves warpDrag nil,
+        // so the block was skipped, the state survived the mouse coming up, and
+        // every drag after that skewed. Pressing ⌘ once locked the tool.
+        if skewDrag != nil {
+            skewDrag = nil
             onWarpEnd?()
             return
         }
