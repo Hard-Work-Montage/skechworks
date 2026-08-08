@@ -102,7 +102,10 @@ struct PropertiesPanel: View {
     }
 
     private func alignButton(_ symbol: String, _ edge: AlignEdge, _ name: String) -> some View {
-        iconButton(symbol, "Align \(name)") { store.align(edge, name) }
+        // Say which of the two things the button is about to do. With points
+        // picked these six move the points; otherwise they move the layer.
+        let target = store.selectedPoints.count >= 2 ? "Points " : ""
+        return iconButton(symbol, "Align \(target)\(name)") { store.align(edge, name) }
     }
 
     /// The W/H padlock. Locked keeps the aspect ratio exact through typed sizes
@@ -270,9 +273,11 @@ struct PropertiesPanel: View {
         let vb = masked ? Compose.visibleBounds(of: l) : l.frame
         return VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Position & Size")
-            alignRow(alignEnabled: store.page.map { page in
+            // Points align to each other, so they need no artboard to align to —
+            // a loose shape being edited still gets a live row.
+            alignRow(alignEnabled: store.selectedPoints.count >= 2 || (store.page.map { page in
                 page.ancestors(of: l.id).contains { page.layer($0)?.isArtboard == true }
-            } ?? false)
+            } ?? false))
             // Two even columns throughout, so every field lines up regardless of how
             // long its label is. A fixed label column is what stops "Opacity" wrapping
             // onto a second line and shoving its field out of alignment.

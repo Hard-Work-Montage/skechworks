@@ -369,6 +369,7 @@ struct ContentView: View {
             CanvasRepresentable(page: store.page, images: store.images,
                                 selection: $store.selection, zoom: store.zoomRequest,
                                 pointMode: store.pointModeRequest,
+                                alignPoints: store.alignPointsRequest,
                                 revision: store.revision, tool: store.tool,
                                 pageToken: store.pageToken,
                                 cropping: store.croppingID)

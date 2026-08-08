@@ -2097,6 +2097,18 @@ final class PageCanvas: NSView {
     }
 
     /// Applies a point-type change from the inspector.
+    /// Lines the picked points up with each other. The six alignment buttons
+    /// mean the points when points are picked, not the layer they belong to.
+    func alignSelectedPoints(_ edge: AlignEdge) {
+        guard var vp = editPath, selectedPoints.count >= 2 else { return }
+        let before = vp.points.map(\.point)
+        vp.align(selectedPoints, to: edge)
+        guard vp.points.map(\.point) != before else { return }
+        editPath = vp
+        commitEdit("Align Points")
+        needsDisplay = true
+    }
+
     func applyPointMode(_ m: CurveMode) {
         guard let vp = editPath, let i = lastTouchedPoint, vp.points.indices.contains(i) else { return }
         let prev = i > 0 ? vp.points[i - 1].point : (vp.closed ? vp.points.last?.point : nil)
@@ -2631,6 +2643,7 @@ struct CanvasRepresentable: NSViewRepresentable {
     @Binding var selection: Set<String>
     let zoom: ZoomRequest
     let pointMode: (serial: Int, mode: CurveMode)?
+    let alignPoints: (serial: Int, edge: AlignEdge)?
     let revision: Int
     let tool: DocumentStore.Tool
     let pageToken: Int
@@ -2666,6 +2679,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         if let req = pointMode, context.coordinator.lastPointModeSerial != req.serial {
             context.coordinator.lastPointModeSerial = req.serial
             canvas.applyPointMode(req.mode)
+        }
+        if let req = alignPoints, context.coordinator.lastAlignPointsSerial != req.serial {
+            context.coordinator.lastAlignPointsSerial = req.serial
+            canvas.alignSelectedPoints(req.edge)
         }
         if context.coordinator.lastZoomSerial != zoom.serial {
             context.coordinator.lastZoomSerial = zoom.serial
@@ -2769,6 +2786,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         var lastPageToken: Int = -1
         var lastZoomSerial: Int = 0
         var lastPointModeSerial: Int = 0
+        var lastAlignPointsSerial: Int = 0
     }
 }
 

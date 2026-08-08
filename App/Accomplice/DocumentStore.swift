@@ -145,6 +145,10 @@ final class DocumentStore: ObservableObject {
     /// Anchors picked in point-edit mode. Empty means the whole shape.
     @Published var selectedPoints: Set<Int> = []
 
+    /// Align the picked points rather than the layer. Serial so the same edge
+    /// twice in a row still lands, the way the point-type request works.
+    @Published var alignPointsRequest: (serial: Int, edge: AlignEdge)?
+
     @Published var pointModeRequest: (serial: Int, mode: CurveMode)? {
         didSet { if pointModeRequest == nil { return } }
     }
@@ -764,6 +768,13 @@ final class DocumentStore: ObservableObject {
     func sendToBack()    { mutatePage("Send to Back")   { $0.sendToBack(selection) } }
 
     func align(_ edge: AlignEdge, _ name: String) {
+        // Points win when there are points. With several picked inside a shape,
+        // the six buttons plainly mean those, not the shape they belong to.
+        if selectedPoints.count >= 2 {
+            let serial = (alignPointsRequest?.serial ?? 0) + 1
+            alignPointsRequest = (serial, edge)
+            return
+        }
         mutatePage("Align \(name)") { $0.align(selection, to: edge) }
     }
 

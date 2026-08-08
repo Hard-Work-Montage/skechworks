@@ -124,6 +124,41 @@ public struct VectorPath: Sendable {
         return closed ? points.count : points.count - 1
     }
 
+    /// Lines the named points up with each other along one edge.
+    ///
+    /// "Left" here means the leftmost of the chosen points, not the left of the
+    /// shape or the board: aligning three points moves them onto each other and
+    /// leaves the rest of the shape where it is. Handles travel with their
+    /// anchor, or aligning the ends of a curve would flatten the curve.
+    public mutating func align(_ indices: some Sequence<Int>, to edge: AlignEdge) {
+        let picked = Set(indices).filter { points.indices.contains($0) }
+        guard picked.count >= 2 else { return }
+        let xs = picked.map { points[$0].point.x }
+        let ys = picked.map { points[$0].point.y }
+        let minX = xs.min()!, maxX = xs.max()!
+        let minY = ys.min()!, maxY = ys.max()!
+
+        for i in picked {
+            let from = points[i].point
+            var to = from
+            switch edge {
+            case .left: to.x = minX
+            case .right: to.x = maxX
+            case .horizontalCentre: to.x = (minX + maxX) / 2
+            case .top: to.y = minY
+            case .bottom: to.y = maxY
+            case .verticalMiddle: to.y = (minY + maxY) / 2
+            }
+            let dx = to.x - from.x, dy = to.y - from.y
+            guard dx != 0 || dy != 0 else { continue }
+            points[i].point = to
+            points[i].curveFrom.x += dx
+            points[i].curveFrom.y += dy
+            points[i].curveTo.x += dx
+            points[i].curveTo.y += dy
+        }
+    }
+
     public func segment(_ i: Int) -> (a: VectorPoint, b: VectorPoint)? {
         guard i >= 0, i < segmentCount else { return nil }
         return (points[i], points[(i + 1) % points.count])
