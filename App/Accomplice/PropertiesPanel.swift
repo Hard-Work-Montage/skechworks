@@ -1137,6 +1137,15 @@ private struct NumberField: View {
         stepMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             // NSEvent isn't Sendable, so only the verdict crosses back.
             let handled = MainActor.assumeIsolated { () -> Bool in
+                // Escape hands the field back. Without it the only way out of a
+                // number you have half-typed is to click somewhere else, and the
+                // key that means "stop what you are doing" everywhere else in the
+                // app did nothing here.
+                if focused, event.keyCode == 53 {
+                    commit()
+                    focused = false
+                    return true
+                }
                 guard focused, event.keyCode == 125 || event.keyCode == 126,
                       event.modifierFlags.intersection([.command, .control, .option]).isEmpty
                 else { return false }

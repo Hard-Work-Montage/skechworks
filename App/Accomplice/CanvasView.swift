@@ -2546,6 +2546,9 @@ final class PageCanvas: NSView {
             if !selectedPoints.isEmpty { selectedPoints = []; lastTouchedPoint = nil; return }
             if editingLayerID != nil { editingLayerID = nil; return }
             if enteredGroup != nil { enteredGroup = nil; return }
+            // Nothing left to step out of, so Escape means what it means
+            // everywhere else: stop having anything selected.
+            if !selected.isEmpty { onSelect?(nil, false); return }
         case 51, 117:  // delete
             // Picked points go first; otherwise the layer selection goes.
             if removeSelectedPoints() { return }

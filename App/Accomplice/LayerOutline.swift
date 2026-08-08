@@ -24,8 +24,16 @@ import SwiftUI
 /// from where you just clicked.
 final class DeletableOutlineView: NSOutlineView {
     var onDelete: (() -> Void)?
+    var onEscape: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
+        // Escape deselects here as well as on the canvas. Picking a layer from the
+        // list leaves the focus in the list, so without this the key that clears a
+        // selection worked or didn't depending on where you had last clicked.
+        if event.keyCode == 53 {
+            onEscape?()
+            return
+        }
         // 51 is delete, 117 is forward delete.
         if event.keyCode == 51 || event.keyCode == 117, !selectedRowIndexes.isEmpty {
             onDelete?()
@@ -132,6 +140,7 @@ struct LayerOutline: NSViewRepresentable {
         // stripe of a different shade down the middle of the sidebar.
         scroll.drawsBackground = false
         context.coordinator.outline = outline
+        outline.onEscape = { [weak store] in store?.select(nil) }
         return scroll
     }
 

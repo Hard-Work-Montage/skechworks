@@ -27,6 +27,11 @@ private struct ArrowStepping: ViewModifier {
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             // NSEvent isn't Sendable, so only the verdict crosses back.
             let handled = MainActor.assumeIsolated { () -> Bool in
+                // Escape hands the field back, the same as every other field.
+                if focused, event.keyCode == 53 {
+                    focused = false
+                    return true
+                }
                 guard focused, event.keyCode == 125 || event.keyCode == 126,
                       event.modifierFlags.intersection([.command, .control, .option]).isEmpty
                 else { return false }

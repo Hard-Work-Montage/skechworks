@@ -37,6 +37,11 @@ enum TypingWins {
                 // per launch, so stepping worked or didn't for as long as the app
                 // stayed open, and clicking about never rescued it.
                 guard !(123...126).contains(event.keyCode) else { return false }
+                // Escape is not a letter either, and it means "stop" rather than
+                // "type this". A focused field watches for it so it can hand
+                // itself back; swallowing it here to move a caret that is about to
+                // go away is the arrow-key bug again in a different key.
+                guard event.keyCode != 53 else { return false }
                 guard let editor = (event.window ?? NSApp.keyWindow)?.firstResponder as? NSTextView,
                       editor.isEditable else { return false }
                 editor.keyDown(with: event)

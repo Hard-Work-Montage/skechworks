@@ -197,6 +197,51 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(text.contains("selected corner"), "unexpected: \(text)")
     }
 
+    /// Escape is the way out of everything, one step at a time.
+    ///
+    /// It already dropped picked points, then point editing, then a group you had
+    /// stepped into — and then stopped, leaving the layer selected with no key
+    /// that would deselect it.
+    func testEscapeClearsTheSelection() {
+        row("Photo").click()
+        XCTAssertEqual(selectedName, "Photo")
+
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        guard canvas.exists else { return }
+        canvas.click()          // focus the canvas without changing the selection
+        row("Photo").click()
+        app.typeKey(.escape, modifierFlags: [])
+
+        let summary = app.windows.firstMatch.descendants(matching: .any)["selected-layer"]
+        var cleared = false
+        for _ in 0..<20 {
+            if !summary.exists { cleared = true; break }
+            usleep(120_000)
+        }
+        XCTAssertTrue(cleared, "Escape with nothing to step out of should deselect")
+    }
+
+    /// Escape hands a focused number field back.
+    ///
+    /// A field editor swallowed it on its way past — the same interception that
+    /// used to eat the arrow keys — so the only way out of a half-typed number
+    /// was to click somewhere else.
+    func testEscapeReleasesAFocusedNumberField() {
+        row("Circle").click()
+        let w = app.windows.firstMatch.descendants(matching: .any)["field-W"]
+        XCTAssertTrue(w.waitForExistence(timeout: 5))
+        w.click()
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"),
+                                                object: w)
+        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 5), .completed)
+
+        app.typeKey(.escape, modifierFlags: [])
+        let released = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == false"),
+                                                 object: w)
+        XCTAssertEqual(XCTWaiter.wait(for: [released], timeout: 5), .completed,
+                       "Escape should let go of the field")
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")
