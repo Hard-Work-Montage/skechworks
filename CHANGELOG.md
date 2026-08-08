@@ -1,6 +1,17 @@
 # Changelog
 
-Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new).
+Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
+which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
+
+## 0.1.24 (August 7, 2026)
+
+- Copy a shape and paste it into a browser, Mail or Preview and you get a picture. It only ever handed over the vector code as plain text, which most apps read as nothing at all.
+- Drag an image straight in from a browser or a screenshot shelf. It used to accept files from disk and nothing else.
+- Corner radius is per point. Pick one corner and give it its own number, so a speech balloon's tail can come to a point while the box stays round.
+- Shift-drag a box around several points to pick them all. The code for this was written and had never once run.
+- Escape deselects, and hands back a number field you were typing in.
+- Fixed: editing text in place re-wrapped it. The lines now break where the drawing breaks them, instead of shuffling the moment you double-click.
+- Opening a document leaves the one you already have open where it is.
 
 ## 0.1.17 (August 5, 2026)
 
