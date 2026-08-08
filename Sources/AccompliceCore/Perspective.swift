@@ -107,6 +107,19 @@ public enum Perspective {
     /// `size` is the frame the corners are quoted against: they're in unit
     /// coordinates, so 0,0 is the frame's top left and 1,1 its bottom right, and
     /// dragging one past that is how a shape grows beyond its own box.
+    /// More segments than any drawing has a reason to hold.
+    ///
+    /// Belt and braces after a real one. Warping a shape used to chop every
+    /// curve twelve times whatever the lean, and each fresh drag took the
+    /// already-chopped path as its starting point — so four warps of a 261-curve
+    /// union came to 261 x 12^4, or 5.4 million segments and 217MB of path text
+    /// in a comic. Splitting only where the projection needs it stops the
+    /// multiplying, because a piece that is already fine passes the check and is
+    /// left alone. This is here in case some other route ever finds its way back
+    /// to the same place: a warp that would produce this much is refused, and
+    /// refusing leaves the shape exactly as it was.
+    public static let segmentCeiling = 100_000
+
     public static func warp(_ path: CGPath, size: CGSize, corners: [CGPoint],
                             tolerance: CGFloat = Perspective.tolerance) -> CGPath? {
         guard size.width > 0, size.height > 0, let project = map(toUnitQuad: corners) else { return nil }
@@ -121,6 +134,8 @@ public enum Perspective {
         let out = CGMutablePath()
         var here = CGPoint.zero
         var start = CGPoint.zero
+        var emitted = 0
+        var overrun = false
         path.applyWithBlock { element in
             let pts = element.pointee.points
             switch element.pointee.type {
@@ -136,10 +151,12 @@ public enum Perspective {
                                  y: here.y + 2.0 / 3 * (pts[0].y - here.y))
                 let c2 = CGPoint(x: pts[1].x + 2.0 / 3 * (pts[0].x - pts[1].x),
                                  y: pts[1].y + 2.0 / 3 * (pts[0].y - pts[1].y))
-                emit(cubic: (here, c1, c2, pts[1]), tolerance: tolerance, into: out, send: send)
+                emit(cubic: (here, c1, c2, pts[1]), tolerance: tolerance,
+                     into: out, send: send, emitted: &emitted, overrun: &overrun)
                 here = pts[1]
             case .addCurveToPoint:
-                emit(cubic: (here, pts[0], pts[1], pts[2]), tolerance: tolerance, into: out, send: send)
+                emit(cubic: (here, pts[0], pts[1], pts[2]), tolerance: tolerance,
+                     into: out, send: send, emitted: &emitted, overrun: &overrun)
                 here = pts[2]
             case .closeSubpath:
                 out.closeSubpath()
@@ -148,12 +165,14 @@ public enum Perspective {
                 break
             }
         }
-        return out.isEmpty ? nil : out
+        return (out.isEmpty || overrun) ? nil : out
     }
 
     /// Projects a cubic, splitting it only where the projection needs it.
     private static func emit(cubic c: (CGPoint, CGPoint, CGPoint, CGPoint), tolerance: CGFloat,
-                             depth: Int = 0, into out: CGMutablePath, send: (CGPoint) -> CGPoint) {
+                             depth: Int = 0, into out: CGMutablePath, send: (CGPoint) -> CGPoint,
+                             emitted: inout Int, overrun: inout Bool) {
+        if overrun { return }
         let mapped = (send(c.0), send(c.1), send(c.2), send(c.3))
         // Where the projection really puts the middle of this curve, against
         // where the mapped control points say it is. The gap between those two
@@ -162,11 +181,15 @@ public enum Perspective {
         let guess = at(0.5, mapped)
         if depth >= maxDepth || hypot(truth.x - guess.x, truth.y - guess.y) <= tolerance {
             out.addCurve(to: mapped.3, control1: mapped.1, control2: mapped.2)
+            emitted += 1
+            if emitted > segmentCeiling { overrun = true }
             return
         }
         let (left, right) = split(c, at: 0.5)
-        emit(cubic: left, tolerance: tolerance, depth: depth + 1, into: out, send: send)
-        emit(cubic: right, tolerance: tolerance, depth: depth + 1, into: out, send: send)
+        emit(cubic: left, tolerance: tolerance, depth: depth + 1, into: out, send: send,
+             emitted: &emitted, overrun: &overrun)
+        emit(cubic: right, tolerance: tolerance, depth: depth + 1, into: out, send: send,
+             emitted: &emitted, overrun: &overrun)
     }
 
     /// A cubic at t.

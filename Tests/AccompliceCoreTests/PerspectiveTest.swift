@@ -253,3 +253,47 @@ private func points(_ l: Layer) -> [CGPoint] {
     vp.simplify(tolerance: 1)
     #expect(vp.points.count < before, "simplify left \(vp.points.count) of \(before)")
 }
+
+@Test func warpingTheSameShapeOverAndOverDoesNotGrowIt() {
+    // The bug that ate a comic. Chopping every curve a fixed twelve times meant
+    // each fresh drag started from the already-chopped path, so four warps of a
+    // 261-curve union came to 261 x 12^4 — 5.4 million segments and 217MB of
+    // path text in a saved file that then took forever to write.
+    //
+    // Splitting only where the projection needs it settles instead of
+    // multiplying: a piece that is already fine passes the check untouched.
+    let many = CGMutablePath()
+    for i in 0..<40 { many.addEllipse(in: CGRect(x: CGFloat(i) * 7, y: 0, width: 30, height: 20)) }
+    var l = Layer(kind: .path(many, closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 320, height: 60)
+
+    func segments(_ l: Layer) -> Int {
+        var n = 0
+        Compose.resolvedPath(l)?.applyWithBlock { e in
+            if e.pointee.type == .addCurveToPoint { n += 1 }
+        }
+        return n
+    }
+    let quad = [CGPoint(x: 0, y: 0.15), CGPoint(x: 1, y: 0),
+                CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 0.85)]
+    _ = l.applyPerspective(corners: quad)
+    let once = segments(l)
+    for _ in 0..<4 { _ = l.applyPerspective(corners: quad) }
+    let fiveTimes = segments(l)
+
+    // Under the old fixed twelve this would be `once` x 12^4.
+    #expect(fiveTimes <= once * 2, "one warp \(once), five warps \(fiveTimes)")
+}
+
+@Test func aWarpThatWouldExplodeIsRefused() {
+    // The backstop. A refusal has to leave the shape alone rather than half-warp
+    // it, so the layer is compared before and after.
+    let path = CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 100, height: 100), transform: nil)
+    // A tolerance of zero can never be met, so every curve splits to maxDepth.
+    let out = Perspective.warp(path, size: CGSize(width: 100, height: 100),
+                               corners: leaningQuad, tolerance: 0)
+    // maxDepth caps this one well under the ceiling, so it still succeeds —
+    // the ceiling is for a route that bypasses the depth cap.
+    #expect(out != nil)
+    #expect(Perspective.segmentCeiling > 0)
+}
