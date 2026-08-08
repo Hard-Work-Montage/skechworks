@@ -326,6 +326,8 @@ public struct AcmplcFile {
                              width: dbl(f["width"]) ?? 0, height: dbl(f["height"]) ?? 0)
         }
         l.rotation = dbl(j["rotation"]) ?? 0
+        l.skewX = dbl(j["skewX"]) ?? 0
+        l.skewY = dbl(j["skewY"]) ?? 0
         l.flipH = j["flipH"] as? Bool ?? false
         l.flipV = j["flipV"] as? Bool ?? false
         l.isVisible = j["visible"] as? Bool ?? true
@@ -422,6 +424,9 @@ public struct AcmplcFile {
             "visible": l.isVisible,
         ]
         if l.rotation != 0 { d["rotation"] = l.rotation }
+        // Only when there is one, so an ordinary shape doesn't grow two zeroes.
+        if l.skewX != 0 { d["skewX"] = l.skewX }
+        if l.skewY != 0 { d["skewY"] = l.skewY }
         if l.flipH { d["flipH"] = true }
         if l.flipV { d["flipV"] = true }
         if l.booleanOp != .none { d["boolean"] = boolName(l.booleanOp) }

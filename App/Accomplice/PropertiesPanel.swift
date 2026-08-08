@@ -316,6 +316,19 @@ struct PropertiesPanel: View {
                         layer.rotation = v.truncatingRemainder(dividingBy: 360)
                     }
                 }
+                // Only where shearing means something: a picture distorts by its
+                // four corners instead, and an artboard is a frame rather than
+                // artwork. Typing 0 is how you straighten one back up.
+                if l.canSkew {
+                    GridRow {
+                        editable("Skew X", l.skewX, l, suffix: "°") { layer, v in
+                            layer.skewX = max(-85, min(85, v))
+                        }
+                        editable("Skew Y", l.skewY, l, suffix: "°") { layer, v in
+                            layer.skewY = max(-85, min(85, v))
+                        }
+                    }
+                }
             }
             Toggle("Visible", isOn: Binding(
                 get: { l.isVisible },

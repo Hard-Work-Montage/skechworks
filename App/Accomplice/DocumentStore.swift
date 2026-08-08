@@ -1704,6 +1704,24 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// ⌘-dragging a corner of a shape. Degrees, coalesced into one undo step.
+    ///
+    /// Clamped short of the right angle, where the tangent runs to infinity and
+    /// the shape becomes an infinitely long smear. 85 leaves more lean than
+    /// anyone wants and stays a shape.
+    func skew(_ id: String, x: CGFloat, y: CGFloat) {
+        edit(id, actionName: "Skew", coalescingAs: "skew-\(id)") { l in
+            guard l.canSkew else { return }
+            l.skewX = max(-85, min(85, x.isFinite ? x : 0))
+            l.skewY = max(-85, min(85, y.isFinite ? y : 0))
+        }
+    }
+
+    /// Puts a sheared shape back upright, leaving everything else about it alone.
+    func unskew() {
+        edit(Array(selection), actionName: "Remove Skew") { $0.skewX = 0; $0.skewY = 0 }
+    }
+
     func flattenDistort() {
         edit(Array(selection), actionName: "Flatten Distort") { $0.warpCorners = nil }
     }

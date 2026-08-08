@@ -11,14 +11,50 @@ public enum Compose {
     /// Maps a layer's local space (0,0 … w,h) into its parent's coordinate space.
     public static func transform(_ l: Layer) -> CGAffineTransform {
         var t = CGAffineTransform(translationX: l.frame.minX, y: l.frame.minY)
-        guard l.rotation != 0 || l.flipH || l.flipV else { return t }
+        guard l.rotation != 0 || l.flipH || l.flipV || l.skewX != 0 || l.skewY != 0 else { return t }
         let cx = l.frame.width / 2, cy = l.frame.height / 2
         t = t.translatedBy(x: cx, y: cy)
         // Sketch reports rotation counter-clockwise; our canvas is y-down, so negate.
         if l.rotation != 0 { t = t.rotated(by: -l.rotation * .pi / 180) }
         if l.flipH { t = t.scaledBy(x: -1, y: 1) }
         if l.flipV { t = t.scaledBy(x: 1, y: -1) }
+        // Innermost, so the shape leans in its own axes and the rotation then
+        // turns the leaning shape — which is the order you get if you skew
+        // something and then pick it up and turn it.
+        // Prepended, not appended: a.concatenating(b) applies a first, so this
+        // puts the shear before the flip and rotation rather than out in page
+        // space where it would drag the shape's position along with it.
+        if l.skewX != 0 || l.skewY != 0 { t = shear(l).concatenating(t) }
         return t.translatedBy(x: -cx, y: -cy)
+    }
+
+    /// The shear itself, about the origin. Kept apart because the canvas has to
+    /// take it back out again to measure a skew drag from an unsheared corner.
+    public static func shear(_ l: Layer) -> CGAffineTransform {
+        guard l.skewX != 0 || l.skewY != 0 else { return .identity }
+        return CGAffineTransform(a: 1, b: tan(l.skewY * .pi / 180),
+                                 c: tan(l.skewX * .pi / 180), d: 1, tx: 0, ty: 0)
+    }
+
+    /// The shear that lands `corner` of `l`'s frame on `local`.
+    ///
+    /// `local` is a point in the layer's OWN frame space with no shear applied —
+    /// the canvas takes the existing shear back out before measuring, so a drag
+    /// doesn't compound itself frame by frame.
+    ///
+    /// One corner pins both angles: a shear moves x by tan(skewX) for every unit
+    /// of y away from the centre, and y by tan(skewY) for every unit of x, so the
+    /// two displacements of a single corner solve for the two angles directly.
+    /// Corners are numbered the way the bitmap warp numbers them: 0 nw, 1 ne,
+    /// 2 se, 3 sw.
+    public static func skew(placing corner: Int, at local: CGPoint,
+                            of l: Layer) -> (x: CGFloat, y: CGFloat) {
+        let cx = l.frame.width / 2, cy = l.frame.height / 2
+        guard cx > 0.5, cy > 0.5, (0...3).contains(corner) else { return (l.skewX, l.skewY) }
+        let rest = [CGPoint(x: -cx, y: -cy), CGPoint(x: cx, y: -cy),
+                    CGPoint(x: cx, y: cy), CGPoint(x: -cx, y: cy)][corner]
+        let moved = CGPoint(x: local.x - cx - rest.x, y: local.y - cy - rest.y)
+        return (atan(moved.x / rest.y) * 180 / .pi, atan(moved.y / rest.x) * 180 / .pi)
     }
 
     /// Where a layer's frame has to sit once its path has been renormalised to

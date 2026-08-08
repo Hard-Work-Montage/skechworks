@@ -154,6 +154,24 @@ public struct Layer: @unchecked Sendable {
     public var rotation: CGFloat = 0        // degrees, counter-clockwise (Sketch convention)
     public var flipH = false
     public var flipV = false
+    /// Shear, in degrees, about the frame's centre. skewX leans the shape the way
+    /// italics lean: horizontal displacement proportional to how far down a point
+    /// sits. skewY does the same vertically across the width.
+    ///
+    /// Angles rather than the raw tangents so the inspector can show a number a
+    /// person recognises, and so 0 is plainly "none".
+    /// Whether shearing this makes sense. A picture distorts by its four corners
+    /// instead, which is a projective transform and a different thing entirely;
+    /// an artboard is a frame rather than artwork and leaning it would take its
+    /// contents with it.
+    public var canSkew: Bool {
+        if isArtboard { return false }
+        if case .bitmap = kind { return false }
+        return true
+    }
+
+    public var skewX: CGFloat = 0
+    public var skewY: CGFloat = 0
     public var isVisible = true
     /// A locked layer ignores canvas clicks and drags — the layer list is the only
     /// way to select it, which is the whole point: it stays put while you work on

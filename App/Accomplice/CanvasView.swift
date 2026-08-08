@@ -308,6 +308,22 @@ final class PageCanvas: NSView {
         return true
     }
 
+    /// The layer's placement with its own shear taken back out.
+    ///
+    /// A skew drag has to measure from where the corner would be with no shear,
+    /// or each frame of the drag would compound the last and the shape would run
+    /// away from the pointer.
+    private func unskewedTransform(_ id: String) -> CGAffineTransform? {
+        guard let page, var l = page.layer(id),
+              let full = transformOf(id, in: page.layers, base: .identity) else { return nil }
+        // full is this layer's own transform followed by its ancestors'. Divide
+        // the layer's out, zero the shear, put it back.
+        let ancestors = Compose.transform(l).inverted().concatenating(full)
+        l.skewX = 0
+        l.skewY = 0
+        return Compose.transform(l).concatenating(ancestors)
+    }
+
     private func transformOf(_ id: String, in layers: [Layer], base: CGAffineTransform) -> CGAffineTransform? {
         for l in layers {
             let t = Compose.transform(l).concatenating(base)
@@ -390,9 +406,13 @@ final class PageCanvas: NSView {
     /// A ⌘-drag on a bitmap's corner handle: perspective, not resize. The corner
     /// index follows warpCorners order — 0 nw, 1 ne, 2 se, 3 sw.
     private var warpDrag: (id: String, corner: Int, t: CGAffineTransform)?
+    private var skewDrag: (id: String, corner: Int, t: CGAffineTransform)?
     var onWarpCorner: ((String, Int, CGPoint) -> Void)?
+    /// ⌘-dragging a corner of anything that isn't a picture: degrees, not a point.
+    var onSkew: ((String, CGFloat, CGFloat) -> Void)?
     var onWarpEnd: (() -> Void)?
     var onFlattenDistort: (() -> Void)?
+    var onUnskew: (() -> Void)?
 
     /// A rotate drag in flight: where it turns about, and the pointer angle it began at.
     private var rotating: (centre: CGPoint, startAngle: CGFloat)?
@@ -1634,6 +1654,9 @@ final class PageCanvas: NSView {
             if selected.count == 1, let id = selected.first,
                let l = page?.layer(id), case .bitmap = l.kind, l.warpCorners != nil {
                 menu.addItem(menuItem("Flatten Distort") { [weak self] in self?.onFlattenDistort?() })
+            } else if selected.count == 1, let id = selected.first,
+                      let l = page?.layer(id), l.skewX != 0 || l.skewY != 0 {
+                menu.addItem(menuItem("Remove Skew") { [weak self] in self?.onUnskew?() })
             }
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete") { [weak self] in self?.onDelete?() })
@@ -1924,10 +1947,21 @@ final class PageCanvas: NSView {
             if event.modifierFlags.contains(.command),
                let corner = cornerIndex[handle],
                selected.count == 1, let id = selected.first,
-               let l = page?.layer(id), case .bitmap = l.kind,
-               let t = transformOf(id, in: page?.layers ?? [], base: .identity) {
-                warpDrag = (id, corner, t)
-                return
+               let l = page?.layer(id) {
+                if case .bitmap = l.kind,
+                   let t = transformOf(id, in: page?.layers ?? [], base: .identity) {
+                    warpDrag = (id, corner, t)
+                    return
+                }
+                // Everything else shears instead. A picture's four corners move
+                // independently, which no matrix can express — a shape's can't,
+                // because an affine transform takes a rectangle to a
+                // parallelogram and nothing else. Same gesture, and the closest
+                // thing to it that a vector can actually do.
+                if l.canSkew, let t = unskewedTransform(id) {
+                    skewDrag = (id, corner, t)
+                    return
+                }
             }
             activeHandle = handle
             resizeAnchor = anchorPoint(handle, in: r)
@@ -2193,6 +2227,15 @@ final class PageCanvas: NSView {
             needsDisplay = true
             return
         }
+        if let sd = skewDrag {
+            if let l = page?.layer(sd.id) {
+                let angles = Compose.skew(placing: sd.corner,
+                                          at: p.applying(sd.t.inverted()), of: l)
+                onSkew?(sd.id, angles.x, angles.y)
+                needsDisplay = true
+            }
+            return
+        }
         if let wd = warpDrag {
             if let l = page?.layer(wd.id), l.frame.width > 0, l.frame.height > 0 {
                 let local = p.applying(wd.t.inverted())
@@ -2367,7 +2410,7 @@ final class PageCanvas: NSView {
     override func mouseUp(with event: NSEvent) {
         if cropDrag != nil { cropDrag = nil; return }
         if warpDrag != nil {
-            warpDrag = nil
+            warpDrag = nil; skewDrag = nil
             onWarpEnd?()
             return
         }
@@ -2737,8 +2780,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onPixelRect = { store.pixelSelectRect = $0 }
         canvas.onExitPixelSelect = { store.exitPixelSelect() }
         canvas.onWarpCorner = { id, corner, unit in store.warpCorner(id, corner: corner, to: unit) }
+        canvas.onSkew = { id, x, y in store.skew(id, x: x, y: y) }
         canvas.onWarpEnd = { store.endCoalescing() }
         canvas.onFlattenDistort = { store.flattenDistort() }
+        canvas.onUnskew = { store.unskew() }
         canvas.onMarquee = { rect, extend in
             guard let p = store.page else { return }
             store.selectAll(in: rect, on: p, extend: extend)
