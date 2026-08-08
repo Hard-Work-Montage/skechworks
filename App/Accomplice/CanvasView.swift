@@ -1154,6 +1154,18 @@ final class PageCanvas: NSView {
             editor.selectAll(nil)
             // A black caret on a dark bubble is a caret you can't find.
             editor.insertionPointColor = tf.textColor ?? .labelColor
+
+            // The editor has to wrap where the ARTWORK wraps, and by default it
+            // does not. A field editor insets its text container and pads every
+            // line fragment by 5pt a side, so it breaks lines about ten points
+            // narrower than the box — double-click a finished caption and the
+            // words visibly rearrange themselves. The renderer wraps at exactly
+            // the layer's frame width, so this has to as well.
+            editor.textContainerInset = .zero
+            editor.textContainer?.lineFragmentPadding = 0
+            editor.textContainer?.size = NSSize(width: frame.width, height: .greatestFiniteMagnitude)
+            editor.textContainer?.widthTracksTextView = true
+
             // Match the artwork's leading so the lines sit where they will sit once
             // committed. lineHeightMultiple takes the same ratio the layer stores.
             let style = NSMutableParagraphStyle()
@@ -1161,9 +1173,17 @@ final class PageCanvas: NSView {
             style.alignment = tf.alignment
             editor.defaultParagraphStyle = style
             editor.typingAttributes[.paragraphStyle] = style
+            // Tracking is part of how wide a line is, so leaving it out moves the
+            // line breaks on its own. It scales with the view like the point size.
+            let kern = run.kerning * scale
+            if kern != 0 { editor.typingAttributes[.kern] = kern }
             if let storage = editor.textStorage {
                 storage.addAttribute(.paragraphStyle, value: style,
                                      range: NSRange(location: 0, length: storage.length))
+                if kern != 0 {
+                    storage.addAttribute(.kern, value: kern,
+                                         range: NSRange(location: 0, length: storage.length))
+                }
             }
         }
         labelEditor = tf
