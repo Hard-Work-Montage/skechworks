@@ -166,6 +166,37 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(far, moved + 10, accuracy: 0.001, "shift nudges by 10")
     }
 
+    /// Band-selecting points inside a shape you are point-editing.
+    ///
+    /// This did nothing at all: pressing anywhere off the path stepped straight
+    /// out of point editing, which cleared the edited path before the band-select
+    /// branch underneath could ever run. The gesture only proves itself with a
+    /// real drag, so it is driven here rather than unit-tested.
+    func testShiftDraggingABandPicksSeveralPointsAtOnce() {
+        let canvas = app.windows.firstMatch.descendants(matching: .any)["canvas"]
+        guard canvas.exists else { return }
+        row("Backdrop").click()
+
+        // Double-click the shape to go into point editing.
+        // Backdrop is (20,20)-(120,120) on a 500x500 artboard, so its middle sits
+        // near a sixth of the way across once the board is zoomed to fit.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.17, dy: 0.17)).doubleClick()
+
+        // The band has to START on empty canvas: beginning it on a corner grabs
+        // that point and drags it instead.
+        let from = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.02))
+        let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.30))
+        XCUIElement.perform(withKeyModifiers: .shift) {
+            from.press(forDuration: 0.2, thenDragTo: to)
+        }
+
+        let scope = app.windows.firstMatch.descendants(matching: .any)["corner-scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 3),
+                      "a band over the corners should scope the radius to them")
+        let text = (scope.value as? String) ?? scope.label
+        XCTAssertTrue(text.contains("selected corner"), "unexpected: \(text)")
+    }
+
     func testClickingALayerRowSelectsIt() {
         let photo = row("Photo")
         XCTAssertTrue(photo.waitForExistence(timeout: 5), "the fixture's layers should be listed")

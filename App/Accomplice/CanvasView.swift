@@ -1843,10 +1843,12 @@ final class PageCanvas: NSView {
                 insertTarget = t
                 if insertPointAtPreview() { return }
             }
-            if tool == .select {
-                // Missed the path entirely: step out and let the click select normally.
-                editingLayerID = nil
-            }
+            // Missing the path does NOT step out here any more. Leaving the mode on
+            // press set editPath to nil before the band-select branch below could
+            // ever run, so shift-dragging a box round two points quietly did
+            // nothing at all. Whether this press was a click that means "leave" or
+            // a drag that means "select these" is only knowable once the mouse
+            // comes back up, so it is decided there.
         }
 
         // --- Bend: grab the nearest segment of the edited path ---
@@ -2458,6 +2460,12 @@ final class PageCanvas: NSView {
                     // what you had" — the same as dragging one on a blank canvas.
                     selectedPoints = pressExtended ? selectedPoints.union(caught) : Set(caught)
                     lastTouchedPoint = selectedPoints.sorted().first
+                } else if tool == .select, !pressExtended {
+                    // Not a drag: a plain click on empty canvas, which is how you
+                    // leave point editing. Shift-clicking never leaves, or holding
+                    // shift to add to a selection would throw you out of the mode
+                    // the moment you missed.
+                    editingLayerID = nil
                 }
                 needsDisplay = true
                 return

@@ -462,6 +462,7 @@ struct PropertiesPanel: View {
                 let n = store.selectedPoints.count
                 Text("Setting \(n) selected corner\(n == 1 ? "" : "s"). Click off the points to set the whole shape.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("corner-scope")
             } else if l.hasMixedCorners {
                 Text("Corners differ. Typing here sets them all to one value.")
                     .font(.caption).foregroundStyle(.secondary)
