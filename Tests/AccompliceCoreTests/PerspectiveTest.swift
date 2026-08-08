@@ -197,3 +197,59 @@ private func points(_ l: Layer) -> [CGPoint] {
     guard case .path(_, let closed) = l.kind else { Issue.record("not a path"); return }
     #expect(!closed)
 }
+
+@Test func aGentleWarpCostsFewSegments() {
+    // The point of splitting only where the projection needs it. A fixed twelve
+    // pieces per curve turned this oval into 48 segments however lightly it was
+    // leaned, and a warped shape you then have to go and Simplify is a warped
+    // shape that cost too much.
+    var l = square()
+    l.kind = .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 100), transform: nil),
+                   closed: true)
+    let gentle = [CGPoint(x: 0, y: 0.08), CGPoint(x: 1, y: 0),
+                  CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 0.92)]
+    let warped = l.applyPerspective(corners: gentle)
+    #expect(warped)
+
+    var segments = 0
+    Compose.resolvedPath(l)?.applyWithBlock { e in
+        if e.pointee.type == .addCurveToPoint { segments += 1 }
+    }
+    #expect(segments <= 16, "a gentle lean cost \(segments) segments")
+}
+
+@Test func aHarderWarpSpendsMoreThanAGentleOne() {
+    func segments(_ quad: [CGPoint]) -> Int {
+        var l = square()
+        l.kind = .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 100),
+                              transform: nil), closed: true)
+        _ = l.applyPerspective(corners: quad)
+        var n = 0
+        Compose.resolvedPath(l)?.applyWithBlock { e in
+            if e.pointee.type == .addCurveToPoint { n += 1 }
+        }
+        return n
+    }
+    let gentle = segments([CGPoint(x: 0, y: 0.08), CGPoint(x: 1, y: 0),
+                           CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 0.92)])
+    let severe = segments([CGPoint(x: 0, y: 0.45), CGPoint(x: 1.1, y: -0.1),
+                           CGPoint(x: 1.1, y: 1.1), CGPoint(x: 0, y: 0.55)])
+    // Adaptive means the cost follows the work. Equal counts would mean the
+    // budget is being ignored in one direction or the other.
+    #expect(severe > gentle, "gentle \(gentle) severe \(severe)")
+}
+
+@Test func aWarpedShapeCanBeSimplifiedFurther() {
+    // Simplify is the escape hatch when even the adaptive count is more than a
+    // drawing needs. It has to still work on a warped shape.
+    var l = square()
+    l.kind = .path(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 200, height: 100), transform: nil),
+                   closed: true)
+    _ = l.applyPerspective(corners: leaningQuad)
+    guard case .path(let warped, _) = l.kind else { Issue.record("not a path"); return }
+
+    var vp = VectorPath(cgPath: warped)
+    let before = vp.points.count
+    vp.simplify(tolerance: 1)
+    #expect(vp.points.count < before, "simplify left \(vp.points.count) of \(before)")
+}
