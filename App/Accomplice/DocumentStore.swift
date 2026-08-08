@@ -1717,6 +1717,26 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// ⌘-dragging a corner of a shape into perspective.
+    ///
+    /// `base` and `frame` are the shape as it stood when the drag began. Every
+    /// frame restores those and warps them afresh, because the warp is baked
+    /// into the geometry — warping the previous result instead would compound
+    /// the lean and the shape would curl in on itself.
+    func perspective(_ id: String, from base: CGPath, frame: CGRect, corners: [CGPoint]) {
+        edit(id, actionName: "Perspective", coalescingAs: "warp-\(id)") { l in
+            guard l.canSkew else { return }
+            // Whatever it was last frame, which is what it was to begin with —
+            // an open path must not come back closed just because it went
+            // through here.
+            var closed = true
+            if case .path(_, let wasClosed) = l.kind { closed = wasClosed }
+            l.kind = .path(base, closed: closed)
+            l.frame = frame
+            l.applyPerspective(corners: corners)
+        }
+    }
+
     /// Puts a sheared shape back upright, leaving everything else about it alone.
     func unskew() {
         edit(Array(selection), actionName: "Remove Skew") { $0.skewX = 0; $0.skewY = 0 }

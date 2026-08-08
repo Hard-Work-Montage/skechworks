@@ -259,20 +259,34 @@ extension Page {
             return "\(ids.count) shapes into one"
 
         case .distort(_, let corners):
-            var touched = 0
+            let quad = (corners?.count == 8) ? stride(from: 0, to: 8, by: 2)
+                .map { CGPoint(x: corners![$0], y: corners![$0 + 1]) } : nil
+            var pictures = 0, shapes = 0, refused = 0
             for id in ids {
                 p.updateLayer(id) { l in
-                    guard case .bitmap = l.kind else { return }
-                    if let corners, corners.count == 8 {
-                        l.warpCorners = stride(from: 0, to: 8, by: 2)
-                            .map { CGPoint(x: corners[$0], y: corners[$0 + 1]) }
-                    } else {
-                        l.warpCorners = nil
+                    if case .bitmap = l.kind {
+                        // A picture keeps its corners as a lens: droppable, and
+                        // adjustable again tomorrow.
+                        l.warpCorners = quad
+                        pictures += 1
+                        return
                     }
-                    touched += 1
+                    // A shape has its geometry rewritten instead. There is no
+                    // path to un-warp back to, so "straighten" can only mean
+                    // undo — which is why it says so rather than doing nothing.
+                    guard let quad else { return }
+                    if l.applyPerspective(corners: quad) { shapes += 1 } else { refused += 1 }
                 }
             }
-            return touched == 0 ? "only bitmaps distort" : "\(touched) bitmap\(touched == 1 ? "" : "s")"
+            var said: [String] = []
+            if pictures > 0 { said.append("\(pictures) bitmap\(pictures == 1 ? "" : "s")") }
+            if shapes > 0 { said.append("\(shapes) shape\(shapes == 1 ? "" : "s")") }
+            if said.isEmpty {
+                if refused > 0 { return "that quad is flat — three corners in a line" }
+                return quad == nil ? "only a bitmap's distort can be taken back off; undo the shape"
+                                   : "nothing there to distort"
+            }
+            return said.joined(separator: " and ")
 
         case .curve(_, let radius, let angle, let flipped):
             for id in ids {

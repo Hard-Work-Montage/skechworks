@@ -407,6 +407,12 @@ final class PageCanvas: NSView {
     /// index follows warpCorners order — 0 nw, 1 ne, 2 se, 3 sw.
     private var warpDrag: (id: String, corner: Int, t: CGAffineTransform)?
     private var skewDrag: (id: String, corner: Int, t: CGAffineTransform)?
+    /// A shape being taken into perspective. Carries the geometry it started
+    /// with, because the warp is baked: every frame re-warps the ORIGINAL rather
+    /// than the last result, which would compound.
+    private var perspectiveDrag: (id: String, corner: Int, t: CGAffineTransform,
+                                  base: CGPath, frame: CGRect, quad: [CGPoint])?
+    var onPerspective: ((String, CGPath, CGRect, [CGPoint]) -> Void)?
     var onWarpCorner: ((String, Int, CGPoint) -> Void)?
     /// ⌘-dragging a corner of anything that isn't a picture: degrees, not a point.
     var onSkew: ((String, CGFloat, CGFloat) -> Void)?
@@ -1953,12 +1959,28 @@ final class PageCanvas: NSView {
                     warpDrag = (id, corner, t)
                     return
                 }
-                // Everything else shears instead. A picture's four corners move
-                // independently, which no matrix can express — a shape's can't,
-                // because an affine transform takes a rectangle to a
-                // parallelogram and nothing else. Same gesture, and the closest
-                // thing to it that a vector can actually do.
-                if l.canSkew, let t = unskewedTransform(id) {
+                // A shape takes the same corner into the same perspective, which
+                // is what the gesture has always meant. Baked rather than kept as
+                // a lens, so the corner is measured from the shape as it was when
+                // the drag began and re-warped from there — otherwise each frame
+                // would warp the last one's output and the shape would curl up.
+                if l.canSkew, let base = Compose.resolvedPath(l),
+                   let t = unskewedTransform(id) {
+                    perspectiveDrag = (id, corner, t, base, l.frame,
+                                       [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0),
+                                        CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1)])
+                    return
+                }
+            }
+            // ⌘ on an EDGE handle shears along that edge. The corner was taken
+            // by perspective, which is the more general thing and the one that
+            // matches what a picture does — and an edge is where Illustrator
+            // puts shear anyway, because an edge only has one axis to lean.
+            if event.modifierFlags.contains(.command), cornerIndex[handle] == nil,
+               selected.count == 1, let id = selected.first,
+               let l = page?.layer(id), l.canSkew, let t = unskewedTransform(id) {
+                let toward: [Handle: Int] = [.n: 0, .e: 1, .s: 2, .w: 3]
+                if let corner = toward[handle] {
                     skewDrag = (id, corner, t)
                     return
                 }
@@ -2227,6 +2249,15 @@ final class PageCanvas: NSView {
             needsDisplay = true
             return
         }
+        if var pd = perspectiveDrag {
+            let local = p.applying(pd.t.inverted())
+            guard pd.frame.width > 1, pd.frame.height > 1 else { return }
+            pd.quad[pd.corner] = CGPoint(x: local.x / pd.frame.width, y: local.y / pd.frame.height)
+            perspectiveDrag = pd
+            onPerspective?(pd.id, pd.base, pd.frame, pd.quad)
+            needsDisplay = true
+            return
+        }
         if let sd = skewDrag {
             if let l = page?.layer(sd.id) {
                 let angles = Compose.skew(placing: sd.corner,
@@ -2420,6 +2451,11 @@ final class PageCanvas: NSView {
         // every drag after that skewed. Pressing ⌘ once locked the tool.
         if skewDrag != nil {
             skewDrag = nil
+            onWarpEnd?()
+            return
+        }
+        if perspectiveDrag != nil {
+            perspectiveDrag = nil
             onWarpEnd?()
             return
         }
@@ -2790,6 +2826,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onExitPixelSelect = { store.exitPixelSelect() }
         canvas.onWarpCorner = { id, corner, unit in store.warpCorner(id, corner: corner, to: unit) }
         canvas.onSkew = { id, x, y in store.skew(id, x: x, y: y) }
+        canvas.onPerspective = { id, base, frame, quad in
+            store.perspective(id, from: base, frame: frame, corners: quad)
+        }
         canvas.onWarpEnd = { store.endCoalescing() }
         canvas.onFlattenDistort = { store.flattenDistort() }
         canvas.onUnskew = { store.unskew() }

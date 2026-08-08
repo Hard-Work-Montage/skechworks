@@ -690,14 +690,20 @@ extension DocumentCommand {
                        — bends a text layer round a circle centred on its frame.
                        Use flipped:true for text along the bottom so it reads
                        upright. {"op":"curve","straighten":true} removes the curve.
-          distort      corners — perspective-warps a BITMAP layer. Eight numbers
-                       in unit coordinates of the frame, corner order top-left,
-                       top-right, bottom-right, bottom-left, each as x,y:
-                       flat is [0,0, 1,0, 1,1, 0,1]. Pull the right edge inward
-                       and upward, e.g. [0,0, 0.85,0.1, 0.85,0.9, 0,1], and the
-                       bitmap leans away like a wall in perspective. Corners may
-                       go outside 0…1. {"op":"distort","straighten":true}
-                       flattens it again. Aliases: skew, perspective, warp.
+          distort      corners — perspective-warps a bitmap OR a shape. Eight
+                       numbers in unit coordinates of the frame, corner order
+                       top-left, top-right, bottom-right, bottom-left, each as
+                       x,y: flat is [0,0, 1,0, 1,1, 0,1]. Pull the right edge
+                       inward and upward, e.g. [0,0, 0.85,0.1, 0.85,0.9, 0,1],
+                       and it leans away like a wall in perspective. To make one
+                       side SHORTER than the other — the usual near/far look —
+                       bring that side's two corners toward each other, e.g.
+                       [0,0.2, 1,0, 1,1, 0,0.8] for a short left edge. Corners
+                       may go outside 0…1. This is a real perspective, not a
+                       skew: it makes a trapezoid, which no lean can.
+                       {"op":"distort","straighten":true} takes it back off a
+                       bitmap; on a shape the geometry is rewritten, so undo is
+                       the way back. Aliases: skew, perspective, warp.
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",
