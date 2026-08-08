@@ -1942,7 +1942,7 @@ final class DocumentStore: ObservableObject {
         deleteSelection()
     }
 
-    func paste(at targetOrigin: CGPoint? = nil) {
+    func paste(at targetOrigin: CGPoint? = nil, above anchor: String? = nil) {
         if pastePixelSelection() { return }
         let pb = NSPasteboard.general
         guard let src = source, var p = page,
@@ -1983,7 +1983,13 @@ final class DocumentStore: ObservableObject {
         // IS the selection (that's what duplicate does), so the visible nudge
         // stays — a paste-in-place would vanish into its original.
         var stackTarget: String?
-        if targetOrigin == nil, targetBoard == nil, selection.count == 1,
+        // Aimed at a particular layer: land on it AND in front of it. Landing on
+        // top of something and then sitting behind it is the one arrangement
+        // nobody asks for, and it's what "paste at selection" did — the stacking
+        // rule below was skipped the moment a landing spot was given.
+        if let anchor, let l = p.layer(anchor), !l.isArtboard {
+            stackTarget = anchor
+        } else if targetOrigin == nil, targetBoard == nil, selection.count == 1,
            let sel = selection.first, let selLayer = p.layer(sel), !selLayer.isArtboard {
             stackTarget = sel
             if let o = p.absoluteOrigin(of: sel) {
@@ -2079,7 +2085,25 @@ final class DocumentStore: ObservableObject {
             r = r.union(CGRect(origin: o, size: l.frame.size))
         }
         guard !r.isNull else { paste(); return }
-        paste(at: r.origin)
+        // In front of the frontmost of them, so the copy is on top of everything
+        // it was just placed over rather than on top of only some of it.
+        paste(at: r.origin, above: frontmostSelected(in: p))
+    }
+
+    /// The selected layer nearest the front.
+    ///
+    /// Drawing order is the answer: whatever is painted last is what you see on
+    /// top, so the last one the walk reaches is the one a copy has to go above.
+    private func frontmostSelected(in page: Page) -> String? {
+        var front: String?
+        func walk(_ layers: [Layer]) {
+            for l in layers {
+                if selection.contains(l.id), !l.isArtboard { front = l.id }
+                if case .group(let kids) = l.kind { walk(kids) }
+            }
+        }
+        walk(page.layers)
+        return front
     }
 
     func duplicateSelection() {
