@@ -174,8 +174,17 @@ final class PageCanvas: NSView {
     /// that several points have to move together and stay in line. Shift adds to it, the
     /// way shift does everywhere else in the app.
     private var selectedPoints: Set<Int> = [] {
-        didSet { if selectedPoints != oldValue { needsDisplay = true } }
+        didSet {
+            guard selectedPoints != oldValue else { return }
+            needsDisplay = true
+            // The inspector needs this: a corner radius applies to the picked
+            // points when there are any, and to the whole shape otherwise.
+            onPointSelection?(selectedPoints)
+        }
     }
+
+    /// Which anchors are picked, for the inspector.
+    var onPointSelection: ((Set<Int>) -> Void)?
 
     private var draggingPoint: Int?
     private var draggingHandle: (index: Int, out: Bool)?
@@ -220,7 +229,8 @@ final class PageCanvas: NSView {
         guard let t = transformOf(id, in: page.layers, base: .identity) else { return }
         editTransform = t
         editLayerID = id
-        editPath = VectorPath(cgPath: cg.transformed(by: t), modes: l.curveModes)
+        editPath = VectorPath(cgPath: cg.transformed(by: t), modes: l.curveModes,
+                              radii: l.cornerRadii)
     }
 
     /// Keeps the picked points honest across a rebuild.
@@ -2723,6 +2733,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
         canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
         canvas.onExitTool = { store.tool = .select }
+        canvas.onPointSelection = { [weak store] picked in
+            guard let store, store.selectedPoints != picked else { return }
+            store.selectedPoints = picked
+        }
         canvas.onCanvasShortcut = { id in
             switch id {
             case "select": store.tool = .select

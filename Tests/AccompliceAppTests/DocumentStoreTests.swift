@@ -801,3 +801,79 @@ extension DocumentStoreTests {
         XCTAssertEqual(Array(bytes.prefix(4)), [0x89, 0x50, 0x4E, 0x47], "should be normalised to PNG")
     }
 }
+
+extension DocumentStoreTests {
+
+    private func bubbleLayer() -> Layer {
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: 0, y: 0))
+        p.addLine(to: CGPoint(x: 483, y: 0))
+        p.addLine(to: CGPoint(x: 483, y: 206))
+        p.addLine(to: CGPoint(x: 252, y: 206))
+        p.addLine(to: CGPoint(x: 250, y: 277))
+        p.addLine(to: CGPoint(x: 196, y: 206))
+        p.addLine(to: CGPoint(x: 0, y: 206))
+        p.closeSubpath()
+        var l = Layer(kind: .path(p, closed: true))
+        l.name = "Bubble"
+        l.frame = CGRect(x: 0, y: 0, width: 483, height: 277)
+        l.cornerRadius = 25
+        return l
+    }
+
+    private func storeWithBubble() -> (DocumentStore, String) {
+        var page = Page(name: "P")
+        let bubble = bubbleLayer()
+        page.layers = [bubble]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        return (store, bubble.id)
+    }
+
+    func testARadiusWithPointsPickedOnlyTouchesThoseCorners() throws {
+        let (store, id) = storeWithBubble()
+        store.setCornerRadius(0, on: id, points: [4])       // the tail tip
+        let l = try XCTUnwrap(store.page?.layer(id))
+        XCTAssertEqual(l.cornerRadius(at: 4), 0, "the picked corner takes the value")
+        XCTAssertEqual(l.cornerRadius(at: 0), 25, "the rest keep the layer's")
+        XCTAssertTrue(l.hasMixedCorners)
+    }
+
+    func testARadiusWithNothingPickedSetsTheWholeShape() throws {
+        let (store, id) = storeWithBubble()
+        store.setCornerRadius(0, on: id, points: [4])
+        store.setCornerRadius(12, on: id, points: [])
+        let l = try XCTUnwrap(store.page?.layer(id))
+        XCTAssertEqual(l.cornerRadius, 12)
+        XCTAssertTrue(l.cornerRadii.isEmpty, "setting the shape is the way back to corners that agree")
+        XCTAssertFalse(l.hasMixedCorners)
+    }
+
+    func testTheInspectorShowsNothingWhenPickedCornersDisagree() throws {
+        let (store, id) = storeWithBubble()
+        store.setCornerRadius(0, on: id, points: [4])
+        let l = try XCTUnwrap(store.page?.layer(id))
+        XCTAssertEqual(store.cornerRadiusShown(for: l, points: [4]), 0)
+        XCTAssertEqual(store.cornerRadiusShown(for: l, points: [0]), 25)
+        XCTAssertNil(store.cornerRadiusShown(for: l, points: [0, 4]), "two different values is not a number")
+        XCTAssertNil(store.cornerRadiusShown(for: l, points: []), "nor is a shape whose corners differ")
+    }
+
+    func testAPerPointRadiusSurvivesMovingThePointsAround() throws {
+        let (store, id) = storeWithBubble()
+        store.setCornerRadius(0, on: id, points: [4])
+        let l = try XCTUnwrap(store.page?.layer(id))
+        guard case .path(let cg, _) = l.kind else { return XCTFail("not a path") }
+
+        // Edit the shape the way dragging a point does, then write it back.
+        var vp = VectorPath(cgPath: cg, modes: l.curveModes, radii: l.cornerRadii)
+        vp.points[4].point.y += 40
+        store.commitEditedPath(vp, layerID: id, actionName: "Move Point")
+
+        let after = try XCTUnwrap(store.page?.layer(id))
+        XCTAssertEqual(after.cornerRadius(at: 4), 0, "the sharp corner is still the tail")
+        XCTAssertEqual(after.cornerRadius(at: 0), 25)
+    }
+}

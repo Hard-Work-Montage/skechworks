@@ -142,6 +142,9 @@ final class DocumentStore: ObservableObject {
     }
     @Published var editingPoint: EditingPoint?
     /// A requested change of point type, applied by the canvas that owns the path.
+    /// Anchors picked in point-edit mode. Empty means the whole shape.
+    @Published var selectedPoints: Set<Int> = []
+
     @Published var pointModeRequest: (serial: Int, mode: CurveMode)? {
         didSet { if pointModeRequest == nil { return } }
     }
@@ -2140,6 +2143,41 @@ final class DocumentStore: ObservableObject {
         return made
     }
 
+    /// Sets a corner radius on the picked anchors, or on the whole shape.
+    ///
+    /// With nothing picked this behaves as it always did — one number for the
+    /// layer — and it clears any per-anchor values, so dragging the shape's own
+    /// radius is a way back to a shape that agrees with itself.
+    func setCornerRadius(_ value: CGFloat, on id: String, points: Set<Int>) {
+        edit(id, actionName: "Corner Radius") { l in
+            guard points.isEmpty == false else {
+                l.cornerRadius = max(0, value)
+                l.cornerRadii = []
+                return
+            }
+            guard case .path(let cg, _) = l.kind else { return }
+            let count = VectorPath(cgPath: cg).points.count
+            var radii = l.cornerRadii
+            if radii.count != count {
+                // Grown from whatever was there: an anchor with no opinion keeps
+                // taking the layer's, which is what negative means.
+                radii += Array(repeating: CGFloat(-1), count: max(0, count - radii.count))
+                radii = Array(radii.prefix(count))
+            }
+            for i in points where radii.indices.contains(i) { radii[i] = max(0, value) }
+            l.cornerRadii = radii
+        }
+    }
+
+    /// What the inspector should show: one number, or nothing when they disagree.
+    func cornerRadiusShown(for l: Layer, points: Set<Int>) -> CGFloat? {
+        guard !points.isEmpty else {
+            return l.hasMixedCorners ? nil : l.cornerRadius
+        }
+        let values = Set(points.map { l.cornerRadius(at: $0) })
+        return values.count == 1 ? values.first : nil
+    }
+
     private func insert(_ kind: String, _ actionName: String) {
         var spec = AddSpec()
         spec.kind = kind
@@ -2359,6 +2397,10 @@ final class DocumentStore: ObservableObject {
             let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
             l.kind = .path(local, closed: vp.closed)
             l.curveModes = vp.points.map(\.mode)
+            // Only stored when a corner actually differs, so an ordinary shape
+            // does not grow an array of identical numbers in its file.
+            let radii = vp.points.map(\.cornerRadius)
+            l.cornerRadii = radii.contains { $0 >= 0 } ? radii : []
             l.frame = CGRect(origin: origin, size: box.size)
         }
     }

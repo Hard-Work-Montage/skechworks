@@ -31,11 +31,19 @@ public struct VectorPoint: Sendable {
     public var hasCurveFrom: Bool
     public var hasCurveTo: Bool
     public var mode: CurveMode
+    /// This corner's own radius, or negative to take the layer's.
+    ///
+    /// Carried on the point rather than in a parallel array for the same reason
+    /// `mode` is: inserting a point in the middle of a path shifts every index
+    /// after it, and a side table would quietly reassign radii to the wrong
+    /// corners. Riding along with the point, it cannot.
+    public var cornerRadius: CGFloat
 
     public init(_ p: CGPoint) {
         point = p; curveFrom = p; curveTo = p
         hasCurveFrom = false; hasCurveTo = false
         mode = .straight
+        cornerRadius = -1
     }
 
     public var isCorner: Bool { !hasCurveFrom && !hasCurveTo }
@@ -196,10 +204,14 @@ public struct VectorPath: Sendable {
     /// `modes` is ignored when it doesn't match the point count — a path edited
     /// somewhere that didn't maintain it is better off with the geometric guess than
     /// with types belonging to different points.
-    public init(cgPath: CGPath, modes: [CurveMode]) {
+    public init(cgPath: CGPath, modes: [CurveMode], radii: [CGFloat] = []) {
         self.init(cgPath: cgPath)
-        guard modes.count == points.count else { return }
-        for i in points.indices { points[i].mode = modes[i] }
+        if modes.count == points.count {
+            for i in points.indices { points[i].mode = modes[i] }
+        }
+        for i in points.indices where radii.indices.contains(i) {
+            points[i].cornerRadius = radii[i]
+        }
     }
 
     private static func inferMode(_ p: VectorPoint) -> CurveMode {

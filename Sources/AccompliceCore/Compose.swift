@@ -29,8 +29,11 @@ public enum Compose {
             // The one place a corner radius turns into geometry. Everything downstream
             // — the renderer, the SVG writer, boolean ops, masks, hit-testing — reads
             // the shape through here, so none of them has to know the radius exists.
-            guard l.cornerRadius > 0 else { return p }
-            return Corners.round(p, radius: l.cornerRadius, style: l.cornerStyle)
+            // Not just the layer value: a single anchor can carry a radius where
+            // the shape's own is zero.
+            guard l.cornerRadius > 0 || l.cornerRadii.contains(where: { $0 > 0 }) else { return p }
+            return Corners.round(p, radius: l.cornerRadius, style: l.cornerStyle,
+                                 radii: l.cornerRadii)
 
         case .shapeGroup(let children, let winding):
             let acc = combine(children, winding: winding)

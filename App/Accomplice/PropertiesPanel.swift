@@ -438,8 +438,12 @@ struct PropertiesPanel: View {
             sectionTitle("Corners")
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
-                    editable("Radius", l.cornerRadius, l) { layer, v in
-                        layer.cornerRadius = max(0, v)
+                    // Scoped to whatever is picked. With points selected in
+                    // point-edit mode this sets those corners; otherwise it sets
+                    // the shape, which is how it has always behaved.
+                    NumberField(label: "Radius",
+                                value: store.cornerRadiusShown(for: l, points: store.selectedPoints)) { v in
+                        store.setCornerRadius(v, on: l.id, points: store.selectedPoints)
                     }
                     Picker("", selection: Binding(
                         get: { l.cornerStyle },
@@ -451,8 +455,16 @@ struct PropertiesPanel: View {
                         }
                     }
                     .labelsHidden().pickerStyle(.menu)
-                    .disabled(l.cornerRadius <= 0)
+                    .disabled(l.cornerRadius <= 0 && !l.cornerRadii.contains { $0 > 0 })
                 }
+            }
+            if !store.selectedPoints.isEmpty {
+                let n = store.selectedPoints.count
+                Text("Setting \(n) selected corner\(n == 1 ? "" : "s"). Click off the points to set the whole shape.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if l.hasMixedCorners {
+                Text("Corners differ. Typing here sets them all to one value.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Text(l.cornerStyle == .smooth
                  ? "Eases into the corner, like an app icon."

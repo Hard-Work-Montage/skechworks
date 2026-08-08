@@ -294,6 +294,7 @@ public struct AcmplcFile {
         var l = Layer(kind: kind)
         l.curveModes = modes
         l.cornerRadius = dbl(j["cornerRadius"]) ?? 0
+        l.cornerRadii = (j["cornerRadii"] as? [Any] ?? []).compactMap(dbl)
         l.isLocked = j["locked"] as? Bool ?? false
         l.brightness = dbl(j["brightness"]) ?? 0
         l.contrast = dbl(j["contrast"]) ?? 1
@@ -447,6 +448,7 @@ public struct AcmplcFile {
         case .path(let p, let closed):
             d["type"] = "path"; d["closed"] = closed; d["d"] = w.pathData(p)
             if !l.curveModes.isEmpty { d["pointTypes"] = l.curveModes.map(\.rawValue) }
+            if !l.cornerRadii.isEmpty { d["cornerRadii"] = l.cornerRadii.map(Double.init) }
             if let a = l.autoShape {
                 d["autoShape"] = ["kind": a.kind.rawValue, "sides": a.sides,
                                   "innerRatio": a.innerRatio] as [String: Any]

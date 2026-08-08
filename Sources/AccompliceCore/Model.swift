@@ -199,6 +199,30 @@ public struct Layer: @unchecked Sendable {
     public var cornerRadius: CGFloat = 0
     public var cornerStyle: CornerStyle = .rounded
 
+    /// A radius per anchor, for shapes where one corner wants to differ from the
+    /// rest — the point of a speech balloon's tail against its rounded box.
+    ///
+    /// Indexed the same way `curveModes` is, and just as forgiving: an anchor with
+    /// no entry falls back to `cornerRadius`, so an empty array means "the whole
+    /// shape uses the layer value" and every document written before this existed
+    /// still means what it meant.
+    public var cornerRadii: [CGFloat] = []
+
+    /// The radius for one anchor.
+    public func cornerRadius(at index: Int) -> CGFloat {
+        guard cornerRadii.indices.contains(index) else { return cornerRadius }
+        let r = cornerRadii[index]
+        return r < 0 ? cornerRadius : r
+    }
+
+    /// True when the corners do not all agree, which is what the inspector shows
+    /// as a mixed value rather than a number that would be a lie.
+    public var hasMixedCorners: Bool {
+        guard !cornerRadii.isEmpty else { return false }
+        let first = cornerRadii.first ?? cornerRadius
+        return cornerRadii.contains { $0 != first }
+    }
+
     /// Erase strokes for a bitmap layer, applied when it draws.
     ///
     /// Stored rather than burnt into the pixels: the same photo is used across several

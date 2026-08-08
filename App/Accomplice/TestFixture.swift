@@ -13,6 +13,20 @@ enum TestFixture {
         ProcessInfo.processInfo.arguments.contains("--ui-test-fixture")
     }
 
+    /// Puts the window's furniture back where the tests expect it.
+    ///
+    /// A UI test drives the real app bundle, so it inherits whatever preferences
+    /// are on the machine — and Adam collapsing the chat panel while working made
+    /// "the chat is open on launch" fail on his laptop and nowhere else. The
+    /// fixture is meant to make a run predictable, and the layout is as much a
+    /// part of that as the document is.
+    static func resetLayoutPreferences() {
+        guard requested else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "showChat")
+        defaults.set(false, forKey: "chatCollapsed")
+    }
+
     /// Adds a text layer, for the one test that needs the inspector's TEXT
     /// section. Opt-in because a loose layer changes the page's bounds, and
     /// every canvas-click test derives its coordinates from zoom-to-fit.

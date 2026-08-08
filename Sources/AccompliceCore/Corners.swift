@@ -39,13 +39,24 @@ public enum Corners {
     /// Corners between curves are left alone: there's no obvious answer for what a
     /// radius means where the path is already turning, and Sketch doesn't offer one
     /// either.
-    public static func round(_ path: CGPath, radius: CGFloat, style: CornerStyle) -> CGPath {
-        guard radius > 0.001 else { return path }
+    public static func round(_ path: CGPath, radius: CGFloat, style: CornerStyle,
+                             radii: [CGFloat] = []) -> CGPath {
+        // A per-anchor radius can be non-zero where the layer's is zero, so the
+        // cheap way out only applies when nothing anywhere asks for a corner.
+        guard radius > 0.001 || radii.contains(where: { $0 > 0.001 }) else { return path }
         let subs = decompose(path)
         guard subs.contains(where: { $0.segments.count >= 2 }) else { return path }
         let out = CGMutablePath()
         var changed = false
-        for sub in subs { changed = emit(sub, radius: radius, style: style, into: out) || changed }
+        // Anchors are numbered straight through the whole path, the way VectorPath
+        // numbers them, so a shape with two subpaths still lines up with the point
+        // the user clicked on.
+        var base = 0
+        for sub in subs {
+            changed = emit(sub, radius: radius, style: style, radii: radii,
+                           base: base, into: out) || changed
+            base += sub.anchorCount
+        }
         guard changed else { return path }
         return out.copy() ?? path
     }
@@ -162,6 +173,11 @@ public enum Corners {
         var start: CGPoint
         var segments: [Segment] = []
         var closed = false
+
+        /// How many anchors this subpath contributes, counted the way VectorPath
+        /// counts them. A close is a line home rather than a new point, so a
+        /// closed subpath has exactly as many anchors as it has segments.
+        var anchorCount: Int { closed ? segments.count : segments.count + 1 }
     }
 
     private enum Segment {
@@ -218,6 +234,7 @@ public enum Corners {
 
     /// Writes one subpath into `out`, rounded. Returns whether anything changed.
     private static func emit(_ sub: Sub, radius: CGFloat, style: CornerStyle,
+                             radii: [CGFloat], base: Int,
                              into out: CGMutablePath) -> Bool {
         let segs = sub.segments
         guard !segs.isEmpty else { return false }
@@ -232,8 +249,14 @@ public enum Corners {
                 let j = (i + 1) % n
                 guard segs[i].isLine, segs[j].isLine else { continue }
                 let from = i == 0 ? sub.start : segs[i - 1].end
+                // The corner sits at the END of segment i, which is the next
+                // anchor round: for a closed subpath the last segment is the
+                // synthesised line home, so its corner is anchor 0.
+                let anchor = base + (sub.closed ? (i + 1) % n : i + 1)
+                let r = radii.indices.contains(anchor) && radii[anchor] >= 0 ? radii[anchor] : radius
+                guard r > 0.001 else { continue }
                 if let f = fillet(previous: from, vertex: segs[i].end, next: segs[j].end,
-                                  radius: radius, style: style) {
+                                  radius: r, style: style) {
                     fillets[i] = f
                 }
             }

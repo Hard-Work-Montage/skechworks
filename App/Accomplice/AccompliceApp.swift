@@ -19,6 +19,8 @@ struct DocumentWindow: View {
             .background(WindowTabbing(store: store))
             .onAppear {
                 AppDelegate.shared?.register(store)
+                // Before the views read their @AppStorage, not after.
+                TestFixture.resetLayoutPreferences()
                 if store.source == nil && store.url == nil {
                     if TestFixture.requested {
                         store.adopt(TestFixture.document(), images: [:])
