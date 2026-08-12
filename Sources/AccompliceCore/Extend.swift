@@ -169,9 +169,160 @@ public enum Extend {
             }
         }
 
+        /// Fills `strip` by carrying the edge of `source` across it, following
+        /// whatever direction the artwork was already travelling.
+        ///
+        /// Straight replication was the first version and it is wrong wherever
+        /// anything is on a slant: Ship's hoodie leaves the bottom of the frame
+        /// heading out to the left, and carrying it straight down turned it into
+        /// a vertical column. Flat artwork along an edge is a run of colours, so
+        /// reading the runs on two rows a few apart gives every boundary a
+        /// direction, and the boundaries can be carried on rather than the
+        /// pixels.
+        ///
+        /// Falls back to straight replication when the two rows do not agree
+        /// about what is on them — that means something starts or ends inside
+        /// the gap, and a velocity measured across it would be invented.
+        mutating func carryEdge(into strip: CGRect, from source: CGRect) {
+            if carrySlant(into: strip, from: source) { return }
+            carryStraight(into: strip, from: source)
+        }
+
+        /// Whether two colours are the same thing as far as this is concerned.
+        ///
+        /// Exact equality is useless on real artwork: every edge is
+        /// anti-aliased, so a strict test finds a boundary at nearly every
+        /// pixel and matches none of them to the row above. A flat style has
+        /// few colours and they are far apart, so a generous tolerance
+        /// separates them cleanly and ignores the ramp between.
+        static func alike(_ a: (UInt8, UInt8, UInt8, UInt8), _ b: (UInt8, UInt8, UInt8, UInt8)) -> Bool {
+            abs(Int(a.0) - Int(b.0)) <= 28 && abs(Int(a.1) - Int(b.1)) <= 28 &&
+            abs(Int(a.2) - Int(b.2)) <= 28 && abs(Int(a.3) - Int(b.3)) <= 28
+        }
+
+        /// Where one colour stops and the next begins, and which two they are.
+        struct Edge {
+            var at: Int
+            var before: (UInt8, UInt8, UInt8, UInt8)
+            var after: (UInt8, UInt8, UInt8, UInt8)
+        }
+
+        func edges(row y: Int, from a: Int, to b: Int) -> [Edge] {
+            var out: [Edge] = []
+            guard b - a > 1 else { return out }
+            var last = self[a, y]
+            for x in (a + 1)..<b where !Pixels.alike(self[x, y], last) {
+                out.append(Edge(at: x, before: last, after: self[x, y]))
+                last = self[x, y]
+            }
+            return out
+        }
+
+        func edges(column x: Int, from a: Int, to b: Int) -> [Edge] {
+            var out: [Edge] = []
+            guard b - a > 1 else { return out }
+            var last = self[x, a]
+            for y in (a + 1)..<b where !Pixels.alike(self[x, y], last) {
+                out.append(Edge(at: y, before: last, after: self[x, y]))
+                last = self[x, y]
+            }
+            return out
+        }
+
+        /// Carries the edge on along the direction each colour boundary was
+        /// already moving. Returns false when there is nothing to follow.
+        mutating func carrySlant(into strip: CGRect, from source: CGRect) -> Bool {
+            let x0 = max(0, Int(strip.minX)), x1 = min(w, Int(strip.maxX))
+            let y0 = max(0, Int(strip.minY)), y1 = min(h, Int(strip.maxY))
+            guard x1 > x0, y1 > y0 else { return false }
+
+            // How far back to look for the direction. Too short and a stepped
+            // outline reads as vertical; too long and a curve reads as the
+            // chord across it.
+            let look = 12
+
+            if strip.width >= strip.height {
+                let down = strip.minY >= source.maxY
+                let edge = down ? Int(source.maxY) - 1 : Int(source.minY)
+                let back = down ? edge - look : edge + look
+                guard back >= Int(source.minY), back < Int(source.maxY) else { return false }
+                let lo = max(x0, Int(source.minX)), hi = min(x1, Int(source.maxX))
+                let here = edges(row: edge, from: lo, to: hi)
+                guard !here.isEmpty else { return false }
+                let moving = pairUp(here, with: edges(row: back, from: lo, to: hi), over: look)
+                let first = self[lo, edge]
+                for y in y0..<y1 {
+                    paint(row: y, first: first, edges: moving, depth: down ? y - edge : edge - y,
+                          from: x0, to: x1)
+                }
+                return true
+            }
+
+            let right = strip.minX >= source.maxX
+            let edge = right ? Int(source.maxX) - 1 : Int(source.minX)
+            let back = right ? edge - look : edge + look
+            guard back >= Int(source.minX), back < Int(source.maxX) else { return false }
+            let lo = max(y0, Int(source.minY)), hi = min(y1, Int(source.maxY))
+            let here = edges(column: edge, from: lo, to: hi)
+            guard !here.isEmpty else { return false }
+            let moving = pairUp(here, with: edges(column: back, from: lo, to: hi), over: look)
+            let first = self[edge, lo]
+            for x in x0..<x1 {
+                paint(column: x, first: first, edges: moving, depth: right ? x - edge : edge - x,
+                      from: y0, to: y1)
+            }
+            return true
+        }
+
+        /// Gives every boundary a speed by finding the same boundary a few rows
+        /// back — the same two colours, nearest in position.
+        ///
+        /// Matched one at a time rather than as a sequence. Requiring the whole
+        /// line to agree was the first attempt, and on any real drawing it never
+        /// does: something always starts or ends within twelve rows, and one
+        /// mismatch anywhere threw away the direction of every boundary on the
+        /// line. A boundary with no partner simply doesn't move.
+        func pairUp(_ here: [Edge], with back: [Edge], over look: Int) -> [(Edge, Double)] {
+            here.map { edge in
+                let partner = back
+                    .filter { Pixels.alike($0.before, edge.before) && Pixels.alike($0.after, edge.after) }
+                    .min { abs($0.at - edge.at) < abs($1.at - edge.at) }
+                guard let partner, abs(partner.at - edge.at) <= look * 2 else { return (edge, 0.0) }
+                // Clamped: anything faster than a pixel per row is nearly always
+                // two unrelated edges paired up, and following it fans the
+                // picture out into stripes.
+                let v = Double(edge.at - partner.at) / Double(look)
+                return (edge, max(-1.0, min(1.0, v)))
+            }
+        }
+
+        mutating func paint(row y: Int, first: (UInt8, UInt8, UInt8, UInt8),
+                            edges: [(Edge, Double)], depth: Int, from x0: Int, to x1: Int) {
+            for x in x0..<x1 {
+                self[x, y] = colour(at: x, first: first, edges: edges, depth: depth)
+            }
+        }
+
+        mutating func paint(column x: Int, first: (UInt8, UInt8, UInt8, UInt8),
+                            edges: [(Edge, Double)], depth: Int, from y0: Int, to y1: Int) {
+            for y in y0..<y1 {
+                self[x, y] = colour(at: y, first: first, edges: edges, depth: depth)
+            }
+        }
+
+        /// Which colour lands at `pos` once every boundary has moved on.
+        func colour(at pos: Int, first: (UInt8, UInt8, UInt8, UInt8),
+                    edges: [(Edge, Double)], depth: Int) -> (UInt8, UInt8, UInt8, UInt8) {
+            var out = first
+            for (edge, speed) in edges {
+                if Double(pos) >= Double(edge.at) + speed * Double(depth) { out = edge.after } else { break }
+            }
+            return out
+        }
+
         /// Fills `strip` by carrying the nearest row or column of `source`
         /// straight across it.
-        mutating func carryEdge(into strip: CGRect, from source: CGRect) {
+        mutating func carryStraight(into strip: CGRect, from source: CGRect) {
             let x0 = max(0, Int(strip.minX)), x1 = min(w, Int(strip.maxX))
             let y0 = max(0, Int(strip.minY)), y1 = min(h, Int(strip.maxY))
             guard x1 > x0, y1 > y0, source.width >= 1, source.height >= 1 else { return }

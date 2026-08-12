@@ -1587,7 +1587,7 @@ final class DocumentStore: ObservableObject {
     /// continues as that band — and it is done before the menu has closed. The
     /// grade says how much to believe it, measured by continuing a strip of the
     /// real picture and checking against what is actually there.
-    func extendRegion(_ id: String, rect: CGRect) {
+    func extendRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref], l.frame.width > 0, l.frame.height > 0 else { return }
         guard let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l) else {
@@ -1633,6 +1633,86 @@ final class DocumentStore: ObservableObject {
                          : "Grew it, but the picture was going somewhere — look before you keep it.")
         status = grown.isTrusted ? "Extended" : "Extended — check it"
         pixelSelectRect = nil
+
+        guard !usingModel else { return }
+        // Always offered, never taken on its own. Carrying an edge outward is
+        // right where the picture had nothing left to say and streaky where it
+        // did, and which of those you are looking at is obvious on the canvas
+        // and invisible to a number.
+        chat.offerPaidRemove(label: String(format: "Not quite right? Use the model ($%.2f)",
+                                           ModelConnector.removePrice)) { [weak self] in
+            self?.extendModel(id, grownWidth: grown.image.width, grownHeight: grown.image.height,
+                              offset: grown.offset, oldSize: CGSize(width: baked.width, height: baked.height))
+        }
+    }
+
+    /// The second press: hand the grown picture to the model and ask it to make
+    /// the invented part belong.
+    ///
+    /// The local pass has already run, so what goes out is a complete picture
+    /// with a plausible-but-flat area in it, and the box marks that area. That
+    /// is the same shape of question Remove asks — "make what is inside this
+    /// box fit what is outside it" — which is why it goes to the same place.
+    func extendModel(_ id: String, grownWidth: Int, grownHeight: Int,
+                     offset: CGPoint, oldSize: CGSize) {
+        guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref],
+              let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+              let data = Renderer.png(baked) else { return }
+        guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
+            status = "That needs your Accomplice account. Connect it in Settings ▸ Model"
+            return
+        }
+
+        // The part that was invented, as a share of the grown picture. Anything
+        // outside the old rectangle is new.
+        let w = CGFloat(grownWidth), h = CGFloat(grownHeight)
+        let old = CGRect(origin: offset, size: oldSize)
+        let unit: CGRect
+        if old.maxY < h {                       // grew downward, the common one
+            unit = CGRect(x: 0, y: old.maxY / h, width: 1, height: (h - old.maxY) / h)
+        } else if old.minY > 0 {
+            unit = CGRect(x: 0, y: 0, width: 1, height: old.minY / h)
+        } else if old.maxX < w {
+            unit = CGRect(x: old.maxX / w, y: 0, width: (w - old.maxX) / w, height: 1)
+        } else {
+            unit = CGRect(x: 0, y: 0, width: old.minX / w, height: 1)
+        }
+        guard unit.width > 0.001, unit.height > 0.001 else { return }
+
+        var stopped = false
+        let entry = chat.beginActivity("Extend") { [weak self] in
+            stopped = true
+            self?.removeTask?.cancel()
+        }
+        chat.note(entry, "Asking the model to finish the new part — a minute or two")
+        status = "Extending… this takes a minute or two"
+        removeTask = Task { @MainActor in
+            do {
+                let result = try await ModelConnector.remove(png: data, rect: unit)
+                guard BitmapImage.load(result.png) != nil else {
+                    chat.endActivity(entry, text: "Extend failed: unreadable image", failed: true)
+                    return
+                }
+                // The frame does not move here: the picture is already the size
+                // it grew to, and only its pixels changed.
+                swapPixels(id, png: result.png, actionName: "Extend Image")
+                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                chat.endActivity(entry, text: "Finished the new part" + left)
+                status = "Extended" + left
+            } catch is CancellationError {
+                chat.endActivity(entry, text: "Stopped.")
+                status = "Extend stopped"
+            } catch {
+                if stopped {
+                    chat.endActivity(entry, text: "Stopped.")
+                    status = "Extend stopped"
+                    return
+                }
+                chat.endActivity(entry, text: error.localizedDescription, failed: true)
+                status = "Extend failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     /// Puts new pixels on a bitmap layer, filed under a key of their own.

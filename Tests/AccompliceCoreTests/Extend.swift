@@ -124,8 +124,32 @@ private func pixel(_ image: CGImage, _ x: Int, _ y: Int) -> (Int, Int, Int) {
     #expect(bandy.error > out.error)
 }
 
-/// A picture with somewhere to go: a diagonal edge crossing the bottom, which
-/// carrying the edge downward cannot possibly continue.
+/// A picture nobody can continue: speckle. There is no direction to follow and
+/// no colour to carry, so whatever is invented below it is invention.
+///
+/// A diagonal was the first choice here and stopped being a good one — once the
+/// fill started following the direction a boundary was already travelling, a
+/// straight diagonal became one of the cases it gets exactly right. That is the
+/// feature improving, so the test needs a harder picture rather than a lower
+/// bar.
+private func speckle(_ w: Int, _ h: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    var seed: UInt64 = 99
+    func next() -> Double {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        return Double((seed >> 33) % 1000) / 1000.0
+    }
+    for y in 0..<h {
+        for x in 0..<w {
+            ctx.setFillColor(CGColor(red: next(), green: next(), blue: next(), alpha: 1))
+            ctx.fill(CGRect(x: x, y: y, width: 1, height: 1))
+        }
+    }
+    return ctx.makeImage()!
+}
+
 private func diagonal(_ w: Int, _ h: Int) -> CGImage {
     let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                         space: CGColorSpaceCreateDeviceRGB(),
@@ -141,14 +165,21 @@ private func diagonal(_ w: Int, _ h: Int) -> CGImage {
     return ctx.makeImage()!
 }
 
-@Test func aPictureGoingSomewhereIsNotTrusted() throws {
-    // The grade earns its keep by being sceptical here. Carrying a diagonal
-    // straight down gives streaks, and the feature has to say so rather than
-    // hand back something confident and wrong.
-    let out = try #require(Extend.grow(diagonal(120, 120), toCover: CGRect(x: 0, y: 0, width: 120, height: 180)))
-    #expect(!out.isTrusted, "a diagonal should not grade as trusted, scored \(out.error)")
+@Test func aPictureNobodyCanContinueIsNotTrusted() throws {
+    // The grade earns its keep by being sceptical here, and it has to be, or
+    // the offer to spend money on the model never appears when it should.
+    let out = try #require(Extend.grow(speckle(90, 90), toCover: CGRect(x: 0, y: 0, width: 90, height: 140)))
+    #expect(!out.isTrusted, "speckle should not grade as trusted, scored \(out.error)")
 
     let flat = try #require(Extend.grow(solid(120, 120), toCover: CGRect(x: 0, y: 0, width: 120, height: 180)))
     #expect(flat.isTrusted, "flat artwork should still be trusted, scored \(flat.error)")
-    #expect(out.error > Heal.trusted * 2, "a diagonal should score well past the line, got \(out.error)")
+    #expect(out.error > Heal.trusted * 2, "speckle should score well past the line, got \(out.error)")
+}
+
+@Test func aStraightDiagonalIsFollowedRatherThanStreaked() throws {
+    // What the first version could not do. Carried straight down, an edge
+    // leaving the frame on a slant became a vertical column; followed, it
+    // continues on its way and reproduces a held-out strip almost exactly.
+    let out = try #require(Extend.grow(diagonal(120, 120), toCover: CGRect(x: 0, y: 0, width: 120, height: 180)))
+    #expect(out.isTrusted, "a straight slant should be continued, scored \(out.error)")
 }
