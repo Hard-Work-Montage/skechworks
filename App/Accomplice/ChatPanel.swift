@@ -299,11 +299,23 @@ private struct MessageRow: View {
                         if !offer.note.isEmpty {
                             Text(offer.note).font(.callout).foregroundStyle(.secondary)
                         }
-                        HStack {
-                            Button(offer.label) { offer.run() }
-                                .buttonStyle(.borderedProminent)
-                            Button("No thanks") { onDeclineOffer(message.id) }
+                        // Side by side when they fit, stacked when they do not.
+                        // The chat panel is as narrow as the user drags it, and
+                        // a button whose label is cut off is worse than one on
+                        // its own line.
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                Button(offer.label) { offer.run() }
+                                    .buttonStyle(.borderedProminent)
+                                Button("No thanks") { onDeclineOffer(message.id) }
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Button(offer.label) { offer.run() }
+                                    .buttonStyle(.borderedProminent)
+                                Button("No thanks") { onDeclineOffer(message.id) }
+                            }
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(8)
                     .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))

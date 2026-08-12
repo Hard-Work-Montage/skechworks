@@ -1649,10 +1649,14 @@ final class DocumentStore: ObservableObject {
         // right where the picture had nothing left to say and streaky where it
         // did, and which of those you are looking at is obvious on the canvas
         // and invisible to a number.
-        chat.offerPaidRemove(label: String(format: "Use the model ($%.2f)", ModelConnector.removePrice),
+        // The price belongs in the sentence, not in the button. In a panel this
+        // narrow the label was clipped to "Use the model ($…", which is the one
+        // word you cannot afford to lose off the end.
+        let price = String(format: "$%.2f", ModelConnector.removePrice)
+        chat.offerPaidRemove(label: "Use the model",
                              note: grown.isTrusted
-                             ? "Not quite right? The model can redraw the new part."
-                             : "The picture was going somewhere I can't follow. The model can redraw the new part.") { [weak self] in
+                             ? "Not quite right? The model can redraw the new part for \(price)."
+                             : "The picture was going somewhere I can't follow. The model can redraw the new part for \(price).") { [weak self] in
             self?.extendModel(id, offset: grown.offset,
                               oldSize: CGSize(width: baked.width, height: baked.height))
         }
