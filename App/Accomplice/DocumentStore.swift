@@ -1102,7 +1102,7 @@ final class DocumentStore: ObservableObject {
     /// Destructive on purpose, and only when asked for by name. Everything it
     /// bakes is one undo away.
     func flattenToImage() {
-        guard let page, selection.count >= 1 else {
+        guard let page, !selection.isEmpty else {
             status = "Select what should become one picture"
             return
         }
@@ -1147,7 +1147,9 @@ final class DocumentStore: ObservableObject {
             page.insertLayer(flat, parent: home?.parent, index: home?.index ?? 0)
         }
         selection = [flat.id]
-        status = "Flattened \(ids.count) layer\(ids.count == 1 ? "" : "s") into one picture"
+        status = ids.count == 1
+            ? "Flattened it into one picture"
+            : "Flattened \(ids.count) layers into one picture"
     }
 
     /// Edits the text run inside a text layer — the unwrap/rewrap that every text

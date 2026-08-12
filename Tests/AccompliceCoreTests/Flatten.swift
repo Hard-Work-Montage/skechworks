@@ -73,3 +73,32 @@ private func png(_ w: Int, _ h: Int) -> Data {
     // back layer on top about half the time.
     #expect(order == ["back", "G", "inner", "front"])
 }
+
+@Test func aPathAndAPictureFlattenTogether() throws {
+    // The question worth answering rather than assuming: this renders a page
+    // holding the selection, and the renderer draws paths as happily as it
+    // draws pixels, so a mixed selection is one picture like any other.
+    var path = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil),
+                                closed: true))
+    path.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+    path.style.fills = [Fill(paint: .color(Color(r: 0, g: 0, b: 1, a: 1)))]
+
+    let picture = bitmap("a", CGRect(x: 20, y: 20, width: 60, height: 60))
+    let box = try #require(Flatten.bounds(of: [path, picture]))
+    #expect(box == CGRect(x: 0, y: 0, width: 80, height: 80))
+
+    var page = Page(name: "p")
+    page.layers = [path, picture]
+    let out = Renderer(images: ["a": png(60, 60)]).render(page: page, maxDimension: 160, bounds: box)
+    #expect(out != nil, "a mixed selection has to draw, or the tool refuses half the documents in the app")
+    #expect(out?.width == 160)
+}
+
+@Test func oneLayerIsWorthFlatteningToo() throws {
+    // Not gated on "more than one image". A single bitmap with erasing, a crop
+    // and an adjustment on it is exactly the case that needs baking down before
+    // Extend or Remove can work on it — and a lone path becoming pixels is a
+    // real thing to want.
+    let box = try #require(Flatten.bounds(of: [bitmap("a", CGRect(x: 5, y: 5, width: 30, height: 30))]))
+    #expect(box == CGRect(x: 5, y: 5, width: 30, height: 30))
+}

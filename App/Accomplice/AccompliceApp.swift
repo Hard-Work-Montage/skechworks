@@ -145,7 +145,11 @@ struct AccompliceApp: App {
                 Divider()
                 Button("Convert to Outlines") { AppDelegate.shared?.active?.convertToOutlines() }
                     .keyboardShortcut("o", modifiers: [.command, .option])
-                Button("Flatten") { AppDelegate.shared?.active?.flattenSelection() }
+                // Named for what it produces, not for what it takes. This one
+                // welds outlines and the artwork stays editable; Tools ▸ Flatten
+                // to Image turns it into pixels and it does not. Two menu items
+                // because they are two different fates, not two spellings.
+                Button("Flatten Path") { AppDelegate.shared?.active?.flattenSelection() }
                     .shortcut("flatten")
                 Divider()
                 // Three named strengths rather than a tolerance box: the useful
