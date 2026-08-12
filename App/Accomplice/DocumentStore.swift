@@ -1090,6 +1090,66 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Tools ▸ Flatten to Image: everything selected becomes one picture.
+    ///
+    /// Path ▸ Flatten is the other verb — it welds outlines together and only
+    /// understands vectors. This one draws the selection exactly as it looks
+    /// and puts a single bitmap in its place, which is what the picture tools
+    /// need: Extend, Remove and the eraser all act on one bitmap, so a figure
+    /// built from a pose, two pasted patches and a background cannot be worked
+    /// on until it is a picture.
+    ///
+    /// Destructive on purpose, and only when asked for by name. Everything it
+    /// bakes is one undo away.
+    func flattenToImage() {
+        guard let page, selection.count >= 1 else {
+            status = "Select what should become one picture"
+            return
+        }
+        // Back to front, as they are drawn — a Set has no order, and flattening
+        // in whatever order it iterates puts the back layer on top half the
+        // time.
+        let picked = page.layersInOrder().filter { selection.contains($0.id) }
+        guard picked.count >= 1, let box = Flatten.bounds(of: picked) else {
+            status = "Nothing there to flatten"
+            return
+        }
+        guard let src = source else { return }
+
+        // Drawn from a page holding only the selection, so nothing behind or in
+        // front of it creeps in.
+        var scratch = Page(name: "flatten")
+        scratch.layers = picked
+        let scale = Flatten.scale(for: picked, images: images, bounds: box)
+        let renderer = Renderer(images: images, background: nil)
+        guard let image = renderer.render(page: scratch,
+                                          maxDimension: max(box.width, box.height) * scale,
+                                          bounds: box),
+              let png = Renderer.png(image) else {
+            status = "Couldn't draw that selection"
+            return
+        }
+
+        // Where the topmost of them was, so the flattened picture keeps its
+        // place in the stack rather than jumping to the front.
+        let top = picked.last?.id ?? picked[0].id
+        let key = "images/\(Zip.crc32(png))-\(png.count).png"
+        source = src.adding(image: png, key: key)
+
+        var flat = Layer(kind: .bitmap(imageRef: key))
+        flat.name = picked.count == 1 ? picked[0].name : "Flattened"
+        flat.frame = box
+
+        let ids = selection
+        mutatePage("Flatten to Image") { page in
+            let home = page.removeLayer(top)
+            for id in ids where id != top { _ = page.removeLayer(id) }
+            page.insertLayer(flat, parent: home?.parent, index: home?.index ?? 0)
+        }
+        selection = [flat.id]
+        status = "Flattened \(ids.count) layer\(ids.count == 1 ? "" : "s") into one picture"
+    }
+
     /// Edits the text run inside a text layer — the unwrap/rewrap that every text
     /// property change needs, in one place.
     func editText(_ id: String, _ actionName: String, coalescingAs key: String? = nil,

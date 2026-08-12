@@ -210,6 +210,8 @@ struct AccompliceApp: App {
                     .shortcut("erase")
                 Divider()
                 // The two that call a model, set apart the way Adam asked.
+                Button("Flatten to Image") { AppDelegate.shared?.active?.flattenToImage() }
+                Divider()
                 Section("AI Tools") {
                     Button("Remove") { AppDelegate.shared?.active?.beginRemove() }
                     // Tries it here first and offers the model afterwards, the

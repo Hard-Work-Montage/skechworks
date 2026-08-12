@@ -46,6 +46,21 @@ public struct Page: @unchecked Sendable {
 
     public func layer(_ id: String) -> Layer? { Page.find(id, in: layers) }
 
+    /// Every layer, back to front, the order the canvas draws them in.
+    ///
+    /// Wanted wherever a set of selected ids has to become a stack: a Set has
+    /// no order, and flattening them in whatever order it iterates puts the
+    /// back layer on top about half the time.
+    public func layersInOrder() -> [Layer] {
+        func walk(_ ls: [Layer]) -> [Layer] {
+            ls.flatMap { l -> [Layer] in
+                if case .group(let kids) = l.kind { return [l] + walk(kids) }
+                return [l]
+            }
+        }
+        return walk(layers)
+    }
+
     /// Removes a layer from anywhere in the tree, reporting where it was so it can be
     /// put back. Undo has to restore position, not just existence.
     @discardableResult
