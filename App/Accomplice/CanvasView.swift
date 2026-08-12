@@ -81,6 +81,7 @@ final class PageCanvas: NSView {
     }
     var onEnterPixelSelect: ((String) -> Void)?
     var onPixelRect: ((CGRect) -> Void)?
+    var onExtendRect: ((String, CGRect) -> Void)?
     var onExitPixelSelect: (() -> Void)?
     /// The box being dragged, and the one standing after mouse-up, in page space.
     private var pixelDrag: (t: CGAffineTransform, start: CGPoint, current: CGPoint)?
@@ -543,7 +544,7 @@ final class PageCanvas: NSView {
             return
         }
         if brushAt != nil { brushAt = nil; needsDisplay = true }
-        if tool == .remove {
+        if tool == .remove || tool == .extend {
             NSCursor.crosshair.set()
             return
         }
@@ -1735,8 +1736,10 @@ final class PageCanvas: NSView {
             return
         }
 
-        // --- Remove: box the thing on the bitmap that should go ---
-        if tool == .remove {
+        // --- Remove and Extend: box a part of a bitmap. Remove's box says what
+        // should go; Extend's says how far past the edge the picture should
+        // reach, so it is expected to start on the artwork and finish off it.
+        if tool == .remove || tool == .extend {
             if let target = eraseTarget(p),
                let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
                 eraseRectDrag = (target.id, t, p, p)
@@ -2496,9 +2499,13 @@ final class PageCanvas: NSView {
                                   height: abs(er.current.y - er.start.y))
             let local = pageRect.applying(er.t.inverted())
             if local.width > 1, local.height > 1 {
-                // The same drag serves two tools: erase cuts the box out itself,
-                // remove sends it off to be understood first.
-                if tool == .remove { onRemoveRect?(er.id, local) } else { onEraseRect?(er.id, local) }
+                // One drag, three tools: erase cuts the box out, remove sends it
+                // off to be understood, extend grows the picture to reach it.
+                switch tool {
+                case .remove: onRemoveRect?(er.id, local)
+                case .extend: onExtendRect?(er.id, local)
+                default: onEraseRect?(er.id, local)
+                }
             }
             needsDisplay = true
             return
@@ -2830,6 +2837,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
         canvas.onPlaceShape = { [weak store] r in store?.placeShape(store?.tool ?? .rect, in: r) }
         canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
+        canvas.onExtendRect = { id, r in store.extendRegion(id, rect: r) }
         canvas.pixelSelectID = store.pixelSelectID
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
         canvas.onPixelRect = { store.pixelSelectRect = $0 }

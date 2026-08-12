@@ -43,8 +43,13 @@ public enum Heal {
     public static func fill(_ image: CGImage, box: CGRect) -> Attempt? {
         let clip = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         let hole = box.integral.intersection(clip)
+        // The hole has to leave some picture behind, but it does not have to
+        // leave some on every side. A band running the full width of an image
+        // still has the rows above and below it to continue from — and every
+        // extension along an edge is exactly that shape, so requiring both
+        // dimensions to be short refused the whole of Extend.
         guard hole.width >= 1, hole.height >= 1,
-              hole.width < CGFloat(image.width), hole.height < CGFloat(image.height),
+              hole.width < CGFloat(image.width) || hole.height < CGFloat(image.height),
               var canvas = Canvas(image) else { return nil }
 
         let box = IntRect(hole)

@@ -210,6 +210,10 @@ struct AccompliceApp: App {
                     .shortcut("erase")
                 Divider()
                 // The two that call a model, set apart the way Adam asked.
+                // Not under AI Tools: this one never calls a model and never
+                // costs anything.
+                Button("Extend Image") { AppDelegate.shared?.active?.beginExtend() }
+                Divider()
                 Section("AI Tools") {
                     Button("Remove") { AppDelegate.shared?.active?.beginRemove() }
                     Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }

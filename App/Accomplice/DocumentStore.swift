@@ -34,13 +34,14 @@ final class DocumentStore: ObservableObject {
     }
 
     enum Tool: String, CaseIterable {
-        case select, pen, erase, remove, rect, oval, text
+        case select, pen, erase, remove, extend, rect, oval, text
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
             case .erase: return "eraser"
             case .remove: return "wand.and.stars"
+            case .extend: return "arrow.up.left.and.arrow.down.right"
             case .rect: return "rectangle"
             case .oval: return "circle"
             case .text: return "textformat"
@@ -52,6 +53,7 @@ final class DocumentStore: ObservableObject {
             case .pen: return "Vector"
             case .erase: return "Erase"
             case .remove: return "Remove"
+            case .extend: return "Extend"
             case .rect: return "Rectangle"
             case .oval: return "Oval"
             case .text: return "Text"
@@ -1562,17 +1564,92 @@ final class DocumentStore: ObservableObject {
         status = "Box the thing that should go"
     }
 
+    /// Tools ▸ Extend Image. Acts on the box already drawn on a picture;
+    /// failing that, arms the tool so the next drag draws one.
+    ///
+    /// Unlike Remove, the box is MEANT to hang off the edge of the picture —
+    /// that overhang is the whole instruction. A box drawn wholly inside adds
+    /// nothing, and says so rather than quietly doing nothing.
+    func beginExtend() {
+        if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
+            extendRegion(id, rect: rect)
+            return
+        }
+        tool = .extend
+        status = "Drag a box past the edge of the picture"
+    }
+
+    /// Grows a picture to cover the box and draws the new part from what was
+    /// already at the edge.
+    ///
+    /// Runs here, offline, for nothing. On flat artwork carrying the edge
+    /// outward is not an approximation — a band of colour running off the edge
+    /// continues as that band — and it is done before the menu has closed. The
+    /// grade says how much to believe it, measured by continuing a strip of the
+    /// real picture and checking against what is actually there.
+    func extendRegion(_ id: String, rect: CGRect) {
+        guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref], l.frame.width > 0, l.frame.height > 0 else { return }
+        guard let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l) else {
+            status = "Can't read that image"
+            return
+        }
+
+        // The box arrives in layer points; the picture thinks in its own pixels.
+        let perPointX = CGFloat(baked.width) / l.frame.width
+        let perPointY = CGFloat(baked.height) / l.frame.height
+        let box = CGRect(x: rect.minX * perPointX, y: rect.minY * perPointY,
+                         width: rect.width * perPointX, height: rect.height * perPointY)
+
+        let entry = chat.beginActivity("Extend")
+        guard let grown = Extend.grow(baked, toCover: box) else {
+            chat.endActivity(entry, text: "That box is already inside the picture — drag one that hangs off an edge.")
+            status = "Drag a box past the edge of the picture"
+            return
+        }
+        guard let png = Renderer.png(grown.image) else {
+            chat.endActivity(entry, text: "Extend failed: could not write the picture", failed: true)
+            return
+        }
+
+        // The artwork has to stay exactly where it looked, so the frame grows by
+        // what was added and its origin moves back by what was added above and
+        // to the left.
+        let pointsPerPixelX = l.frame.width / CGFloat(baked.width)
+        let pointsPerPixelY = l.frame.height / CGFloat(baked.height)
+        let frame = CGRect(x: l.frame.minX - grown.offset.x * pointsPerPixelX,
+                           y: l.frame.minY - grown.offset.y * pointsPerPixelY,
+                           width: CGFloat(grown.image.width) * pointsPerPixelX,
+                           height: CGFloat(grown.image.height) * pointsPerPixelY)
+
+        swapPixels(id, png: png, actionName: "Extend Image", frame: frame)
+        chat.note(entry, String(format: "Carried the edge outward by %.0f×%.0f pixels",
+                                CGFloat(grown.image.width) - CGFloat(baked.width),
+                                CGFloat(grown.image.height) - CGFloat(baked.height)))
+        chat.note(entry, String(format: "Continuing a strip of the real picture the same size is off by %.0f of 255",
+                                grown.error))
+        chat.endActivity(entry, text: grown.isTrusted
+                         ? "Grew it from what was already at the edge. Nothing was sent anywhere."
+                         : "Grew it, but the picture was going somewhere — look before you keep it.")
+        status = grown.isTrusted ? "Extended" : "Extended — check it"
+        pixelSelectRect = nil
+    }
+
     /// Puts new pixels on a bitmap layer, filed under a key of their own.
     ///
     /// Whatever comes back has the adjustments and the crop already baked in,
     /// because that is what was sent out — leaving them set would apply them a
     /// second time and the picture would darken a little every removal.
-    private func swapPixels(_ id: String, png: Data, actionName: String) {
+    private func swapPixels(_ id: String, png: Data, actionName: String, frame: CGRect? = nil) {
         guard let src = source else { return }
         let key = "images/\(Zip.crc32(png))-\(png.count).png"
         source = src.adding(image: png, key: key)
         edit(id, actionName: actionName) { layer in
             layer.kind = .bitmap(imageRef: key)
+            // Extend changes how much picture there is, so the frame moves with
+            // the pixels — in the same edit, or undo would take one back
+            // without the other and the artwork would jump.
+            if let frame { layer.frame = frame }
             layer.brightness = 0
             layer.contrast = 1
             layer.saturation = 1
