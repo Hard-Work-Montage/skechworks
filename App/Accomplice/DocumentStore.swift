@@ -2030,6 +2030,7 @@ final class DocumentStore: ObservableObject {
             guard case .bitmap = l.kind else { return }
             l.erased.append(EraseStroke(rect: rect))
         }
+        shrinkToWhatIsLeft(id)
     }
 
     /// Records an erase stroke against a bitmap layer.
@@ -2040,6 +2041,48 @@ final class DocumentStore: ObservableObject {
             l.erased.append(EraseStroke(points: points,
                                         radius: CGFloat(self.eraseRadius),
                                         softness: CGFloat(self.eraseSoftness)))
+        }
+    }
+
+    /// Pulls a bitmap's frame in to whatever it still shows.
+    ///
+    /// Erasing here is a stored decision rather than a cut, so rubbing out the
+    /// bottom of a picture leaves the pixels and the frame exactly as they
+    /// were. The handles then describe a picture that is not on the screen any
+    /// more — and Extend, which measures the layer to work out what to grow,
+    /// measures that ghost and offers to extend from an edge that is no longer
+    /// there.
+    ///
+    /// Only ever shrinks, and only from the outside: erasing a hole in the
+    /// middle of something changes nothing, because nothing about the outline
+    /// changed.
+    private func shrinkToWhatIsLeft(_ id: String) {
+        guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref], l.frame.width > 0, l.frame.height > 0,
+              let visible = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
+              let box = Trim.contentBounds(visible) else { return }
+        // A pixel of slack: a hairline of anti-aliasing left at an edge is not
+        // a reason to move the handles.
+        guard box.minX > 0.002 || box.minY > 0.002 || box.maxX < 0.998 || box.maxY < 0.998 else { return }
+
+        let frame = CGRect(x: l.frame.minX + box.minX * l.frame.width,
+                           y: l.frame.minY + box.minY * l.frame.height,
+                           width: box.width * l.frame.width,
+                           height: box.height * l.frame.height)
+        guard frame.width > 1, frame.height > 1 else { return }
+
+        // The crop is a window on the DISPLAYED image, and the displayed image
+        // already has any earlier crop applied — so a new one has to be laid
+        // inside the old rather than replacing it.
+        let old = l.cropRect ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+        let crop = CGRect(x: old.minX + box.minX * old.width,
+                          y: old.minY + box.minY * old.height,
+                          width: box.width * old.width,
+                          height: box.height * old.height)
+
+        edit(id, actionName: "Erase Area") { layer in
+            layer.frame = frame
+            layer.cropRect = crop
         }
     }
 

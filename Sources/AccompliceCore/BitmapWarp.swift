@@ -54,6 +54,21 @@ public enum BitmapWarp {
         return image(source, corners: corners, cacheKey: cacheKey)
     }
 
+    /// The pixels a layer actually shows: baked for orientation, adjustments
+    /// and crop, with its erasing taken out.
+    ///
+    /// Anything that needs to know how big a picture really is has to ask this
+    /// rather than the frame. Erasing is a stored decision, not a cut, so a
+    /// layer whose bottom half has been rubbed out still has a frame the full
+    /// height of what it used to be.
+    public static func visibleImage(data: Data, ref: String, layer l: Layer) -> CGImage? {
+        guard let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: l) else { return nil }
+        guard !l.erased.isEmpty, l.frame.width > 0,
+              let mask = EraseMask.image(strokes: l.erased, size: l.frame.size),
+              let cut = masked(baked, with: mask) else { return baked }
+        return cut
+    }
+
     /// Applies an erase mask (built in layer units) to a pixel-sized image.
     /// clip(to:mask:) stretches the mask to the rect, which also absorbs any
     /// difference between the frame's aspect and the pixels'.
