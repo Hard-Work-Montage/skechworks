@@ -1724,6 +1724,12 @@ final class DocumentStore: ObservableObject {
         chat.note(entry, String(format: "Carried the edge outward by %.0f×%.0f pixels",
                                 CGFloat(grown.image.width) - CGFloat(baked.width),
                                 CGFloat(grown.image.height) - CGFloat(baked.height)))
+        // The eraser is reversible everywhere else in the app — Restore Erased
+        // gives every stroke back. Growing a picture is where that stops being
+        // true for the layer it grew, so it should not happen quietly.
+        if !l.erased.isEmpty {
+            chat.note(entry, "Your erasing is part of the picture now — Restore Erased won't bring it back")
+        }
         chat.note(entry, String(format: "Continuing a strip of the real picture the same size is off by %.0f of 255",
                                 grown.error))
         chat.endActivity(entry, text: grown.isTrusted
