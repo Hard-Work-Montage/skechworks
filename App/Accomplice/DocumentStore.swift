@@ -1669,7 +1669,11 @@ final class DocumentStore: ObservableObject {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref],
               let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
-              let data = Renderer.png(baked) else { return }
+              // Empty parts go out painted in a colour nobody draws with, so the
+              // reply can be asked whether it drew there. Transparency itself
+              // cannot make the trip — the service returns an opaque picture.
+              let outgoing = Extend.flattenForModel(baked),
+              let data = Renderer.png(outgoing) else { return }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
             status = "That needs your Accomplice account. Connect it in Settings ▸ Model"
             return

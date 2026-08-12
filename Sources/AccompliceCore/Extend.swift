@@ -401,10 +401,45 @@ public extension Extend {
     /// and the shape of what is see-through inside it — comes from the picture
     /// we already had. The model chooses what the new part looks like; it does
     /// not get to choose where anything is or what is missing.
+    /// A colour that is not in this artwork, used to mark "nothing here".
+    ///
+    /// Transparency cannot survive the trip: the service returns an opaque
+    /// picture, so anything see-through comes home black. Painting the empty
+    /// parts a colour nobody draws with turns that into a question we can
+    /// answer on the way back — magenta that came back magenta was left alone,
+    /// magenta that came back as something else was drawn on.
+    static let matte: (UInt8, UInt8, UInt8, UInt8) = (255, 0, 255, 255)
+
+    /// The picture with its empty parts painted in the matte, ready to send.
+    static func flattenForModel(_ image: CGImage) -> CGImage? {
+        guard var p = Pixels(image, size: CGSize(width: image.width, height: image.height), at: .zero)
+        else { return nil }
+        for y in 0..<p.h {
+            for x in 0..<p.w where p[x, y].3 < 128 {
+                p[x, y] = matte
+            }
+        }
+        return p.image()
+    }
+
+    /// Puts a model's answer back into a picture without letting it take
+    /// anything it was not asked for.
+    ///
+    /// The reply is used for one region and nothing else. Outside it, every
+    /// pixel is the one we already had. Inside it, the reply decides both the
+    /// colour AND whether there is anything there at all — which it has to,
+    /// because the whole point of extending a cut-out is that the new part has
+    /// a shape the old part cannot know.
+    ///
+    /// An earlier version kept our own alpha inside the region as well. That
+    /// stopped the black box, and it also stopped the feature working: below a
+    /// cut-out's last row everything is see-through, so the model's answer was
+    /// discarded wherever it mattered and the picture grew a taller frame with
+    /// nothing in it.
     static func merge(model: CGImage, into base: CGImage, region: CGRect) -> CGImage? {
         let size = CGSize(width: base.width, height: base.height)
-        // Resampled to the size we sent, so a service that rounds dimensions
-        // cannot shift the artwork under its own frame.
+        // Resampled to the size we sent, so a service that rounds its output
+        // cannot slide the artwork under a frame that did not move.
         guard var out = Pixels(base, size: size, at: .zero),
               let reply = Pixels(model, size: size, at: .zero) else { return nil }
 
@@ -414,18 +449,20 @@ public extension Extend {
 
         for y in y0..<y1 {
             for x in x0..<x1 {
-                let a = out[x, y].3
-                guard a > 0 else { continue }   // stays see-through: our silhouette wins
                 let c = reply[x, y]
-                // The reply is opaque, so its channels are the colour itself.
-                // Ours are premultiplied, so they have to be multiplied back
-                // down by the alpha we are keeping.
-                out[x, y] = (UInt8(Int(c.0) * Int(a) / 255),
-                             UInt8(Int(c.1) * Int(a) / 255),
-                             UInt8(Int(c.2) * Int(a) / 255),
-                             a)
+                if isMatte(c) {
+                    out[x, y] = (0, 0, 0, 0)      // it left our marker alone: still nothing
+                } else {
+                    out[x, y] = (c.0, c.1, c.2, 255)
+                }
             }
         }
         return out.image()
+    }
+
+    /// Near enough to the marker to count as untouched. Generous, because the
+    /// reply has been through an encoder and a resize on the way back.
+    static func isMatte(_ c: (UInt8, UInt8, UInt8, UInt8)) -> Bool {
+        Int(c.0) > 200 && Int(c.1) < 70 && Int(c.2) > 200
     }
 }

@@ -205,19 +205,45 @@ private func halfCutOut(_ w: Int, _ h: Int) -> CGImage {
     return ctx.makeImage()!
 }
 
-@Test func theModelsAnswerCannotFillInWhatWasSeeThrough() throws {
+/// A reply that left our marker alone down the left and drew on it down the
+/// right — which is what the service actually sends back.
+private func replyLeavingMatte(_ w: Int, _ h: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.setFillColor(CGColor(red: 0.11, green: 0.60, blue: 0.40, alpha: 1))
+    ctx.fill(CGRect(x: w / 2, y: 0, width: w / 2, height: h))
+    return ctx.makeImage()!
+}
+
+@Test func whatTheModelLeftAloneStaysEmptyAndWhatItDrewArrives() throws {
     let base = halfCutOut(80, 80)
-    let merged = try #require(Extend.merge(model: opaqueReply(80, 80), into: base,
+    let merged = try #require(Extend.merge(model: replyLeavingMatte(80, 80), into: base,
                                            region: CGRect(x: 0, y: 0, width: 80, height: 80)))
 
-    // The whole complaint in one assertion: a reply that is opaque everywhere
-    // must not turn the empty half of a cut-out into a black box.
-    let empty = pixel(merged, 10, 40)
-    #expect(empty == (0, 0, 0), "the see-through half came back as \(empty)")
+    // Untouched marker means there is still nothing there — this is what stops
+    // a cut-out coming home standing in a black box.
+    #expect(pixel(merged, 10, 40) == (0, 0, 0), "the untouched half came back as \(pixel(merged, 10, 40))")
 
-    // And where there WAS artwork, the colour is the model's.
-    let filled = pixel(merged, 70, 40)
-    #expect(filled.1 > filled.0, "expected the model's green, got \(filled)")
+    // And where it DID draw, the new part arrives — which is what the previous
+    // rule prevented, leaving a taller frame with nothing in it.
+    let drawn = pixel(merged, 70, 40)
+    #expect(drawn.1 > drawn.0 && drawn.1 > drawn.2, "expected the model's green, got \(drawn)")
+}
+
+@Test func theModelCanAddSomethingWhereThereWasNothing() throws {
+    // The bug this replaced: below a cut-out's last row everything is
+    // see-through, so keeping our own alpha threw the answer away exactly where
+    // it was needed.
+    let empty = CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
+                          space: CGColorSpaceCreateDeviceRGB(),
+                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!.makeImage()!
+    let merged = try #require(Extend.merge(model: opaqueReply(40, 40), into: empty,
+                                           region: CGRect(x: 0, y: 0, width: 40, height: 40)))
+    let drawn = pixel(merged, 20, 20)
+    #expect(drawn.1 > drawn.0, "nothing arrived where the model drew, got \(drawn)")
 }
 
 @Test func aReplyOfTheWrongSizeDoesNotShiftThePicture() throws {
