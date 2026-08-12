@@ -1590,7 +1590,11 @@ final class DocumentStore: ObservableObject {
     func extendRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref], l.frame.width > 0, l.frame.height > 0 else { return }
-        guard let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l) else {
+        // What the user SEES, erasing included. displayImage bakes orientation,
+        // adjustments and crop but leaves the erasing out, so a picture you had
+        // partly rubbed out went off to be worked on with the rubbed-out parts
+        // still in it.
+        guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else {
             status = "Can't read that image"
             return
         }
@@ -1612,15 +1616,37 @@ final class DocumentStore: ObservableObject {
         }
 
         let entry = chat.beginActivity("Extend")
-        guard let grown = Extend.grow(baked, toCover: box.intersection(sane)) else {
-            chat.endActivity(entry, text: "That box is already inside the picture — drag one that hangs off an edge.")
-            status = "Drag a box past the edge of the picture"
-            return
+        status = "Extending…"
+
+        // Off the main thread. Carrying an edge across a big picture is a
+        // second or two of arithmetic, and several hundred megabytes of buffers
+        // — done on the main actor that is the window not redrawing, and under
+        // memory pressure it is the window not redrawing for a lot longer than
+        // that.
+        let target = box.intersection(sane)
+        Task { @MainActor in
+            let grown = await Task.detached(priority: .userInitiated) {
+                Extend.grow(baked, toCover: target)
+            }.value
+
+            guard let grown else {
+                chat.endActivity(entry, text: "That box is already inside the picture — drag one that hangs off an edge.")
+                status = "Drag a box past the edge of the picture"
+                return
+            }
+            guard let png = Renderer.png(grown.image) else {
+                chat.endActivity(entry, text: "Extend failed: could not write the picture", failed: true)
+                return
+            }
+            self.finishExtend(id, layer: l, baked: baked, grown: grown, png: png,
+                              entry: entry, usingModel: usingModel)
         }
-        guard let png = Renderer.png(grown.image) else {
-            chat.endActivity(entry, text: "Extend failed: could not write the picture", failed: true)
-            return
-        }
+    }
+
+    /// Puts a finished extension on the canvas and says how much to trust it.
+    private func finishExtend(_ id: String, layer l: Layer, baked: CGImage,
+                              grown: Extend.Result, png: Data,
+                              entry: UUID, usingModel: Bool) {
 
         // The artwork has to stay exactly where it looked, so the frame grows by
         // what was added and its origin moves back by what was added above and
@@ -1675,7 +1701,7 @@ final class DocumentStore: ObservableObject {
     func extendModel(_ id: String, original: CGImage, offset: CGPoint, grownSize: CGSize) {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref],
-              let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+              let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
               // What goes out is the picture BEFORE the free pass touched it,
               // on the grown canvas, with the new part painted in a colour
               // nobody draws with. Transparency cannot make the trip — the
@@ -1763,6 +1789,11 @@ final class DocumentStore: ObservableObject {
             layer.contrast = 1
             layer.saturation = 1
             layer.cropRect = nil
+            // The erasing is in these pixels too, now. Leaving the strokes
+            // behind would rub the same holes a second time — and after an
+            // extension they point into a frame that has changed size, so they
+            // would rub them somewhere else entirely.
+            layer.erased = []
         }
     }
 
@@ -1786,7 +1817,7 @@ final class DocumentStore: ObservableObject {
         // Send the pixels the user boxed, which are the pixels they SEE: bake
         // orientation, adjustments and crop the way the canvas draws them. This
         // also guarantees PNG going out; the stored bytes may be JPEG or HEIC.
-        guard let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
+        guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
               let data = Renderer.png(baked) else {
             status = "Can't read that image"
             return

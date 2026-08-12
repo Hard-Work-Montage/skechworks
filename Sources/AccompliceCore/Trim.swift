@@ -16,6 +16,12 @@ public enum Trim {
     public static func contentBounds(_ image: CGImage, alphaAbove: UInt8 = 8) -> CGRect? {
         let w = image.width, h = image.height
         guard w > 0, h > 0 else { return nil }
+        // Sampled on anything big. This runs on every marquee erase, and a
+        // full scan of a three-thousand-pixel-wide picture is fourteen
+        // megabytes and three million reads for a number that is allowed to be
+        // a couple of pixels out — the caller already ignores anything under a
+        // fifth of a percent.
+        let step = max(1, min(w, h) / 512)
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         let drawn: Bool = bytes.withUnsafeMutableBytes { raw in
             guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
@@ -29,9 +35,9 @@ public enum Trim {
         guard drawn else { return nil }
 
         var minX = w, minY = h, maxX = -1, maxY = -1
-        for y in 0..<h {
+        for y in stride(from: 0, to: h, by: step) {
             let row = y * w * 4
-            for x in 0..<w where bytes[row + x * 4 + 3] > alphaAbove {
+            for x in stride(from: 0, to: w, by: step) where bytes[row + x * 4 + 3] > alphaAbove {
                 if x < minX { minX = x }
                 if x > maxX { maxX = x }
                 if y < minY { minY = y }
@@ -42,9 +48,14 @@ public enum Trim {
 
         // Unit coordinates, y down, so the caller can apply it to a frame or a
         // crop without knowing the pixel size.
-        return CGRect(x: CGFloat(minX) / CGFloat(w),
-                      y: CGFloat(minY) / CGFloat(h),
-                      width: CGFloat(maxX - minX + 1) / CGFloat(w),
-                      height: CGFloat(maxY - minY + 1) / CGFloat(h))
+        // Rounded outward by the sampling step, so a trim never cuts into
+        // artwork it simply did not look at.
+        let lo = { (v: Int) in max(0, v - step) }
+        let hi = { (v: Int, limit: Int) in min(limit - 1, v + step) }
+        let x0 = lo(minX), y0 = lo(minY), x1 = hi(maxX, w), y1 = hi(maxY, h)
+        return CGRect(x: CGFloat(x0) / CGFloat(w),
+                      y: CGFloat(y0) / CGFloat(h),
+                      width: CGFloat(x1 - x0 + 1) / CGFloat(w),
+                      height: CGFloat(y1 - y0 + 1) / CGFloat(h))
     }
 }

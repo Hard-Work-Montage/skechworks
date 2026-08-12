@@ -25,7 +25,9 @@ import Foundation
 /// is already sitting there.
 public enum Extend {
 
-    public struct Result {
+    /// Crosses back to the main actor when the work is done off it. CGImage is
+    /// immutable once made, which is what makes that safe.
+    public struct Result: @unchecked Sendable {
         public let image: CGImage
         /// Where the old picture sits inside the new one, in pixels. The layer
         /// has to move by this much for the artwork to stay where it looked.
