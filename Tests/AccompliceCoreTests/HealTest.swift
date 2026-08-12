@@ -139,8 +139,13 @@ private func pixel(_ image: CGImage, _ x: Int, _ y: Int) -> (Int, Int, Int) {
     // at 93ms in release, which is the build anyone actually runs; a debug build
     // bounds-checks every one of those array reads and takes about a hundred
     // times as long, so the budget here has to know which it is.
+    // Twenty was too close to the ten this actually takes in debug: one busy
+    // machine and a green build reports a failure that re-runs clean, which
+    // teaches everyone to ignore it. Sixty still catches the regression this
+    // guards against, which is coarse-first being lost and the cost going up a
+    // hundredfold, not a machine being busy.
     #if DEBUG
-    #expect(seconds < 20.0)
+    #expect(seconds < 60.0)
     #else
     #expect(seconds < 0.5)
     #endif
