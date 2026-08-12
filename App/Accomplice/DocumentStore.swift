@@ -1601,8 +1601,18 @@ final class DocumentStore: ObservableObject {
         let box = CGRect(x: rect.minX * perPointX, y: rect.minY * perPointY,
                          width: rect.width * perPointX, height: rect.height * perPointY)
 
+        // A box far outside the picture is a frame that has drifted from its
+        // artwork, not an instruction. Growing on it produced a layer 3,360
+        // pixels wide out of one 762 wide.
+        let sane = CGRect(x: -CGFloat(baked.width), y: -CGFloat(baked.height),
+                          width: CGFloat(baked.width) * 3, height: CGFloat(baked.height) * 3)
+        guard sane.contains(box.intersection(sane)) || box.intersects(sane) else {
+            status = "That box is too far from the picture"
+            return
+        }
+
         let entry = chat.beginActivity("Extend")
-        guard let grown = Extend.grow(baked, toCover: box) else {
+        guard let grown = Extend.grow(baked, toCover: box.intersection(sane)) else {
             chat.endActivity(entry, text: "That box is already inside the picture — drag one that hangs off an edge.")
             status = "Drag a box past the edge of the picture"
             return
@@ -2080,9 +2090,23 @@ final class DocumentStore: ObservableObject {
                           width: box.width * old.width,
                           height: box.height * old.height)
 
+        // The erasing has to come with it. Strokes are recorded in the layer's
+        // own coordinates, so moving the frame out from under them leaves every
+        // one of them pointing at the wrong place — and because the mask is
+        // built at the new frame's size, the next erase measures a different
+        // picture again, trims to a different box again, and the frame walks
+        // away from the artwork a step at a time.
+        let dx = box.minX * l.frame.width
+        let dy = box.minY * l.frame.height
         edit(id, actionName: "Erase Area") { layer in
             layer.frame = frame
             layer.cropRect = crop
+            layer.erased = layer.erased.map { stroke in
+                var moved = stroke
+                moved.points = stroke.points.map { CGPoint(x: $0.x - dx, y: $0.y - dy) }
+                if let r = stroke.rect { moved.rect = r.offsetBy(dx: -dx, dy: -dy) }
+                return moved
+            }
         }
     }
 

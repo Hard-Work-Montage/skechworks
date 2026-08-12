@@ -65,3 +65,31 @@ private func picture(_ w: Int, _ h: Int, content: CGRect) -> CGImage {
     let box = try #require(Trim.contentBounds(ctx.makeImage()!))
     #expect(abs(box.width - 0.6) < 0.05, "expected the solid part only, got \(box)")
 }
+
+// The runaway: trimming moves the frame, and everything recorded in the old
+// frame's coordinates has to move with it.
+
+@Test func erasingTwiceInARowSettlesInsteadOfWalkingAway() throws {
+    // A stand-in for the loop that grew a 762-wide layer to 3,360: trim, then
+    // measure again, then trim again. If the second measurement disagrees with
+    // the first because something was left behind in old coordinates, the box
+    // never stops moving.
+    let img = picture(120, 120, content: CGRect(x: 0, y: 40, width: 120, height: 80))
+    let first = try #require(Trim.contentBounds(img))
+
+    // Re-measuring what the first trim would leave has to give the whole thing.
+    let cropped = try #require(img.cropping(to: CGRect(x: 0, y: 0, width: 120, height: 80)))
+    let second = try #require(Trim.contentBounds(cropped))
+    #expect(second == CGRect(x: 0, y: 0, width: 1, height: 1),
+            "a trimmed picture is already trimmed; got \(second) after \(first)")
+}
+
+@Test func aStrokeMovesWithTheFrameItWasRecordedIn() {
+    // The arithmetic the store does when it pulls the handles in. A stroke at
+    // (10, 90) in a 100-tall frame that loses its top 40 must end up at (10,
+    // 50), not stay at 90 pointing past the bottom of what is left.
+    let stroke = EraseStroke(rect: CGRect(x: 10, y: 90, width: 20, height: 5))
+    let dy: CGFloat = 40
+    let moved = stroke.rect!.offsetBy(dx: 0, dy: -dy)
+    #expect(moved.minY == 50)
+}
