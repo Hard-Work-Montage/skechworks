@@ -383,3 +383,49 @@ public enum Extend {
         }
     }
 }
+
+public extension Extend {
+
+    /// Puts a model's answer back into a picture without letting it take
+    /// anything it was not asked for.
+    ///
+    /// Two things go wrong if the reply is simply dropped in. It comes back
+    /// OPAQUE, so everywhere the artwork was transparent arrives as black — a
+    /// cut-out sent away for its bottom half returns standing in a black box.
+    /// And it comes back at whatever size the service felt like, so a few
+    /// pixels of difference slide the whole picture sideways under a frame that
+    /// did not move.
+    ///
+    /// So the reply is used for one thing only: the colour inside the region
+    /// that was invented. Everything else — every pixel outside that region,
+    /// and the shape of what is see-through inside it — comes from the picture
+    /// we already had. The model chooses what the new part looks like; it does
+    /// not get to choose where anything is or what is missing.
+    static func merge(model: CGImage, into base: CGImage, region: CGRect) -> CGImage? {
+        let size = CGSize(width: base.width, height: base.height)
+        // Resampled to the size we sent, so a service that rounds dimensions
+        // cannot shift the artwork under its own frame.
+        guard var out = Pixels(base, size: size, at: .zero),
+              let reply = Pixels(model, size: size, at: .zero) else { return nil }
+
+        let x0 = max(0, Int(region.minX)), x1 = min(base.width, Int(region.maxX))
+        let y0 = max(0, Int(region.minY)), y1 = min(base.height, Int(region.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let a = out[x, y].3
+                guard a > 0 else { continue }   // stays see-through: our silhouette wins
+                let c = reply[x, y]
+                // The reply is opaque, so its channels are the colour itself.
+                // Ours are premultiplied, so they have to be multiplied back
+                // down by the alpha we are keeping.
+                out[x, y] = (UInt8(Int(c.0) * Int(a) / 255),
+                             UInt8(Int(c.1) * Int(a) / 255),
+                             UInt8(Int(c.2) * Int(a) / 255),
+                             a)
+            }
+        }
+        return out.image()
+    }
+}

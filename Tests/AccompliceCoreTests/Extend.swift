@@ -183,3 +183,51 @@ private func diagonal(_ w: Int, _ h: Int) -> CGImage {
     let out = try #require(Extend.grow(diagonal(120, 120), toCover: CGRect(x: 0, y: 0, width: 120, height: 180)))
     #expect(out.isTrusted, "a straight slant should be continued, scored \(out.error)")
 }
+
+/// What a service hands back: fully opaque, everywhere, including where the
+/// artwork it was sent had nothing at all.
+private func opaqueReply(_ w: Int, _ h: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 0.11, green: 0.60, blue: 0.40, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    return ctx.makeImage()!
+}
+
+/// A cut-out: something on the right, nothing on the left.
+private func halfCutOut(_ w: Int, _ h: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 0.83, green: 0.38, blue: 0.16, alpha: 1))
+    ctx.fill(CGRect(x: w / 2, y: 0, width: w / 2, height: h))
+    return ctx.makeImage()!
+}
+
+@Test func theModelsAnswerCannotFillInWhatWasSeeThrough() throws {
+    let base = halfCutOut(80, 80)
+    let merged = try #require(Extend.merge(model: opaqueReply(80, 80), into: base,
+                                           region: CGRect(x: 0, y: 0, width: 80, height: 80)))
+
+    // The whole complaint in one assertion: a reply that is opaque everywhere
+    // must not turn the empty half of a cut-out into a black box.
+    let empty = pixel(merged, 10, 40)
+    #expect(empty == (0, 0, 0), "the see-through half came back as \(empty)")
+
+    // And where there WAS artwork, the colour is the model's.
+    let filled = pixel(merged, 70, 40)
+    #expect(filled.1 > filled.0, "expected the model's green, got \(filled)")
+}
+
+@Test func aReplyOfTheWrongSizeDoesNotShiftThePicture() throws {
+    let base = halfCutOut(80, 80)
+    // A service that rounds its output to a different size used to slide the
+    // whole picture sideways under a frame that had not moved.
+    let merged = try #require(Extend.merge(model: opaqueReply(73, 91), into: base,
+                                           region: CGRect(x: 40, y: 0, width: 40, height: 80)))
+    #expect(merged.width == 80 && merged.height == 80)
+
+    // The half that was never sent for redrawing is untouched.
+    #expect(pixel(merged, 10, 40) == (0, 0, 0))
+}

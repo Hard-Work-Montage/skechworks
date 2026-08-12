@@ -1643,8 +1643,8 @@ final class DocumentStore: ObservableObject {
                              note: grown.isTrusted
                              ? "Not quite right? The model can redraw the new part."
                              : "The picture was going somewhere I can't follow. The model can redraw the new part.") { [weak self] in
-            self?.extendModel(id, grownWidth: grown.image.width, grownHeight: grown.image.height,
-                              offset: grown.offset, oldSize: CGSize(width: baked.width, height: baked.height))
+            self?.extendModel(id, offset: grown.offset,
+                              oldSize: CGSize(width: baked.width, height: baked.height))
         }
     }
 
@@ -1655,8 +1655,7 @@ final class DocumentStore: ObservableObject {
     /// with a plausible-but-flat area in it, and the box marks that area. That
     /// is the same shape of question Remove asks — "make what is inside this
     /// box fit what is outside it" — which is why it goes to the same place.
-    func extendModel(_ id: String, grownWidth: Int, grownHeight: Int,
-                     offset: CGPoint, oldSize: CGSize) {
+    func extendModel(_ id: String, offset: CGPoint, oldSize: CGSize) {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref],
               let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
@@ -1667,8 +1666,9 @@ final class DocumentStore: ObservableObject {
         }
 
         // The part that was invented, as a share of the grown picture. Anything
-        // outside the old rectangle is new.
-        let w = CGFloat(grownWidth), h = CGFloat(grownHeight)
+        // outside the old rectangle is new. Measured against the picture as it
+        // is NOW, which is the grown one — the free pass has already run.
+        let w = CGFloat(baked.width), h = CGFloat(baked.height)
         let old = CGRect(origin: offset, size: oldSize)
         let unit: CGRect
         if old.maxY < h {                       // grew downward, the common one
@@ -1692,13 +1692,17 @@ final class DocumentStore: ObservableObject {
         removeTask = Task { @MainActor in
             do {
                 let result = try await ModelConnector.remove(png: data, rect: unit)
-                guard BitmapImage.load(result.png) != nil else {
+                guard let reply = BitmapImage.load(result.png)?.image,
+                      let merged = Extend.merge(model: reply, into: baked,
+                                                region: CGRect(x: unit.minX * w, y: unit.minY * h,
+                                                               width: unit.width * w, height: unit.height * h)),
+                      let png = Renderer.png(merged) else {
                     chat.endActivity(entry, text: "Extend failed: unreadable image", failed: true)
                     return
                 }
-                // The frame does not move here: the picture is already the size
-                // it grew to, and only its pixels changed.
-                swapPixels(id, png: result.png, actionName: "Extend Image")
+                // The frame does not move: the picture is already the size it
+                // grew to, and only the colour inside the new part changed.
+                swapPixels(id, png: png, actionName: "Extend Image")
                 let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
                 chat.endActivity(entry, text: "Finished the new part" + left)
                 status = "Extended" + left
