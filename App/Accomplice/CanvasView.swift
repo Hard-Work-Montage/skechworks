@@ -76,9 +76,17 @@ final class PageCanvas: NSView {
             guard pixelSelectID != oldValue else { return }
             pixelDrag = nil
             pixelDraft = nil
+            pixelPolygon = nil
             needsDisplay = true
         }
     }
+    /// True when the wand is the armed way of picking pixels: a click asks for
+    /// the patch of colour under it instead of starting a box.
+    var wandMode = false
+    /// Answers a wand click with the outline of the colour under it, in the
+    /// layer's own coordinates. Nil when the click found nothing.
+    var onWandClick: ((String, CGPoint) -> [CGPoint]?)?
+    var onErasePolygon: ((String, [CGPoint]) -> Void)?
     var onEnterPixelSelect: ((String) -> Void)?
     var onPixelRect: ((CGRect) -> Void)?
     var onExtendRect: ((String, CGRect) -> Void)?
@@ -86,6 +94,9 @@ final class PageCanvas: NSView {
     /// The box being dragged, and the one standing after mouse-up, in page space.
     private var pixelDrag: (t: CGAffineTransform, start: CGPoint, current: CGPoint)?
     private var pixelDraft: CGRect?
+    /// The standing wand selection, in page coordinates, and the layer it
+    /// belongs to.
+    private var pixelPolygon: (id: String, points: [CGPoint])?
     /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
     var onEraseRect: ((String, CGRect) -> Void)?
     /// A new shape was dragged out. The rect is page coordinates; an empty one
@@ -268,7 +279,15 @@ final class PageCanvas: NSView {
     /// Returns false when there's nothing selected inside a picture, so Delete
     /// falls through to its usual meaning.
     private func eraseSelectedPixels() -> Bool {
-        guard let id = pixelSelectID, let box = pixelDraft,
+        guard let id = pixelSelectID else { return false }
+        if let poly = pixelPolygon, poly.id == id, poly.points.count >= 3,
+           let t = transformOf(id, in: page?.layers ?? [], base: .identity) {
+            onErasePolygon?(id, poly.points.map { $0.applying(t.inverted()) })
+            pixelPolygon = nil
+            needsDisplay = true
+            return true
+        }
+        guard let box = pixelDraft,
               let t = transformOf(id, in: page?.layers ?? [], base: .identity) else { return false }
         // The box is kept in page coordinates so it survives the view scrolling
         // and zooming under it; the erase wants it in the layer's own.
@@ -917,6 +936,16 @@ final class PageCanvas: NSView {
                 ctx.setLineWidth(1 / sc)
                 ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
                 ctx.stroke(r)
+                ctx.setLineDash(phase: 0, lengths: [])
+            }
+            // A wand selection is the same marching ants round a shape instead
+            // of a box, so it reads as the same kind of thing.
+            if let poly = pixelPolygon, poly.points.count >= 3 {
+                ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+                ctx.setLineWidth(1 / sc)
+                ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
+                ctx.addLines(between: poly.points + [poly.points[0]])
+                ctx.strokePath()
                 ctx.setLineDash(phase: 0, lengths: [])
             }
         }
@@ -2476,8 +2505,19 @@ final class PageCanvas: NSView {
             pixelDrag = nil
             let r = CGRect(x: min(d.start.x, d.current.x), y: min(d.start.y, d.current.y),
                            width: abs(d.current.x - d.start.x), height: abs(d.current.y - d.start.y))
-            if r.width > 1, r.height > 1 {
+            if wandMode {
+                // A wand click is a click, not a box — anything the hand does
+                // while pressing is noise, so the start point is what counts.
+                pixelDraft = nil
+                if let pid = pixelSelectID,
+                   let outline = onWandClick?(pid, d.start.applying(d.t.inverted())) {
+                    pixelPolygon = (pid, outline.map { $0.applying(d.t) })
+                } else {
+                    pixelPolygon = nil
+                }
+            } else if r.width > 1, r.height > 1 {
                 pixelDraft = r
+                pixelPolygon = nil
                 onPixelRect?(r.applying(d.t.inverted()))
             } else {
                 pixelDraft = nil
@@ -2839,6 +2879,9 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
         canvas.onExtendRect = { id, r in store.extendRegion(id, rect: r) }
         canvas.pixelSelectID = store.pixelSelectID
+        canvas.wandMode = store.pixelPick == .wand
+        canvas.onWandClick = { id, p in store.wandOutline(id, at: p) }
+        canvas.onErasePolygon = { id, poly in store.erasePolygon(id, polygon: poly) }
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
         canvas.onPixelRect = { store.pixelSelectRect = $0 }
         canvas.onExitPixelSelect = { store.exitPixelSelect() }

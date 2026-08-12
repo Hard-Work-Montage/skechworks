@@ -21,6 +21,14 @@ public struct EraseStroke: Sendable, Equatable {
     /// A rectangular patch instead of a brush path — the marquee erase. When set,
     /// points and radius are ignored.
     public var rect: CGRect?
+    /// A closed outline instead of a brush path or a rectangle — what the wand
+    /// picks out, and what a shape eraser would draw. In the layer's own
+    /// coordinates, like everything else here. When set, the others are ignored.
+    ///
+    /// An outline rather than a mask because a stroke has to survive being
+    /// saved, reopened and undone, and a handful of points does that where a
+    /// second picture kept beside the first one forever does not.
+    public var polygon: [CGPoint]?
 
     public init(points: [CGPoint], radius: CGFloat, softness: CGFloat = 0.5) {
         self.points = points
@@ -36,8 +44,22 @@ public struct EraseStroke: Sendable, Equatable {
         self.rect = rect
     }
 
+    /// An erase shaped like whatever was selected.
+    public init(polygon: [CGPoint]) {
+        self.points = []
+        self.radius = 1
+        self.softness = 0
+        self.polygon = polygon
+    }
+
     /// How far the stroke reaches, for invalidation and for sizing the mask.
     public var bounds: CGRect {
+        if let rect { return rect }
+        if let polygon, let first = polygon.first {
+            return polygon.dropFirst().reduce(CGRect(origin: first, size: .zero)) {
+                $0.union(CGRect(origin: $1, size: .zero))
+            }
+        }
         guard var box = points.first.map({ CGRect(origin: $0, size: .zero) }) else { return .null }
         for p in points { box = box.union(CGRect(origin: p, size: .zero)) }
         return box.insetBy(dx: -radius, dy: -radius)
@@ -85,6 +107,16 @@ public enum EraseMask {
         if let r = stroke.rect {
             ctx.setFillColor(gray: 0, alpha: 1)
             ctx.fill(r)
+            return
+        }
+        // A selected area is its own outline, filled.
+        if let poly = stroke.polygon, poly.count >= 3 {
+            ctx.setFillColor(gray: 0, alpha: 1)
+            ctx.beginPath()
+            ctx.move(to: poly[0])
+            for p in poly.dropFirst() { ctx.addLine(to: p) }
+            ctx.closePath()
+            ctx.fillPath()
             return
         }
         let spacing = max(0.5, stroke.radius / 4)

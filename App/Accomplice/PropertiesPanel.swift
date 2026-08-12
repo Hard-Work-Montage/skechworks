@@ -939,16 +939,36 @@ struct PropertiesPanel: View {
     private func eraser(_ l: Layer) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Eraser")
+            // What a click or a drag inside the picture picks out. Sketch puts
+            // this in a bar above the canvas; it belongs next to the eraser's
+            // own settings, because it is the same question.
+            Picker("", selection: Binding(get: { store.pixelPick },
+                                          set: { store.pixelPick = $0 })) {
+                ForEach(DocumentStore.PixelPick.allCases, id: \.self) { pick in
+                    Image(systemName: pick.symbol).help(pick.title).tag(pick)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
-                    NumberField(label: "Size", value: CGFloat(store.eraseRadius)) {
-                        store.eraseRadius = Double(max(1, $0))
+                    if store.pixelPick == .wand {
+                        NumberField(label: "Range", value: CGFloat(store.wandTolerance)) {
+                            store.wandTolerance = Int(min(160, max(1, $0)))
+                        }
+                    } else {
+                        NumberField(label: "Size", value: CGFloat(store.eraseRadius)) {
+                            store.eraseRadius = Double(max(1, $0))
+                        }
                     }
                     NumberField(label: "Soft", value: CGFloat(store.eraseSoftness * 100), suffix: "%") {
                         store.eraseSoftness = Double(min(100, max(0, $0)) / 100)
                     }
                 }
             }
+            Text(store.pixelPick.hint)
+                .font(.caption).foregroundStyle(.tertiary)
             if l.erased.isEmpty {
                 Text("Press E, then paint over the image.")
                     .font(.caption).foregroundStyle(.tertiary)

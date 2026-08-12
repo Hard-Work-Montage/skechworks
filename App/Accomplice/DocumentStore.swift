@@ -33,6 +33,42 @@ final class DocumentStore: ObservableObject {
         didSet { if selection != oldValue { endCoalescing() } }
     }
 
+    /// How a click or a drag inside a picture picks pixels out of it.
+    ///
+    /// Sketch puts this in a bar above the canvas when you go into a bitmap.
+    /// Here it lives beside the eraser's size, because it is the same
+    /// question — what am I about to take out — and there is already a panel
+    /// for that.
+    enum PixelPick: String, CaseIterable {
+        case box, wand
+
+        var symbol: String {
+            switch self {
+            case .box: return "square.dashed"
+            case .wand: return "wand.and.stars"
+            }
+        }
+        var title: String {
+            switch self {
+            case .box: return "Box"
+            case .wand: return "Same colour"
+            }
+        }
+        var hint: String {
+            switch self {
+            case .box: return "Drag a box, then Delete."
+            case .wand: return "Click a colour to select it, then Delete."
+            }
+        }
+    }
+
+    /// Which of them is armed. Box is the one that was always there.
+    @Published var pixelPick: PixelPick = .box
+    /// How far a colour can be from the one clicked and still count as the same
+    /// thing. Wide by default: the palette here is four colours a long way
+    /// apart, so this only has to clear anti-aliasing.
+    @Published var wandTolerance: Int = Wand.defaultTolerance
+
     enum Tool: String, CaseIterable {
         case select, pen, erase, remove, extend, rect, oval, text
         var symbol: String {
@@ -2153,6 +2189,39 @@ final class DocumentStore: ObservableObject {
             l.erased.append(EraseStroke(rect: rect))
         }
         shrinkToWhatIsLeft(id)
+    }
+
+    /// The outline of the patch of colour under a point, in the layer's own
+    /// coordinates. Shown as a selection first — picking and erasing are two
+    /// decisions, and the range often wants a nudge before the second one.
+    func wandOutline(_ id: String, at point: CGPoint) -> [CGPoint]? {
+        guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref], l.frame.width > 0, l.frame.height > 0,
+              let visible = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else { return nil }
+
+        // The click arrives in layer points; the picture thinks in its pixels.
+        let px = CGPoint(x: point.x * CGFloat(visible.width) / l.frame.width,
+                         y: point.y * CGFloat(visible.height) / l.frame.height)
+        guard let outline = Wand.outline(in: visible, at: px, tolerance: wandTolerance) else {
+            status = "Nothing to select there"
+            return nil
+        }
+        let back = CGPoint(x: l.frame.width / CGFloat(visible.width),
+                           y: l.frame.height / CGFloat(visible.height))
+        return outline.map { CGPoint(x: $0.x * back.x, y: $0.y * back.y) }
+    }
+
+    /// Erases a wand selection. Non-destructive like every other erase here:
+    /// what gets stored is the outline of what was picked, so it can be undone
+    /// or thrown away months later and the original pixels are never touched.
+    func erasePolygon(_ id: String, polygon: [CGPoint]) {
+        guard polygon.count >= 3 else { return }
+        edit(id, actionName: "Erase Colour") { layer in
+            guard case .bitmap = layer.kind else { return }
+            layer.erased.append(EraseStroke(polygon: polygon))
+        }
+        shrinkToWhatIsLeft(id)
+        status = "Erased that colour"
     }
 
     /// Records an erase stroke against a bitmap layer.

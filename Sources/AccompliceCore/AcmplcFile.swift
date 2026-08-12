@@ -275,6 +275,11 @@ public struct AcmplcFile {
         case "bitmap":
             if let strokes = j["erased"] as? [[String: Any]] {
                 erased = strokes.compactMap { e in
+                    if let poly = e["polygon"] as? [[Double]], poly.count >= 3 {
+                        return EraseStroke(polygon: poly.compactMap {
+                            $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil
+                        })
+                    }
                     if let rc = e["rect"] as? [Any], rc.count == 4,
                        let x = dbl(rc[0]), let y = dbl(rc[1]),
                        let w = dbl(rc[2]), let h = dbl(rc[3]) {
@@ -483,6 +488,9 @@ public struct AcmplcFile {
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
             if !l.erased.isEmpty {
                 d["erased"] = l.erased.map { e -> [String: Any] in
+                    if let poly = e.polygon, poly.count >= 3 {
+                        return ["polygon": poly.map { [$0.x, $0.y] }]
+                    }
                     if let r = e.rect {
                         return ["rect": [r.minX, r.minY, r.width, r.height]]
                     }
