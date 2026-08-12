@@ -1657,8 +1657,11 @@ final class DocumentStore: ObservableObject {
                              note: grown.isTrusted
                              ? "Not quite right? The model can redraw the new part for \(price)."
                              : "The picture was going somewhere I can't follow. The model can redraw the new part for \(price).") { [weak self] in
-            self?.extendModel(id, offset: grown.offset,
-                              oldSize: CGSize(width: baked.width, height: baked.height))
+            // The ORIGINAL picture goes with it, not the one the free pass
+            // just made. The model is asked to fill an empty space, which is
+            // the real question.
+            self?.extendModel(id, original: baked, offset: grown.offset,
+                              grownSize: CGSize(width: grown.image.width, height: grown.image.height))
         }
     }
 
@@ -1669,14 +1672,16 @@ final class DocumentStore: ObservableObject {
     /// with a plausible-but-flat area in it, and the box marks that area. That
     /// is the same shape of question Remove asks — "make what is inside this
     /// box fit what is outside it" — which is why it goes to the same place.
-    func extendModel(_ id: String, offset: CGPoint, oldSize: CGSize) {
+    func extendModel(_ id: String, original: CGImage, offset: CGPoint, grownSize: CGSize) {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref],
               let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
-              // Empty parts go out painted in a colour nobody draws with, so the
-              // reply can be asked whether it drew there. Transparency itself
-              // cannot make the trip — the service returns an opaque picture.
-              let outgoing = Extend.flattenForModel(baked),
+              // What goes out is the picture BEFORE the free pass touched it,
+              // on the grown canvas, with the new part painted in a colour
+              // nobody draws with. Transparency cannot make the trip — the
+              // service returns an opaque picture — and our own guess must not
+              // make it either.
+              let outgoing = Extend.canvasForModel(original: original, size: grownSize, offset: offset),
               let data = Renderer.png(outgoing) else { return }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
             status = "That needs your Accomplice account. Connect it in Settings ▸ Model"
@@ -1687,7 +1692,7 @@ final class DocumentStore: ObservableObject {
         // outside the old rectangle is new. Measured against the picture as it
         // is NOW, which is the grown one — the free pass has already run.
         let w = CGFloat(baked.width), h = CGFloat(baked.height)
-        let old = CGRect(origin: offset, size: oldSize)
+        let old = CGRect(origin: offset, size: CGSize(width: original.width, height: original.height))
         let unit: CGRect
         if old.maxY < h {                       // grew downward, the common one
             unit = CGRect(x: 0, y: old.maxY / h, width: 1, height: (h - old.maxY) / h)

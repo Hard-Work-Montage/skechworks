@@ -410,10 +410,16 @@ public extension Extend {
     /// magenta that came back as something else was drawn on.
     static let matte: (UInt8, UInt8, UInt8, UInt8) = (255, 0, 255, 255)
 
-    /// The picture with its empty parts painted in the matte, ready to send.
-    static func flattenForModel(_ image: CGImage) -> CGImage? {
-        guard var p = Pixels(image, size: CGSize(width: image.width, height: image.height), at: .zero)
-        else { return nil }
+    /// The question to put to the model: the picture as it was, on the canvas
+    /// it is growing into, with everything it has to invent left blank.
+    ///
+    /// Not the picture as the free pass left it. Handing over our own answer
+    /// asks the model to tidy a streak rather than to draw a body, and a
+    /// plausible wrong answer is the worst possible thing to anchor it with —
+    /// the whole reason anyone presses this button is that the free pass was
+    /// not good enough.
+    static func canvasForModel(original: CGImage, size: CGSize, offset: CGPoint) -> CGImage? {
+        guard var p = Pixels(original, size: size, at: offset) else { return nil }
         for y in 0..<p.h {
             for x in 0..<p.w where p[x, y].3 < 128 {
                 p[x, y] = matte
@@ -450,11 +456,13 @@ public extension Extend {
         for y in y0..<y1 {
             for x in x0..<x1 {
                 let c = reply[x, y]
-                if isMatte(c) {
-                    out[x, y] = (0, 0, 0, 0)      // it left our marker alone: still nothing
-                } else {
-                    out[x, y] = (c.0, c.1, c.2, 255)
-                }
+                // Left our marker alone: it decided there is nothing there, so
+                // keep what we already had. That is the free pass's answer
+                // where the free pass had one, and see-through where it did
+                // not — either way, pressing the button can only improve
+                // things, never take something away.
+                guard !isMatte(c) else { continue }
+                out[x, y] = (c.0, c.1, c.2, 255)
             }
         }
         return out.image()

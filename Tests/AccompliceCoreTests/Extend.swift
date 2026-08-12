@@ -223,8 +223,9 @@ private func replyLeavingMatte(_ w: Int, _ h: Int) -> CGImage {
     let merged = try #require(Extend.merge(model: replyLeavingMatte(80, 80), into: base,
                                            region: CGRect(x: 0, y: 0, width: 80, height: 80)))
 
-    // Untouched marker means there is still nothing there — this is what stops
-    // a cut-out coming home standing in a black box.
+    // Untouched marker means it decided there was nothing there, so whatever we
+    // already had survives — see-through here, which is what stops a cut-out
+    // coming home standing in a black box.
     #expect(pixel(merged, 10, 40) == (0, 0, 0), "the untouched half came back as \(pixel(merged, 10, 40))")
 
     // And where it DID draw, the new part arrives — which is what the previous
@@ -256,4 +257,39 @@ private func replyLeavingMatte(_ w: Int, _ h: Int) -> CGImage {
 
     // The half that was never sent for redrawing is untouched.
     #expect(pixel(merged, 10, 40) == (0, 0, 0))
+}
+
+
+@Test func whatGoesToTheModelIsTheOriginalAndAnEmptySpace() throws {
+    // The complaint that produced this: pressing the button sent the free
+    // pass's own streaks, so the model was asked to tidy a wrong answer rather
+    // than draw a right one.
+    let original = halfCutOut(60, 60)
+    let sent = try #require(Extend.canvasForModel(original: original,
+                                                  size: CGSize(width: 60, height: 100),
+                                                  offset: CGPoint(x: 0, y: 0)))
+    #expect(sent.height == 100)
+
+    // The part being invented is the marker colour, all of it.
+    for y in [ 70, 90 ] {
+        let c = pixel(sent, 30, y)
+        #expect(c.0 > 200 && c.1 < 70 && c.2 > 200, "row \(y) went out as \(c), not the marker")
+    }
+    // And the artwork that already existed is still itself.
+    let kept = pixel(sent, 45, 30)
+    #expect(kept.0 > kept.1 && kept.0 > kept.2, "the original artwork changed on the way out: \(kept)")
+}
+
+@Test func aMatteReplyKeepsWhateverWeAlreadyHad() throws {
+    // Pressing the button can only improve things. Where the model declines to
+    // draw, the free pass's answer stays rather than being wiped to nothing.
+    let base = halfCutOut(40, 40)
+    let allMatte = replyLeavingMatte(40, 40)
+    let merged = try #require(Extend.merge(model: allMatte, into: base,
+                                           region: CGRect(x: 0, y: 0, width: 20, height: 40)))
+    // The left half is marker in the reply and empty in the base: still empty.
+    #expect(pixel(merged, 5, 20) == (0, 0, 0))
+    // The right half was never in the region: untouched artwork.
+    let kept = pixel(merged, 30, 20)
+    #expect(kept.0 > kept.1, "artwork outside the region was altered: \(kept)")
 }
