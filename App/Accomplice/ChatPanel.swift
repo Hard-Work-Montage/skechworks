@@ -62,9 +62,9 @@ private struct ChatPanelBody: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(session.messages) { m in
                         MessageRow(message: m,
-                                   onStop: session.canStop ? { session.stop() } : nil) { pending in
-                            session.confirm(pending, store: store)
-                        }
+                                   onStop: session.canStop ? { session.stop() } : nil,
+                                   onConfirm: { pending in session.confirm(pending, store: store) },
+                                   onDeclineOffer: { session.declineOffer($0) })
                         .id(m.id)
                     }
                 }
@@ -176,6 +176,8 @@ private struct MessageRow: View {
     /// Present only while something is actually running and stoppable.
     var onStop: (() -> Void)?
     let onConfirm: (ChatMessage) -> Void
+    /// Putting an offer away without taking it.
+    let onDeclineOffer: (UUID) -> Void
     /// Working notes start open while the tool runs and fold away once it's
     /// done — you want to watch them live and almost never afterwards, but
     /// "almost never" is why they're kept rather than thrown away.
@@ -289,10 +291,22 @@ private struct MessageRow: View {
                            symbol: "checkmark")
                 }
                 if let offer = message.offer {
-                    // Its own button, not the confirm bar above: that one is
-                    // about undoing a big edit, this one is about spending.
-                    Button(offer.label) { offer.run() }
-                        .controlSize(.small)
+                    // Dressed like the confirm bar rather than as a bare link.
+                    // It is the same kind of moment — a thing that will happen
+                    // if you press it and won't if you don't — and it was too
+                    // easy to miss, and had no way to say no.
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !offer.note.isEmpty {
+                            Text(offer.note).font(.callout).foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Button(offer.label) { offer.run() }
+                                .buttonStyle(.borderedProminent)
+                            Button("No thanks") { onDeclineOffer(message.id) }
+                        }
+                    }
+                    .padding(8)
+                    .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 }
                 if message.nothingHappened {
                     Label("No changes were made", systemImage: "circle.slash")

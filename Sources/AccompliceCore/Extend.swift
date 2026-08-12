@@ -188,6 +188,15 @@ public enum Extend {
             carryStraight(into: strip, from: source)
         }
 
+        /// How far inside the picture to read the edge from.
+        ///
+        /// Never the last row. A cut-out has been trimmed to its content, so
+        /// its final row is the anti-aliased boundary — half the colour and
+        /// half the transparency behind it. Carrying that outward produced a
+        /// pale, washed-out band that looked like a colour-space bug and was
+        /// really a one-pixel-too-far bug.
+        static let inset = 3
+
         /// Whether two colours are the same thing as far as this is concerned.
         ///
         /// Exact equality is useless on real artwork: every edge is
@@ -243,7 +252,7 @@ public enum Extend {
 
             if strip.width >= strip.height {
                 let down = strip.minY >= source.maxY
-                let edge = down ? Int(source.maxY) - 1 : Int(source.minY)
+                let edge = down ? Int(source.maxY) - 1 - Pixels.inset : Int(source.minY) + Pixels.inset
                 let back = down ? edge - look : edge + look
                 guard back >= Int(source.minY), back < Int(source.maxY) else { return false }
                 let lo = max(x0, Int(source.minX)), hi = min(x1, Int(source.maxX))
@@ -259,7 +268,7 @@ public enum Extend {
             }
 
             let right = strip.minX >= source.maxX
-            let edge = right ? Int(source.maxX) - 1 : Int(source.minX)
+            let edge = right ? Int(source.maxX) - 1 - Pixels.inset : Int(source.minX) + Pixels.inset
             let back = right ? edge - look : edge + look
             guard back >= Int(source.minX), back < Int(source.maxX) else { return false }
             let lo = max(y0, Int(source.minY)), hi = min(y1, Int(source.maxY))
@@ -332,8 +341,12 @@ public enum Extend {
                     // The nearest real pixel is this one clamped back into the
                     // picture, which is what "carry the edge" means and handles
                     // the corners without a special case.
-                    let sx = min(max(x, Int(source.minX)), Int(source.maxX) - 1)
-                    let sy = min(max(y, Int(source.minY)), Int(source.maxY) - 1)
+                    // Insets on every side for the same reason the slanted
+                    // path does: the outermost row of a trimmed cut-out is a
+                    // blend, not a colour.
+                    let lo = Pixels.inset
+                    let sx = min(max(x, Int(source.minX) + lo), Int(source.maxX) - 1 - lo)
+                    let sy = min(max(y, Int(source.minY) + lo), Int(source.maxY) - 1 - lo)
                     guard sx >= 0, sy >= 0, sx < w, sy < h else { continue }
                     self[x, y] = self[sx, sy]
                 }

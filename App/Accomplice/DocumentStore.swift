@@ -1639,8 +1639,10 @@ final class DocumentStore: ObservableObject {
         // right where the picture had nothing left to say and streaky where it
         // did, and which of those you are looking at is obvious on the canvas
         // and invisible to a number.
-        chat.offerPaidRemove(label: String(format: "Not quite right? Use the model ($%.2f)",
-                                           ModelConnector.removePrice)) { [weak self] in
+        chat.offerPaidRemove(label: String(format: "Use the model ($%.2f)", ModelConnector.removePrice),
+                             note: grown.isTrusted
+                             ? "Not quite right? The model can redraw the new part."
+                             : "The picture was going somewhere I can't follow. The model can redraw the new part.") { [weak self] in
             self?.extendModel(id, grownWidth: grown.image.width, grownHeight: grown.image.height,
                               offset: grown.offset, oldSize: CGSize(width: baked.width, height: baked.height))
         }
