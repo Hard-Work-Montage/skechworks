@@ -35,3 +35,7 @@ xcodebuild test -project Accomplice.xcodeproj -scheme Accomplice \
   | sed 's/Test Case .-\[Accomplice\(App\)\?\(UI\)\?Tests\.//; s/\].//'
 
 [ -n "$WITH_UI" ] || echo "(UI tests skipped — bin/test --ui to include them)"
+
+# The hosted tests build a Debug Accomplice.app and LaunchServices registers it,
+# so every test run adds another Accomplice to Open With — see bin/lsclean.
+bin/lsclean >/dev/null 2>&1 || true

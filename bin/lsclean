@@ -5,19 +5,23 @@
 # behind: the build products copy, a Debug copy from each test run, and anything
 # unzipped while testing a release. They pile up as extra Accomplices, one per
 # version, in every Open With menu. Only /Applications should be launchable.
+#
+# Driven off the registration dump rather than a list of paths, because the copies
+# turn up wherever a build happened to run — a scratch directory, an old checkout,
+# a folder that no longer exists. A path that is already gone still needs the
+# unregister call; the entry outlives the bundle.
 set -e
-cd "$(dirname "$0")/.."
 
 LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSR" ] || exit 0
 
-for stale in \
-  build/Build/Products/*/Accomplice.app \
-  "$HOME"/Library/Developer/Xcode/DerivedData/Accomplice-*/Build/Products/*/Accomplice.app
-do
-  [ -d "$stale" ] || continue
-  case "$stale" in /Applications/*) continue ;; esac
-  "$LSR" -u "$stale" >/dev/null 2>&1 || true
-done
+"$LSR" -dump 2>/dev/null \
+  | grep -oE '/[^ ]*Accomplice[^ ]*\.app' \
+  | sort -u \
+  | grep -v '^/Applications/' \
+  | while read -r stale; do
+      "$LSR" -u "$stale" >/dev/null 2>&1 || true
+    done
 
-echo "registered: $("$LSR" -dump 2>/dev/null | grep -oE '/[^ ]*Accomplice\.app' | sort -u | tr '\n' ' ')"
+echo "registered: $("$LSR" -dump 2>/dev/null \
+  | grep -oE '/[^ ]*Accomplice[^ ]*\.app' | sort -u | tr '\n' ' ')"

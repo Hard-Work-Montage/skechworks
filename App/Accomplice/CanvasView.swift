@@ -2040,22 +2040,32 @@ final class PageCanvas: NSView {
                 onSelect?(h.id, false)
                 dragging = true
                 onDragBegin?(h.id)
-                var moving = selected
-                moving.insert(h.id)
-                snapTargets = page?.snapTargets(excluding: moving) ?? []
+                // Drilling replaces the selection with the one layer, so that layer
+                // is the only thing moving — see the plain press below.
+                selected = [h.id]
+                snapTargets = page?.snapTargets(excluding: [h.id]) ?? []
                 return
             }
         }
         let h = selectionTarget(leaf, drill: drill)
+        // What this press is about to move. Pressing something that wasn't selected
+        // selects it and moves it alone; pressing something already in the selection
+        // takes the whole selection with it.
+        let moving: Set<String> = selected.contains(h.id) ? selected : [h.id]
         if !selected.contains(h.id) || extend { onSelect?(h.id, extend && !drill) }
         if !extend || drill {
             dragging = true
             onDragBegin?(h.id)
+            // The selection comes back through SwiftUI, which is a pass of the run
+            // loop away, and the drag has already started by then. Taking it now
+            // keeps the rectangle being dragged and the guides drawn for it in step
+            // from the first pixel of movement.
+            selected = moving
             // Gathered once here, not per frame: the set can't change during the drag.
             // Everything moving is excluded, including anything inside it — a group
             // that snapped to its own children could never be dragged anywhere.
-            var moving = selected
-            moving.insert(h.id)
+            // Only what moves, though: the artboard you selected a moment ago is the
+            // thing you now want the square to line up against.
             snapTargets = page?.snapTargets(excluding: moving) ?? []
         }
     }
