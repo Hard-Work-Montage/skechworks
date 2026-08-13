@@ -293,3 +293,20 @@ private func replyLeavingMatte(_ w: Int, _ h: Int) -> CGImage {
     let kept = pixel(merged, 30, 20)
     #expect(kept.0 > kept.1, "artwork outside the region was altered: \(kept)")
 }
+
+@Test func theMarkersOwnEdgeDoesNotSurviveAsAPurpleLine() {
+    // What comes back from the service has been through a resize and an
+    // encoder, so the boundary between the marker and real artwork arrives as a
+    // blend of the two. Strictly read, those pixels are not the marker — and
+    // they drew a thin purple line down the seam of an otherwise good picture.
+    #expect(Extend.isMatte(Extend.matte))
+    #expect(Extend.isMatte((190, 60, 190, 255)))     // half marker, half artwork
+    #expect(Extend.isMatte((160, 80, 165, 255)))     // a quarter of it left
+
+    // Artwork still has to get through. These are the picture this was found on.
+    #expect(!Extend.isMatte((190, 94, 44, 255)))     // the orange
+    #expect(!Extend.isMatte((46, 160, 110, 255)))    // the green
+    #expect(!Extend.isMatte((244, 231, 200, 255)))   // the cream
+    #expect(!Extend.isMatte((150, 150, 150, 255)))   // grey, where every channel agrees
+    #expect(!Extend.isMatte((22, 22, 26, 255)))      // the ink
+}

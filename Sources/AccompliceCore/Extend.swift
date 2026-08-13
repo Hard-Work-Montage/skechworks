@@ -472,7 +472,17 @@ public extension Extend {
 
     /// Near enough to the marker to count as untouched. Generous, because the
     /// reply has been through an encoder and a resize on the way back.
+    ///
+    /// Generous in two ways, because one wasn't enough. The marker itself is
+    /// caught by the first test. The second catches what an encoder makes of its
+    /// EDGE: a pixel half marker and half artwork comes back as something like
+    /// (190, 60, 190), which is not the marker by any strict reading and drew a
+    /// thin purple line down the seam of a finished picture. Red and blue both
+    /// well clear of green is a colour nothing in the new part should be, and
+    /// the cost of being wrong is keeping what we already had there.
     static func isMatte(_ c: (UInt8, UInt8, UInt8, UInt8)) -> Bool {
-        Int(c.0) > 200 && Int(c.1) < 70 && Int(c.2) > 200
+        if Int(c.0) > 200 && Int(c.1) < 70 && Int(c.2) > 200 { return true }
+        let r = Int(c.0), g = Int(c.1), b = Int(c.2)
+        return r > 120 && b > 120 && r - g > 60 && b - g > 60
     }
 }

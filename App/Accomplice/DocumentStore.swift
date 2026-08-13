@@ -109,7 +109,16 @@ final class DocumentStore: ObservableObject {
             }
         }
     }
-    @Published var tool: Tool = .select
+    @Published var tool: Tool = .select {
+        didSet {
+            // Which way to work a box belongs to the armed tool, not to one box.
+            // Clearing it after every run meant that boxing badly once — missing
+            // the edge, or drawing something the guard refused — spent the
+            // choice, and the next drag quietly ran the free pass instead of the
+            // model you asked for.
+            if tool != .remove, tool != .extend { pendingUsesModel = false }
+        }
+    }
     /// A text layer that was just placed and should open for typing as soon as the
     /// canvas has it. Set here, consumed by the canvas on its next update — the
     /// layer doesn't exist in the view's copy of the page until then.
@@ -1694,7 +1703,6 @@ final class DocumentStore: ObservableObject {
     /// grade says how much to believe it, measured by continuing a strip of the
     /// real picture and checking against what is actually there.
     func extendRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
-        pendingUsesModel = false
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref], l.frame.width > 0, l.frame.height > 0 else { return }
         // What the user SEES, erasing included. displayImage bakes orientation,
@@ -1951,7 +1959,6 @@ final class DocumentStore: ObservableObject {
     /// even when the fill is perfect. You can just look at it. The grade is
     /// worth saying out loud and not worth deciding on.
     func removeRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
-        pendingUsesModel = false
         guard rect.width > 1, rect.height > 1,
               let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref] else { return }
