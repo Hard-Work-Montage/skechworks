@@ -127,6 +127,11 @@ struct PropertiesPanel: View {
         }
     }
 
+    /// A one-glyph button with an invisible square around it to press.
+    ///
+    /// The frame and the content shape are the point. Without them a button is
+    /// only as big as what it draws, and a minus sign is a bar two points tall —
+    /// so removing a fill meant landing the pointer on a hairline.
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -562,9 +567,8 @@ struct PropertiesPanel: View {
             HStack {
                 sectionTitle("Fill")
                 Spacer()
-                Button { store.addFill(l.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Add a fill")
+                iconButton("plus", "Add a fill") { store.addFill(l.id) }
+                    .foregroundStyle(.secondary)
             }
             ForEach(Array(l.style.fills.enumerated()), id: \.offset) { i, f in
                 switch f.paint {
@@ -614,9 +618,8 @@ struct PropertiesPanel: View {
             HStack {
                 sectionTitle("Border")
                 Spacer()
-                Button { store.addBorder(l.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Add a border")
+                iconButton("plus", "Add a border") { store.addBorder(l.id) }
+                    .foregroundStyle(.secondary)
             }
             ForEach(Array(l.style.borders.enumerated()), id: \.offset) { i, b in
                 VStack(alignment: .leading, spacing: 6) {
@@ -650,8 +653,7 @@ struct PropertiesPanel: View {
     }
 
     private func removeButton(_ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: "minus") }
-            .buttonStyle(.plain).foregroundStyle(.tertiary).help(help)
+        iconButton("minus", help, action: action).foregroundStyle(.tertiary)
     }
 
     /// Border width and anything else that used to roll its own field: one
@@ -673,9 +675,8 @@ struct PropertiesPanel: View {
             HStack {
                 sectionTitle("Shadow")
                 Spacer()
-                Button { store.addShadow(l.id) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Add a shadow")
+                iconButton("plus", "Add a shadow") { store.addShadow(l.id) }
+                    .foregroundStyle(.secondary)
             }
             ForEach(Array(l.style.shadows.enumerated()), id: \.offset) { i, s in
                 shadowEditor(l, i, s)
