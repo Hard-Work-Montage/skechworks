@@ -230,6 +230,49 @@ struct PropertiesPanel: View {
                     }
                 }
             }
+            // A stroke is the thing several shapes most often share — an icon is
+            // two circles and a path drawn in one weight, and having to set it
+            // three times is three chances to end up with 2, 2 and 2.2. Same
+            // rule as fill: only when every one of them has a stroke to change.
+            if layers.allSatisfy({ !$0.style.borders.isEmpty }) {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionTitle("Border")
+                    if common({ borderColor($0).map { "\($0.hex)/\($0.a)" } }) != nil,
+                       let c = layers.first.flatMap(borderColor) {
+                        ColorField(color: c) { applyBorderColor($0) }
+                    } else {
+                        HStack(spacing: 8) {
+                            ColorPopoverButton(color: layers.first.flatMap(borderColor)
+                                                ?? Color(r: 0, g: 0, b: 0, a: 1)) { applyBorderColor($0) }
+                            Text("Mixed")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                        GridRow {
+                            multiEditable("Width", common { $0.style.borders.first.map(\.thickness) ?? 0 }) { l, v in
+                                guard !l.style.borders.isEmpty else { return }
+                                l.style.borders[0].thickness = max(0, v)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func borderColor(_ l: Layer) -> AccompliceCore.Color? {
+        l.style.borders.first?.color
+    }
+
+    private func applyBorderColor(_ c: AccompliceCore.Color) {
+        store.edit(Array(store.selection), actionName: "Change Border",
+                   coalescingAs: "multiBorder:\(store.selection.sorted().joined())") { l in
+            guard !l.style.borders.isEmpty else { return }
+            l.style.borders[0].color = c
         }
     }
 
