@@ -353,7 +353,12 @@ struct ModelConnector {
     /// Tools ▸ Remove: a bitmap and the user's box go to the account service,
     /// the same image comes back with whatever the box marked painted out.
     /// The rect is in unit coordinates of the image.
-    static func remove(png: Data, rect: CGRect) async throws -> (png: Data, remaining: Double?) {
+    /// `mode` tells the service which question is being asked. Removing takes
+    /// something out of the middle of a picture; extending grows one past its
+    /// own edge, and the two want different prompts and different checks. They
+    /// share an endpoint because they share everything else — the masked edit,
+    /// the paste-back, the price.
+    static func remove(png: Data, rect: CGRect, mode: String = "remove") async throws -> (png: Data, remaining: Double?) {
         let token = Credentials.get(.accompliceToken) ?? ""
         guard !token.isEmpty else { throw Failure.notSignedIn }
         guard let url = URL(string: Settings().accompliceHost + "/api/v1/remove") else {
@@ -369,6 +374,7 @@ struct ModelConnector {
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "image": png.base64EncodedString(),
             "rect": ["x": rect.minX, "y": rect.minY, "w": rect.width, "h": rect.height],
+            "mode": mode,
         ])
         let (data, response): (Data, URLResponse)
         do {

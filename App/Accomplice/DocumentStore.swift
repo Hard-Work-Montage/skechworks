@@ -1890,7 +1890,7 @@ final class DocumentStore: ObservableObject {
         status = "Extending… this takes a minute or two"
         removeTask = Task { @MainActor in
             do {
-                let result = try await ModelConnector.remove(png: data, rect: unit)
+                let result = try await ModelConnector.remove(png: data, rect: unit, mode: "extend")
                 guard let reply = BitmapImage.load(result.png)?.image,
                       let merged = Extend.merge(model: reply, into: baked,
                                                 region: CGRect(x: unit.minX * w, y: unit.minY * h,
