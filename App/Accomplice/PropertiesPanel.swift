@@ -637,11 +637,16 @@ struct PropertiesPanel: View {
                             Text("Inside").tag(BorderPosition.inside)
                             Text("Outside").tag(BorderPosition.outside)
                         }
-                        .labelsHidden().pickerStyle(.menu).frame(width: 92)
-                    }
-                    if !b.dashPattern.isEmpty {
-                        Text("Dashed · \(b.dashPattern.map(trim).joined(separator: ", "))")
-                            .font(.caption).foregroundStyle(.secondary)
+                        .labelsHidden().pickerStyle(.menu).frame(width: 86)
+                        Picker("", selection: Binding(
+                            get: { DocumentStore.BorderDash.of(b) },
+                            set: { store.setBorderDash(l.id, at: i, to: $0) }
+                        )) {
+                            ForEach(DocumentStore.BorderDash.allCases) { d in
+                                Text(d.title).tag(d)
+                            }
+                        }
+                        .labelsHidden().pickerStyle(.menu).frame(width: 86)
                     }
                 }
                 if i < l.style.borders.count - 1 { Divider() }

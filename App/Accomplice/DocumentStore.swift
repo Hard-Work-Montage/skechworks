@@ -924,7 +924,50 @@ final class DocumentStore: ObservableObject {
     func setBorderThickness(_ id: String, at index: Int, to w: CGFloat) {
         edit(id, actionName: "Change Border Width") { l in
             guard l.style.borders.indices.contains(index) else { return }
+            // Read the style before the width moves. A dash pattern is measured
+            // in points, so asking what it is afterwards compares old lengths
+            // against a new width and calls a dashed line dotted.
+            let dash = BorderDash.of(l.style.borders[index])
             l.style.borders[index].thickness = max(0, w)
+            // And kept in proportion, because a line set dashed at 2 and taken
+            // to 22 otherwise comes out looking solid with a nick in it.
+            if dash != .solid {
+                l.style.borders[index].dashPattern = dash.pattern(for: max(0, w))
+            }
+        }
+    }
+
+    /// Solid, dashed or dotted — the three a person actually asks for.
+    ///
+    /// The stored value is a dash pattern, which can say anything; these are the
+    /// three worth a menu. A pattern that isn't one of them still opens on the
+    /// nearest, and stays exactly as it was until you pick something.
+    enum BorderDash: String, CaseIterable, Identifiable {
+        case solid, dashed, dotted
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+
+        /// Measured in stroke widths, so a hairline and a 22-point outline both
+        /// look like the same idea rather than one looking solid.
+        func pattern(for thickness: CGFloat) -> [CGFloat] {
+            let w = max(0.5, thickness)
+            switch self {
+            case .solid: return []
+            case .dashed: return [w * 3, w * 2]
+            case .dotted: return [w, w * 1.75]
+            }
+        }
+
+        static func of(_ border: Border) -> BorderDash {
+            guard let first = border.dashPattern.first, !border.dashPattern.isEmpty else { return .solid }
+            return first <= max(0.5, border.thickness) * 1.5 ? .dotted : .dashed
+        }
+    }
+
+    func setBorderDash(_ id: String, at index: Int, to dash: BorderDash) {
+        edit(id, actionName: "Change Border Style") { l in
+            guard l.style.borders.indices.contains(index) else { return }
+            l.style.borders[index].dashPattern = dash.pattern(for: l.style.borders[index].thickness)
         }
     }
 

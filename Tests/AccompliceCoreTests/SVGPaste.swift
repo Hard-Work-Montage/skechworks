@@ -45,3 +45,26 @@ private func shapes(_ layers: [Layer]) -> [Layer] {
     #expect(SVGReader.color("none", alpha: 1) == nil)          // still means none
     #expect(SVGReader.color("url(#grad)", alpha: 1) == nil)    // still a gradient's job
 }
+
+// Dashed and dotted borders, out to SVG and back.
+
+@Test func aDashedBorderSurvivesTheRoundTrip() throws {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 50),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 50)
+    var b = Border()
+    b.thickness = 2
+    b.dashPattern = [6, 4]
+    l.style.borders = [b]
+    var page = Page(name: "p")
+    page.layers = [l]
+    var doc = Document()
+    doc.pages = [page]
+
+    let back = try AcmplcFile.read(AcmplcFile.write(document: doc, images: [:]))
+    #expect(back.document.pages.first?.layers.first?.style.borders.first?.dashPattern == [6, 4])
+
+    // And out to SVG, where a dash is stroke-dasharray or it is nothing.
+    let svg = SVGWriter().svg(page: page)
+    #expect(svg.contains("stroke-dasharray"), "the dash never reached the export")
+}
