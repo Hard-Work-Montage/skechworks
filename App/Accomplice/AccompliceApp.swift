@@ -231,12 +231,12 @@ struct AccompliceApp: App {
                     // it will do — and a wait you have to sit through when you
                     // already know it won't. So the choice is up front too.
                     Menu("Remove") {
-                        Button("On My Mac") { AppDelegate.shared?.active?.beginRemove() }
-                        Button("With AI") { AppDelegate.shared?.active?.beginRemove(usingModel: true) }
+                        Button("Simple") { AppDelegate.shared?.active?.beginRemove() }
+                        Button(ModelConnector.paidLabel) { AppDelegate.shared?.active?.beginRemove(usingModel: true) }
                     }
                     Menu("Extend Image") {
-                        Button("On My Mac") { AppDelegate.shared?.active?.beginExtend() }
-                        Button("With AI") { AppDelegate.shared?.active?.beginExtend(usingModel: true) }
+                        Button("Simple") { AppDelegate.shared?.active?.beginExtend() }
+                        Button(ModelConnector.paidLabel) { AppDelegate.shared?.active?.beginExtend(usingModel: true) }
                     }
                     Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }

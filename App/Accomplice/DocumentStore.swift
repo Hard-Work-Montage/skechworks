@@ -1778,6 +1778,18 @@ final class DocumentStore: ObservableObject {
                            width: CGFloat(grown.image.width) * pointsPerPixelX,
                            height: CGFloat(grown.image.height) * pointsPerPixelY)
 
+        // Asked for the model up front: the free guess is arithmetic on the way
+        // to the answer, not an answer. Putting it on the canvas first meant
+        // watching a result you had already turned down appear, sit there for a
+        // minute and get replaced — and if you looked away at the wrong moment
+        // you could not tell which one you were looking at.
+        if usingModel {
+            chat.endActivity(entry, text: "Made room for the new part.")
+            extendModel(id, original: baked, offset: grown.offset,
+                        grown: grown.image, frame: frame)
+            return
+        }
+
         swapPixels(id, png: png, actionName: "Extend Image", frame: frame)
         chat.note(entry, String(format: "Carried the edge outward by %.0f×%.0f pixels",
                                 CGFloat(grown.image.width) - CGFloat(baked.width),
@@ -1796,14 +1808,6 @@ final class DocumentStore: ObservableObject {
         status = grown.isTrusted ? "Extended" : "Extended — check it"
         pixelSelectRect = nil
 
-        guard !usingModel else {
-            // The local pass still ran, because its arithmetic is what says how
-            // big the new picture is and where the old one sits inside it. What
-            // goes to the model is the original with that area left blank.
-            extendModel(id, original: baked, offset: grown.offset,
-                        grownSize: CGSize(width: grown.image.width, height: grown.image.height))
-            return
-        }
         // Always offered, never taken on its own. Carrying an edge outward is
         // right where the picture had nothing left to say and streaky where it
         // did, and which of those you are looking at is obvious on the canvas
@@ -1819,28 +1823,37 @@ final class DocumentStore: ObservableObject {
             // The ORIGINAL picture goes with it, not the one the free pass
             // just made. The model is asked to fill an empty space, which is
             // the real question.
+            // The frame has already moved with the free pass, so it stays put.
             self?.extendModel(id, original: baked, offset: grown.offset,
-                              grownSize: CGSize(width: grown.image.width, height: grown.image.height))
+                              grown: grown.image, frame: nil)
         }
     }
 
-    /// The second press: hand the grown picture to the model and ask it to make
-    /// the invented part belong.
+    /// Hands the grown picture to the model and asks it to make the invented
+    /// part belong.
     ///
-    /// The local pass has already run, so what goes out is a complete picture
-    /// with a plausible-but-flat area in it, and the box marks that area. That
-    /// is the same shape of question Remove asks — "make what is inside this
-    /// box fit what is outside it" — which is why it goes to the same place.
-    func extendModel(_ id: String, original: CGImage, offset: CGPoint, grownSize: CGSize) {
-        guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
-              let raw = images[ref],
-              let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
+    /// What goes out is a complete picture with an empty area in it, and the
+    /// box marks that area. That is the same shape of question Remove asks —
+    /// "make what is inside this box fit what is outside it" — which is why it
+    /// goes to the same place.
+    ///
+    /// `grown` is the canvas at its new size. It is the free pass's own result,
+    /// which is the right thing to merge into whether or not that result was
+    /// ever shown: only the new part changes, and everything outside it is the
+    /// real picture either way. `frame` is set when the layer has not grown
+    /// yet, so the pixels and the handles arrive together.
+    func extendModel(_ id: String, original: CGImage, offset: CGPoint,
+                     grown baked: CGImage, frame: CGRect?) {
+        guard page?.layer(id) != nil,
               // What goes out is the picture BEFORE the free pass touched it,
               // on the grown canvas, with the new part painted in a colour
               // nobody draws with. Transparency cannot make the trip — the
               // service returns an opaque picture — and our own guess must not
               // make it either.
-              let outgoing = Extend.canvasForModel(original: original, size: grownSize, offset: offset),
+              let outgoing = Extend.canvasForModel(
+                original: original,
+                size: CGSize(width: baked.width, height: baked.height),
+                offset: offset),
               let data = Renderer.png(outgoing) else { return }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
             status = "That needs your Accomplice account. Connect it in Settings ▸ Model"
@@ -1882,9 +1895,7 @@ final class DocumentStore: ObservableObject {
                     chat.endActivity(entry, text: "Extend failed: unreadable image", failed: true)
                     return
                 }
-                // The frame does not move: the picture is already the size it
-                // grew to, and only the colour inside the new part changed.
-                swapPixels(id, png: png, actionName: "Extend Image")
+                swapPixels(id, png: png, actionName: "Extend Image", frame: frame)
                 let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
                 chat.endActivity(entry, text: "Finished the new part" + left)
                 status = "Extended" + left

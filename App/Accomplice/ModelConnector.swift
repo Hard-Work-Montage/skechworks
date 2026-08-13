@@ -366,6 +366,12 @@ struct ModelConnector {
     /// two ever disagree the transcript prints the real balance afterwards.
     static let removePrice = 0.40
 
+    /// What the paid half of a menu says. Free and paid have to be tellable
+    /// apart before you press either, and the number is the only thing that
+    /// does that — so it is written once, from the price itself, rather than
+    /// typed into each menu and left behind when the price moves.
+    static var paidLabel: String { "With AI (\(Int((removePrice * 100).rounded())) credits)" }
+
     /// Tools ▸ Remove: a bitmap and the user's box go to the account service,
     /// the same image comes back with whatever the box marked painted out.
     /// The rect is in unit coordinates of the image.
