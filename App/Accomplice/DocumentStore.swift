@@ -2081,6 +2081,9 @@ final class DocumentStore: ObservableObject {
     /// The bitmap whose pixels are being marquee-selected, Fireworks style.
     /// Entered by double-clicking a selected bitmap; left by Escape.
     @Published var pixelSelectID: String?
+    /// Asks the canvas to turn the points on for the selected path. Counted
+    /// rather than set, so the same request twice is two requests.
+    @Published var editPathToken = 0
     /// The current box, in the layer's own coordinates.
     var pixelSelectRect: CGRect?
 
@@ -2293,6 +2296,23 @@ final class DocumentStore: ObservableObject {
             layer.cropRect = crop
             layer.erased = layer.erased.map { $0.moved(dx: -dx, dy: -dy) }
         }
+    }
+
+    /// Turns the points on for the selected path.
+    ///
+    /// Double-click reaches a shape the pointer can reach. A path behind a
+    /// photograph is not one of those, and picking it in the layer list left
+    /// nowhere to go from there.
+    func editSelectedPath() {
+        guard canEditPath else { return }
+        editPathToken &+= 1
+    }
+
+    /// One path selected, and nothing else.
+    var canEditPath: Bool {
+        guard let page, selection.count == 1, let id = selection.first,
+              let l = page.layer(id), case .path = l.kind else { return false }
+        return true
     }
 
     /// Throws away every erase on the selection, which is the thing a destructive

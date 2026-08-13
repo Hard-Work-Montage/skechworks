@@ -143,6 +143,14 @@ struct AccompliceApp: App {
                 Button("Difference") { AppDelegate.shared?.active?.combineSelection(.difference) }
                     .shortcut("difference")
                 Divider()
+                // The way in that does not need the shape to be clickable. A
+                // path behind a photograph cannot be double-clicked, and until
+                // now that was the only way to see its points.
+                // No shortcut on purpose. Enter already does this on the canvas,
+                // and a menu item holding Return takes it away from every text
+                // field and number box in the app.
+                Button("Edit Path") { AppDelegate.shared?.active?.editSelectedPath() }
+                Divider()
                 Button("Convert to Outlines") { AppDelegate.shared?.active?.convertToOutlines() }
                     .keyboardShortcut("o", modifiers: [.command, .option])
                 // Named for what it produces, not for what it takes. This one

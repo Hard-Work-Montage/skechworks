@@ -245,6 +245,26 @@ final class PageCanvas: NSView {
                               radii: l.cornerRadii)
     }
 
+    /// Turns the points on for whatever single path is selected.
+    ///
+    /// Double-clicking is the usual way in, and it needs the shape to be
+    /// reachable by the pointer. A path lying behind a photograph is not, and
+    /// neither is one under anything opaque — so Path ▸ Edit Path and Enter
+    /// both come through here, where selection is all that matters.
+    func beginPathEditing() {
+        guard tool == .select, let page, selected.count == 1, let id = selected.first,
+              let l = page.layer(id), case .path = l.kind else { return }
+        if let group = page.ancestors(of: id).last,
+           page.layer(group)?.isContainer == true { enteredGroup = group }
+        editingLayerID = id
+        window?.makeFirstResponder(self)
+    }
+
+    /// Bumped by the store when a menu asks for point editing. A counter rather
+    /// than a flag: asking twice in a row is a real thing to do, and a flag that
+    /// is already true says nothing the second time.
+    var editPathToken = 0
+
     /// Keeps the picked points honest across a rebuild.
     ///
     /// This runs on every content change, including the one a nudge itself causes, so it
@@ -2673,12 +2693,8 @@ final class PageCanvas: NSView {
             // Sketch's Enter: point editing on whatever is selected. This is also the
             // reliable way into a combined shape's member picked from the layer list —
             // no hunting for a spot the hit-test can reach.
-            if tool == .select, editingLayerID == nil, selected.count == 1,
-               let id = selected.first, let page,
-               let l = page.layer(id), case .path = l.kind {
-                if let group = page.ancestors(of: id).last,
-                   page.layer(group)?.isContainer == true { enteredGroup = group }
-                editingLayerID = id
+            if tool == .select, editingLayerID == nil, selected.count == 1 {
+                beginPathEditing()
                 return
             }
         case 53:   // escape — done drawing, or abandon
@@ -2879,6 +2895,10 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
         canvas.onExtendRect = { id, r in store.extendRegion(id, rect: r) }
         canvas.pixelSelectID = store.pixelSelectID
+        if canvas.editPathToken != store.editPathToken {
+            canvas.editPathToken = store.editPathToken
+            canvas.beginPathEditing()
+        }
         canvas.wandMode = store.pixelPick == .wand
         canvas.onWandClick = { id, p in store.wandOutline(id, at: p) }
         canvas.onErasePolygon = { id, poly in store.erasePolygon(id, polygon: poly) }
