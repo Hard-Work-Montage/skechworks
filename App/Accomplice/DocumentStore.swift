@@ -1653,14 +1653,24 @@ final class DocumentStore: ObservableObject {
     /// Double-clicking into a bitmap puts the canvas in pixel-select, which
     /// swallows every drag — so picking Remove and dragging did nothing at all,
     /// because the box never reached the tool.
-    func beginRemove() {
+    func beginRemove(usingModel: Bool = false) {
         if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
-            removeRegion(id, rect: rect)
+            removeRegion(id, rect: rect, usingModel: usingModel)
             return
         }
+        pendingUsesModel = usingModel
         tool = .remove
-        status = "Box the thing that should go"
+        status = usingModel ? "Box the thing that should go — the model will fill it in"
+                            : "Box the thing that should go"
     }
+
+    /// Which way the box that comes next should be worked.
+    ///
+    /// The free pass runs first and offers the model afterwards, which is right
+    /// when you don't know whether it will do. When you already know it won't,
+    /// being made to watch it fail first is just a wait — so the menu asks up
+    /// front and this carries the answer as far as the box.
+    @Published var pendingUsesModel = false
 
     /// Tools ▸ Extend Image. Acts on the box already drawn on a picture;
     /// failing that, arms the tool so the next drag draws one.
@@ -1668,13 +1678,15 @@ final class DocumentStore: ObservableObject {
     /// Unlike Remove, the box is MEANT to hang off the edge of the picture —
     /// that overhang is the whole instruction. A box drawn wholly inside adds
     /// nothing, and says so rather than quietly doing nothing.
-    func beginExtend() {
+    func beginExtend(usingModel: Bool = false) {
         if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
-            extendRegion(id, rect: rect)
+            extendRegion(id, rect: rect, usingModel: usingModel)
             return
         }
+        pendingUsesModel = usingModel
         tool = .extend
-        status = "Drag a box past the edge of the picture"
+        status = usingModel ? "Drag a box past the edge — the model will draw the new part"
+                            : "Drag a box past the edge of the picture"
     }
 
     /// Grows a picture to cover the box and draws the new part from what was
@@ -1686,6 +1698,7 @@ final class DocumentStore: ObservableObject {
     /// grade says how much to believe it, measured by continuing a strip of the
     /// real picture and checking against what is actually there.
     func extendRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
+        pendingUsesModel = false
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref], l.frame.width > 0, l.frame.height > 0 else { return }
         // What the user SEES, erasing included. displayImage bakes orientation,
@@ -1783,7 +1796,14 @@ final class DocumentStore: ObservableObject {
         status = grown.isTrusted ? "Extended" : "Extended — check it"
         pixelSelectRect = nil
 
-        guard !usingModel else { return }
+        guard !usingModel else {
+            // The local pass still ran, because its arithmetic is what says how
+            // big the new picture is and where the old one sits inside it. What
+            // goes to the model is the original with that area left blank.
+            extendModel(id, original: baked, offset: grown.offset,
+                        grownSize: CGSize(width: grown.image.width, height: grown.image.height))
+            return
+        }
         // Always offered, never taken on its own. Carrying an edge outward is
         // right where the picture had nothing left to say and streaky where it
         // did, and which of those you are looking at is obvious on the canvas
@@ -1924,6 +1944,7 @@ final class DocumentStore: ObservableObject {
     /// even when the fill is perfect. You can just look at it. The grade is
     /// worth saying out loud and not worth deciding on.
     func removeRegion(_ id: String, rect: CGRect, usingModel: Bool = false) {
+        pendingUsesModel = false
         guard rect.width > 1, rect.height > 1,
               let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref] else { return }

@@ -2892,8 +2892,12 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onCancelCrop = { store.croppingID = nil }
         canvas.onEraseRect = { id, r in store.eraseRect(id, rect: r) }
         canvas.onPlaceShape = { [weak store] r in store?.placeShape(store?.tool ?? .rect, in: r) }
-        canvas.onRemoveRect = { id, r in store.removeRegion(id, rect: r) }
-        canvas.onExtendRect = { id, r in store.extendRegion(id, rect: r) }
+        canvas.onRemoveRect = { id, r in
+            store.removeRegion(id, rect: r, usingModel: store.pendingUsesModel)
+        }
+        canvas.onExtendRect = { id, r in
+            store.extendRegion(id, rect: r, usingModel: store.pendingUsesModel)
+        }
         canvas.pixelSelectID = store.pixelSelectID
         if canvas.editPathToken != store.editPathToken {
             canvas.editPathToken = store.editPathToken

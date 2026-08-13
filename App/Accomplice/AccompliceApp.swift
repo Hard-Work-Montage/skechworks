@@ -225,10 +225,19 @@ struct AccompliceApp: App {
                 Button("Flatten to Image") { AppDelegate.shared?.active?.flattenToImage() }
                 Divider()
                 Section("AI Tools") {
-                    Button("Remove") { AppDelegate.shared?.active?.beginRemove() }
-                    // Tries it here first and offers the model afterwards, the
-                    // same way Remove does.
-                    Button("Extend Image") { AppDelegate.shared?.active?.beginExtend() }
+                    // Both of these can run here for nothing or go to the
+                    // model, and the free pass offers the model when it is
+                    // done. That is the right order when you don't know whether
+                    // it will do — and a wait you have to sit through when you
+                    // already know it won't. So the choice is up front too.
+                    Menu("Remove") {
+                        Button("On My Mac") { AppDelegate.shared?.active?.beginRemove() }
+                        Button("With AI") { AppDelegate.shared?.active?.beginRemove(usingModel: true) }
+                    }
+                    Menu("Extend Image") {
+                        Button("On My Mac") { AppDelegate.shared?.active?.beginExtend() }
+                        Button("With AI") { AppDelegate.shared?.active?.beginExtend(usingModel: true) }
+                    }
                     Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }
                 }
