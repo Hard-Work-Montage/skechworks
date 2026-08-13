@@ -2572,6 +2572,11 @@ final class DocumentStore: ObservableObject {
     /// Preview, Finder, a browser.
     private func pasteExternal() {
         let pb = NSPasteboard.general
+        // Text first, because an icon site's "Copy SVG" puts markup on the
+        // clipboard as plain text and a picture of it alongside. Reading the
+        // picture instead gave you a flat bitmap of something that was always
+        // shapes.
+        if pasteSVGText() { return }
         if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
             for u in urls where !Self.isDocument(u) {
                 if let d = try? Data(contentsOf: u),
@@ -2582,6 +2587,85 @@ final class DocumentStore: ObservableObject {
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             if let d = pb.data(forType: type), placeImage(d, name: "Pasted Image") { return }
         }
+    }
+
+    /// SVG markup sitting on the clipboard as text, pasted as shapes.
+    ///
+    /// Every icon library on the web has a Copy SVG button and none of them
+    /// write a file. What lands is the markup itself, so this reads the text,
+    /// and only tries when it actually looks like a drawing — a stray `<svg` in
+    /// a paragraph of code someone was pasting into a text layer is not an
+    /// instruction to draw it.
+    @discardableResult
+    func pasteSVGText() -> Bool {
+        let pb = NSPasteboard.general
+        guard let text = pb.string(forType: .string) else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("<"), trimmed.contains("<svg"), trimmed.contains("</svg>"),
+              let data = trimmed.data(using: .utf8) else { return false }
+        return placeSVG(data, name: "Pasted SVG")
+    }
+
+    /// SVG bytes as one group of shapes, landing where a paste lands.
+    ///
+    /// The reader gives back a whole document, and what is wanted is the
+    /// drawing: groups that exist only because the file was written by a tool
+    /// are inlined away, the same as a trace, so ungrouping once gets you the
+    /// paths rather than another shell.
+    @discardableResult
+    func placeSVG(_ data: Data, name: String) -> Bool {
+        guard let read = try? SVGReader().read(data: data) else { return false }
+        func inline(_ ls: [Layer]) -> [Layer] {
+            ls.flatMap { l -> [Layer] in
+                guard case .group(let kids) = l.kind, l.isArtboard || kids.count == 1 else { return [l] }
+                return inline(kids).map { child in
+                    var c = child
+                    c.frame.origin.x += l.frame.minX
+                    c.frame.origin.y += l.frame.minY
+                    return c
+                }
+            }
+        }
+        var kids = inline(read.document.pages.first?.layers ?? [])
+        guard !kids.isEmpty else { return false }
+
+        let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        for i in kids.indices {
+            kids[i].frame.origin.x -= bounds.minX
+            kids[i].frame.origin.y -= bounds.minY
+        }
+
+        // An icon is 24 points square and would arrive as a speck. Anything
+        // smaller than a thumbnail comes in at a size you can see and work on;
+        // it is vector, so nothing is lost either way.
+        var size = bounds.size
+        if max(size.width, size.height) < 64 {
+            let up = 200 / max(size.width, size.height)
+            size = CGSize(width: size.width * up, height: size.height * up)
+        }
+
+        let placed: Layer
+        if kids.count == 1 {
+            // One shape needs no group around it. A wrapper you have to open
+            // before you can touch the thing is the kind of tidiness that only
+            // reads as tidy to whoever wrote it.
+            var only = kids[0]
+            only.name = only.name.isEmpty ? name : only.name
+            placed = only
+        } else {
+            var group = Layer(kind: .group(kids))
+            group.name = name
+            group.frame = CGRect(origin: .zero, size: bounds.size)
+            placed = group
+        }
+        var final = placed
+        final.frame = CGRect(origin: .zero, size: bounds.size)
+        final.resize(to: size)
+        final.frame.origin = insertionPoint(size)
+        addLayer(final, actionName: "Paste SVG")
+        status = "Pasted \(kids.count) shape\(kids.count == 1 ? "" : "s")"
+        return true
     }
 
     /// ⇧⌘V: the copy lands with its top-left exactly on the selection's top-left.

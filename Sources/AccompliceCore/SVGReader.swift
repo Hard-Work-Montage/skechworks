@@ -375,6 +375,11 @@ public final class SVGReader: NSObject {
     public static func color(_ raw: String, alpha: CGFloat) -> Color? {
         let s = raw.trimmingCharacters(in: .whitespaces).lowercased()
         if s == "none" || s.hasPrefix("url(") { return nil }
+        // Every icon library on the web draws in currentColor, meaning "whatever
+        // colour the surrounding text is". There is no surrounding text here, and
+        // returning nothing meant a pasted icon arrived with no stroke and no
+        // fill — present, selectable, and invisible.
+        if s == "currentcolor" { return Color(r: 0, g: 0, b: 0, a: alpha) }
         if s.hasPrefix("#") {
             var hex = String(s.dropFirst())
             if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
