@@ -1296,7 +1296,7 @@ final class DocumentStore: ObservableObject {
                 }
                 selection = [group.id]
                 let paths = kids.count == 1 ? "1 path" : "\(kids.count) paths"
-                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                let left = result.remaining.map { " · \(ModelConnector.credits($0)) left" } ?? ""
                 chat.endActivity(entry, text: "Traced \(paths)" + left,
                                  applied: kids.map { $0.name.isEmpty ? "(unnamed)" : $0.name },
                                  noun: kids.count == 1 ? "path" : "paths")
@@ -1815,7 +1815,7 @@ final class DocumentStore: ObservableObject {
         // The price belongs in the sentence, not in the button. In a panel this
         // narrow the label was clipped to "Use the model ($…", which is the one
         // word you cannot afford to lose off the end.
-        let price = String(format: "$%.2f", ModelConnector.removePrice)
+        let price = ModelConnector.credits(ModelConnector.removePrice)
         chat.offerPaidRemove(label: "Use the model",
                              note: grown.isTrusted
                              ? "Not quite right? The model can redraw the new part for \(price)."
@@ -1896,7 +1896,7 @@ final class DocumentStore: ObservableObject {
                     return
                 }
                 swapPixels(id, png: png, actionName: "Extend Image", frame: frame)
-                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                let left = result.remaining.map { " · \(ModelConnector.credits($0)) left" } ?? ""
                 chat.endActivity(entry, text: "Finished the new part" + left)
                 status = "Extended" + left
             } catch is CancellationError {
@@ -1978,7 +1978,7 @@ final class DocumentStore: ObservableObject {
             .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
         guard unit.width > 0.001, unit.height > 0.001 else { return }
 
-        let paid = String(format: "Use the model ($%.2f)", ModelConnector.removePrice)
+        let paid = "Use the model (\(ModelConnector.credits(ModelConnector.removePrice)))"
 
         if !usingModel {
             let entry = chat.beginActivity("Remove")
@@ -2030,7 +2030,7 @@ final class DocumentStore: ObservableObject {
                 }
                 _ = src
                 swapPixels(id, png: result.png, actionName: "Remove")
-                let left = result.remaining.map { " · $\(String(format: "%.2f", $0)) in credits left" } ?? ""
+                let left = result.remaining.map { " · \(ModelConnector.credits($0)) left" } ?? ""
                 chat.endActivity(entry, text: "Removed it" + left)
                 status = "Removed" + left
                 // The box has been used; leaving it standing invites a second

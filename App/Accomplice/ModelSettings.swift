@@ -119,7 +119,7 @@ struct ModelSettings: View {
                     // failed and blamed itself.
                     do {
                         let me = try await ModelConnector.accountBalance()
-                        balance = "\(me.email) · $\(String(format: "%.2f", me.credits)) in credits"
+                        balance = "\(me.email) · \(ModelConnector.credits(me.credits)) left"
                         expired = false
                     } catch ModelConnector.Failure.notSignedIn {
                         balance = nil

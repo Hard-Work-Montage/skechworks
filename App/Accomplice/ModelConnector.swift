@@ -370,7 +370,18 @@ struct ModelConnector {
     /// apart before you press either, and the number is the only thing that
     /// does that — so it is written once, from the price itself, rather than
     /// typed into each menu and left behind when the price moves.
-    static var paidLabel: String { "With AI (\(Int((removePrice * 100).rounded())) credits)" }
+    static var paidLabel: String { "With AI (\(credits(removePrice)))" }
+
+    /// Money, said in credits.
+    ///
+    /// The service counts in dollars and the app used to show them, so a menu
+    /// offering 40 credits sat next to a note saying $0.40 and a balance saying
+    /// $2.54 — three numbers for two things. One unit everywhere, and it is the
+    /// one you buy in.
+    static func credits(_ dollars: Double) -> String {
+        let n = Int((dollars * 100).rounded())
+        return "\(n) credit\(n == 1 ? "" : "s")"
+    }
 
     /// Tools ▸ Remove: a bitmap and the user's box go to the account service,
     /// the same image comes back with whatever the box marked painted out.
