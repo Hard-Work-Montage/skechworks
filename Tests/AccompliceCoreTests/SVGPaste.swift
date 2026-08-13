@@ -68,3 +68,41 @@ private func shapes(_ layers: [Layer]) -> [Layer] {
     let svg = SVGWriter().svg(page: page)
     #expect(svg.contains("stroke-dasharray"), "the dash never reached the export")
 }
+
+// Flattening something that has been turned.
+
+@Test func aTurnedLayerIsMeasuredWhereItActuallySits() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 100, height: 200),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 0, y: 0, width: 100, height: 200)
+    l.rotation = 30
+
+    let box = Flatten.box(of: l)
+    // Turned, a 100x200 rectangle reaches wider and taller than its frame. Only
+    // the frame was ever measured, so flattening cut the two corners that stuck
+    // out — a phone at a slight angle lost its top left and bottom right.
+    #expect(box.width > 100)
+    #expect(box.height > 200)
+    // Around the same middle: it grew outward, it did not slide.
+    #expect(abs(box.midX - 50) < 0.001)
+    #expect(abs(box.midY - 100) < 0.001)
+}
+
+@Test func anUprightLayerIsLeftExactlyAsItWas() {
+    var l = Layer(kind: .path(CGPath(rect: CGRect(x: 5, y: 7, width: 100, height: 200),
+                                     transform: nil), closed: true))
+    l.frame = CGRect(x: 5, y: 7, width: 100, height: 200)
+    #expect(Flatten.box(of: l) == l.frame)
+}
+
+@Test func theSelectionBoxCoversEveryTurnedLayerInIt() throws {
+    var a = Layer(kind: .path(CGPath(rect: .zero, transform: nil), closed: true))
+    a.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    a.rotation = 45
+    var b = Layer(kind: .path(CGPath(rect: .zero, transform: nil), closed: true))
+    b.frame = CGRect(x: 200, y: 0, width: 50, height: 50)
+
+    let box = try #require(Flatten.bounds(of: [a, b]))
+    #expect(box.minX < 0, "the turned corner hangs past the frame and must be in the box")
+    #expect(box.maxX >= 250)
+}

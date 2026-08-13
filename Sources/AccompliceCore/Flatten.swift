@@ -33,9 +33,24 @@ public enum Flatten {
         return max(1, min(best, 4, cap))
     }
 
+    /// The upright box a layer covers once it has been turned.
+    ///
+    /// `Layer.bounds` is the frame, which is the box BEFORE any rotation. A
+    /// picture at eight degrees reaches past it at two opposite corners, and
+    /// flattening to the frame cut those corners off — the phone lost its top
+    /// left and bottom right.
+    public static func box(of l: Layer) -> CGRect {
+        let r = l.bounds
+        guard l.rotation != 0, r.width > 0, r.height > 0 else { return r }
+        let turn = CGAffineTransform(translationX: r.midX, y: r.midY)
+            .rotated(by: l.rotation * .pi / 180)
+            .translatedBy(x: -r.midX, y: -r.midY)
+        return r.applying(turn)
+    }
+
     /// The box the flattened picture occupies: everything the selection covers.
     public static func bounds(of layers: [Layer]) -> CGRect? {
-        let boxes = layers.filter(\.isVisible).map(\.bounds)
+        let boxes = layers.filter(\.isVisible).map(box)
         guard !boxes.isEmpty else { return nil }
         let union = boxes.dropFirst().reduce(boxes[0]) { $0.union($1) }
         return union.width > 0 && union.height > 0 ? union : nil
