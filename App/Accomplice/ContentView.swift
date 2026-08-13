@@ -11,12 +11,14 @@ struct ContentView: View {
     /// sidebar. It was hidden behind a toolbar button, which is a poor place for
     /// something you'd otherwise forget is there.
     @AppStorage("showChat") private var showCommandBar = true
-    @AppStorage("ai.backend") private var chatBackend = ModelConnector.Backend.ollama.rawValue
-    @AppStorage("ai.model") private var chatLocalModel = LocalModel.recommended
+    @AppStorage("ai.backend") private var chatBackend = ModelConnector.Backend.accomplice.rawValue
     @AppStorage("ai.openRouterModel") private var chatRemoteModel = "anthropic/claude-sonnet-4.5"
 
+    /// The service picks the model per job and says which in its reply, so the
+    /// only name worth showing is the one an OpenRouter key was pointed at.
     private var chatModel: String {
-        ModelConnector.Backend(rawValue: chatBackend) == .ollama ? chatLocalModel : chatRemoteModel
+        ModelConnector.Backend(rawValue: chatBackend) == .openRouter
+            ? chatRemoteModel : "your Accomplice account"
     }
 
     /// Which groups are open in the layer list.

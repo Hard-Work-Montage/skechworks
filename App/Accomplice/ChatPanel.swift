@@ -24,9 +24,7 @@ private struct ChatPanelBody: View {
     @EnvironmentObject var store: DocumentStore
     @ObservedObject var session: ChatSession
 
-    @AppStorage("ai.backend") private var backend = ModelConnector.Backend.ollama.rawValue
-    @AppStorage("ai.ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
-    @AppStorage("ai.model") private var model = LocalModel.recommended
+    @AppStorage("ai.backend") private var backend = ModelConnector.Backend.accomplice.rawValue
     @AppStorage("ai.openRouterModel") private var openRouterModel = "anthropic/claude-sonnet-4.5"
 
     @State private var draft = ""
@@ -34,9 +32,9 @@ private struct ChatPanelBody: View {
 
     private var settings: ModelConnector.Settings {
         var s = ModelConnector.Settings()
-        s.backend = ModelConnector.Backend(rawValue: backend) ?? .ollama
-        s.ollamaHost = ollamaHost
-        s.model = model
+        // Anyone who had the on-this-Mac option selected lands on the account,
+        // because the raw value no longer resolves.
+        s.backend = ModelConnector.Backend(rawValue: backend) ?? .accomplice
         s.openRouterModel = openRouterModel
         return s
     }

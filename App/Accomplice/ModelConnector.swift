@@ -1,12 +1,13 @@
 import AccompliceCore
 import Foundation
 
-/// Talks to a local Ollama instance or to OpenRouter.
+/// Talks to Accomplice's own service, or to OpenRouter with the user's key.
 ///
-/// Same arrangement as Pelocan: local by default, cloud optional with the user's own
-/// key. An operation over a layer tree does not need a frontier model — it's reading
-/// a few hundred lines of structured text and emitting a handful of JSON objects,
-/// which a 30B coder model does comfortably and privately.
+/// A model on this Mac used to be the default and the pitch. It is gone. The
+/// smart features here are drawing and redrawing pictures, and the measured gap
+/// between models on that job is enormous — a downloadable one gets documents
+/// wrong quietly, reporting success, which is the worst way to be wrong. What is
+/// left is one hosted path we bill in credits and one the user bills themselves.
 ///
 /// The connector deliberately knows nothing about the document. It sends a
 /// description and a schema, and returns commands. Everything that actually changes
@@ -15,12 +16,11 @@ import Foundation
 struct ModelConnector {
 
     enum Backend: String, CaseIterable, Identifiable, Sendable {
-        case ollama, openRouter, accomplice
+        case openRouter, accomplice
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .ollama: return "On this Mac"
             case .openRouter: return "OpenRouter account"
             case .accomplice: return "Accomplice account"
             }
@@ -28,8 +28,6 @@ struct ModelConnector {
 
         var detail: String {
             switch self {
-            case .ollama:
-                return "A one-time download. Nothing you draw or type leaves the machine."
             case .openRouter:
                 return "Your own OpenRouter account, billed to you. No download."
             case .accomplice:
@@ -39,9 +37,7 @@ struct ModelConnector {
     }
 
     struct Settings {
-        var backend: Backend = .ollama
-        var ollamaHost = "http://127.0.0.1:11434"
-        var model = LocalModel.recommended
+        var backend: Backend = .accomplice
         var openRouterModel = "anthropic/claude-sonnet-4.5"
         /// Where Accomplice accounts live. Was configurable while accomplice.ai
         /// still redirected elsewhere; the service is home now, so it's baked in —
@@ -62,8 +58,6 @@ struct ModelConnector {
             let defaults = UserDefaults.standard
             var s = Settings()
             s.backend = Backend(rawValue: defaults.string(forKey: "ai.backend") ?? "") ?? s.backend
-            s.ollamaHost = defaults.string(forKey: "ai.ollamaHost") ?? s.ollamaHost
-            s.model = defaults.string(forKey: "ai.model") ?? s.model
             s.openRouterModel = defaults.string(forKey: "ai.openRouterModel") ?? s.openRouterModel
             return s
         }
@@ -75,7 +69,6 @@ struct ModelConnector {
         case unreachable(String)
         case badResponse(String)
         case noCommands(String)
-        case cannotSee
         /// The service turned the request down and said why in words worth showing.
         case refused(String)
         case outOfCredits(String)
@@ -87,8 +80,6 @@ struct ModelConnector {
             case .unreachable(let s): return "Couldn't reach the model: \(s)"
             case .badResponse(let s): return "The model's reply couldn't be read: \(s)"
             case .noCommands(let s): return "No commands in the reply.\n\n\(s)"
-            case .cannotSee:
-                return "A model on this Mac can't be shown a picture. Switch to OpenRouter or your Accomplice account in Settings."
             case .refused(let s): return s
             case .outOfCredits(let s): return s
             }
@@ -145,9 +136,6 @@ struct ModelConnector {
     /// a picture, its own attempt, and where the two differ.
     func respond(to messages: [Message], purpose: Purpose = .chat) async throws
         -> (turn: ModelTurn, raw: String, model: String?) {
-        if settings.backend == .ollama, messages.contains(where: { !$0.images.isEmpty }) {
-            throw Failure.cannotSee
-        }
         // The service picks the model from the purpose, so the only place the
         // answer exists is in its reply. Worth carrying back: with the name off
         // the panel, a run saying which model drew it is the one place it's
@@ -215,7 +203,6 @@ struct ModelConnector {
 
     private func complete(messages: [[String: Any]], purpose: Purpose) async throws -> (String, String?) {
         switch settings.backend {
-        case .ollama: return (try await ollama(messages), settings.model)
         case .openRouter: return (try await openRouter(messages), settings.openRouterModel)
         // The service picks from the purpose, so the only place that answer
         // exists is in its reply.
@@ -251,26 +238,6 @@ struct ModelConnector {
             throw Failure.badResponse(String(describing: json))
         }
         return (content, json["model"] as? String)
-    }
-
-    private func ollama(_ messages: [[String: Any]]) async throws -> String {
-        guard let url = URL(string: settings.ollamaHost + "/api/chat") else {
-            throw Failure.unreachable("bad host")
-        }
-        let body: [String: Any] = [
-            "model": settings.model,
-            "stream": false,
-            // Deterministic: the same request should produce the same edit twice.
-            "options": ["temperature": 0.1],
-            "format": "json",
-            "messages": messages,
-        ]
-        let json = try await post(url, body: body, headers: [:])
-        guard let message = json["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            throw Failure.badResponse(String(describing: json))
-        }
-        return content
     }
 
     private func openRouter(_ messages: [[String: Any]]) async throws -> String {

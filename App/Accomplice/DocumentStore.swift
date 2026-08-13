@@ -141,7 +141,7 @@ final class DocumentStore: ObservableObject {
         let inSettings: Bool
         if let failure = error as? ModelConnector.Failure {
             switch failure {
-            case .notSignedIn, .noKey, .cannotSee, .outOfCredits: inSettings = true
+            case .notSignedIn, .noKey, .outOfCredits: inSettings = true
             default: inSettings = false
             }
         } else {
@@ -1423,10 +1423,6 @@ final class DocumentStore: ObservableObject {
             return
         }
         let connector = ModelConnector(settings: .current)
-        guard connector.settings.backend != .ollama else {
-            status = "AI Draw needs OpenRouter or your Accomplice account — a model on this Mac can't see the picture"
-            return
-        }
 
         let frame = l.frame
         let name = l.name
