@@ -15,6 +15,12 @@ set -e
 LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSR" ] || exit 0
 
+# Register the one that should win FIRST. Adding a document type only takes
+# effect once LaunchServices re-reads the bundle, and it will not do that on its
+# own just because the file changed — a new type sat in the Info.plist and never
+# appeared in an Open With menu.
+"$LSR" -f /Applications/Accomplice.app >/dev/null 2>&1 || true
+
 "$LSR" -dump 2>/dev/null \
   | grep -oE '/[^ ]*Accomplice[^ ]*\.app' \
   | sort -u \
@@ -23,5 +29,11 @@ LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.
       "$LSR" -u "$stale" >/dev/null 2>&1 || true
     done
 
-echo "registered: $("$LSR" -dump 2>/dev/null \
+echo "registered: $(# Register the one that should win FIRST. Adding a document type only takes
+# effect once LaunchServices re-reads the bundle, and it will not do that on its
+# own just because the file changed — a new type sat in the Info.plist and never
+# appeared in an Open With menu.
+"$LSR" -f /Applications/Accomplice.app >/dev/null 2>&1 || true
+
+"$LSR" -dump 2>/dev/null \
   | grep -oE '/[^ ]*Accomplice[^ ]*\.app' | sort -u | tr '\n' ' ')"
