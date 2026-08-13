@@ -80,3 +80,23 @@ private func twoPatches(_ w: Int, _ h: Int) -> CGImage {
     #expect(stroke.polygon?.count == 4)
     #expect(stroke.polygon?.first == CGPoint(x: 10, y: 10))
 }
+
+@Test func everyKindOfStrokeMovesWhenTheFrameDoes() {
+    // Trimming a layer to what is left moves the frame out from under the
+    // strokes. Any kind that stays behind rubs its hole in the wrong place, and
+    // the frame then walks further on every erase after it — which is how a
+    // picture 1,120 wide ended up in a layer 3,360 wide.
+    let brush = EraseStroke(points: [CGPoint(x: 10, y: 20)], radius: 4)
+    let box = EraseStroke(rect: CGRect(x: 10, y: 20, width: 5, height: 5))
+    let picked = EraseStroke(polygon: [CGPoint(x: 10, y: 20), CGPoint(x: 30, y: 20),
+                                       CGPoint(x: 30, y: 40)])
+
+    for stroke in [brush, box, picked] {
+        let m = stroke.moved(dx: -10, dy: -20)
+        #expect(m.bounds.origin.x < stroke.bounds.origin.x)
+        #expect(m.bounds.origin.y < stroke.bounds.origin.y)
+        // Moved by exactly what was asked, not merely somewhere else.
+        #expect(abs(m.bounds.minX - (stroke.bounds.minX - 10)) < 0.001)
+        #expect(abs(m.bounds.minY - (stroke.bounds.minY - 20)) < 0.001)
+    }
+}

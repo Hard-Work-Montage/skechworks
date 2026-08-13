@@ -52,6 +52,24 @@ public struct EraseStroke: Sendable, Equatable {
         self.polygon = polygon
     }
 
+    /// The same stroke, shifted.
+    ///
+    /// Every kind of stroke has to move, and this exists so that adding a new
+    /// kind cannot quietly leave one behind. It has twice: trimming a layer
+    /// down to what is left after an erase moves the frame out from under the
+    /// strokes, and any stroke that stays put then rubs its hole somewhere
+    /// else. The mask is built at the new frame's size, so the next erase
+    /// measures a different picture, trims to a different box, and the frame
+    /// walks away from the artwork a step at a time — once as far as 3,360
+    /// pixels out of a picture 1,120 wide.
+    public func moved(dx: CGFloat, dy: CGFloat) -> EraseStroke {
+        var out = self
+        out.points = points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        out.rect = rect?.offsetBy(dx: dx, dy: dy)
+        out.polygon = polygon?.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        return out
+    }
+
     /// How far the stroke reaches, for invalidation and for sizing the mask.
     public var bounds: CGRect {
         if let rect { return rect }

@@ -1704,12 +1704,21 @@ final class DocumentStore: ObservableObject {
                          width: rect.width * perPointX, height: rect.height * perPointY)
 
         // A box far outside the picture is a frame that has drifted from its
-        // artwork, not an instruction. Growing on it produced a layer 3,360
-        // pixels wide out of one 762 wide.
-        let sane = CGRect(x: -CGFloat(baked.width), y: -CGFloat(baked.height),
-                          width: CGFloat(baked.width) * 3, height: CGFloat(baked.height) * 3)
-        guard sane.contains(box.intersection(sane)) || box.intersects(sane) else {
-            status = "That box is too far from the picture"
+        // artwork, not an instruction. Growing on one produced a layer 3,360
+        // pixels wide out of a picture 1,120 wide.
+        //
+        // The first version of this guard was a tautology — a rect always
+        // contains its own intersection with another — so it never refused
+        // anything, and the clamp underneath it turned a nonsense box into a
+        // picture three times the size in silence. Refuse instead. Extending is
+        // for finishing an edge, and nobody asks for twice as much invented
+        // picture as real one.
+        let picture = CGRect(x: 0, y: 0, width: CGFloat(baked.width), height: CGFloat(baked.height))
+        let whole = picture.union(box)
+        guard whole.width <= picture.width * 2, whole.height <= picture.height * 2 else {
+            status = "That box is far bigger than the picture"
+            let e = chat.beginActivity("Extend")
+            chat.endActivity(e, text: "That box would more than double the picture. Drag one that hangs just off an edge.")
             return
         }
 
@@ -1721,7 +1730,7 @@ final class DocumentStore: ObservableObject {
         // — done on the main actor that is the window not redrawing, and under
         // memory pressure it is the window not redrawing for a lot longer than
         // that.
-        let target = box.intersection(sane)
+        let target = box
         Task { @MainActor in
             let grown = await Task.detached(priority: .userInitiated) {
                 Extend.grow(baked, toCover: target)
@@ -2282,12 +2291,7 @@ final class DocumentStore: ObservableObject {
         edit(id, actionName: "Erase Area") { layer in
             layer.frame = frame
             layer.cropRect = crop
-            layer.erased = layer.erased.map { stroke in
-                var moved = stroke
-                moved.points = stroke.points.map { CGPoint(x: $0.x - dx, y: $0.y - dy) }
-                if let r = stroke.rect { moved.rect = r.offsetBy(dx: -dx, dy: -dy) }
-                return moved
-            }
+            layer.erased = layer.erased.map { $0.moved(dx: -dx, dy: -dy) }
         }
     }
 
