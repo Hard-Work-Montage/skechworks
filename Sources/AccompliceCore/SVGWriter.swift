@@ -33,6 +33,18 @@ public struct SVGWriter {
         let b = explicit ?? page.contentBounds()
         let drawables = Compose.flatten(page.layers)
 
+        // Everything is written relative to the export box, so the file starts at
+        // 0,0 rather than wherever the artwork happened to sit on the canvas.
+        //
+        // Emitting the box's own origin as the viewBox produces a valid file that
+        // previews correctly — the camera is moved to match — but the offset then
+        // lives on the <svg> element rather than in the geometry. Any consumer that
+        // lifts the paths onto its own canvas loses it, and the artwork lands
+        // off-screen with nothing reporting a problem. The Achieve Mint's coin
+        // templates do exactly that: a background exported at viewBox="2374 0 500
+        // 500" looked right in their editor and engraved as a blank disc.
+        let origin = CGAffineTransform(translationX: -b.minX, y: -b.minY)
+
         var body = "", defs = ""
         var clipID = 0
         var filterID = 0
@@ -90,7 +102,7 @@ public struct SVGWriter {
                     var m = CGAffineTransform(translationX: box.minX, y: box.minY)
                         .scaledBy(x: box.width / max(1, CGFloat(warped.width)),
                                   y: box.height / max(1, CGFloat(warped.height)))
-                    m = m.concatenating(d.transform)
+                    m = m.concatenating(d.transform).concatenating(origin)
                     let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
                     body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(warped.width)\" height=\"\(warped.height)\" "
                     body += "xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/>\n"
@@ -104,7 +116,7 @@ public struct SVGWriter {
                    let png = BitmapAdjust.pngData(data: data, ref: ref, layer: d.layer) {
                     var m = CGAffineTransform(scaleX: r.width / max(1, CGFloat(baked.width)),
                                               y: r.height / max(1, CGFloat(baked.height)))
-                    m = m.concatenating(d.transform)
+                    m = m.concatenating(d.transform).concatenating(origin)
                     let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
                     body += "  <image\(attrs) transform=\"\(t)\" x=\"0\" y=\"0\" width=\"\(baked.width)\" height=\"\(baked.height)\" "
                     body += "xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/>\n"
@@ -119,7 +131,7 @@ public struct SVGWriter {
                 var m = CGAffineTransform(scaleX: r.width / max(1, display.width),
                                           y: r.height / max(1, display.height))
                 if let o { m = o.transform.concatenating(m) }
-                m = m.concatenating(d.transform)
+                m = m.concatenating(d.transform).concatenating(origin)
                 let t = "matrix(\(fmt(m.a)),\(fmt(m.b)),\(fmt(m.c)),\(fmt(m.d)),\(fmt(m.tx)),\(fmt(m.ty)))"
                 let href: String
                 switch assetMode {
@@ -135,7 +147,9 @@ public struct SVGWriter {
 
             guard let p = d.path else { continue }
             // Anything with a stroke keeps its hairlines: they are lines.
-            let dstr = pathData(p, dropSlivers: d.style.borders.isEmpty)
+            var originT = origin
+            let placed = p.copy(using: &originT) ?? p
+            let dstr = pathData(placed, dropSlivers: d.style.borders.isEmpty)
             guard !dstr.isEmpty else { continue }
 
             if d.style.fills.isEmpty && d.style.borders.isEmpty {
@@ -160,7 +174,7 @@ public struct SVGWriter {
                     if b2.position == .inside {
                         clipAttr += " clip-path=\"url(#c\(clipID))\""
                     } else {
-                        defs += "  <mask id=\"m\(clipID)\"><rect x=\"\(fmt(b.minX))\" y=\"\(fmt(b.minY))\" width=\"\(fmt(b.width))\" height=\"\(fmt(b.height))\" fill=\"white\"/><path d=\"\(dstr)\" fill=\"black\"/></mask>\n"
+                        defs += "  <mask id=\"m\(clipID)\"><rect x=\"0\" y=\"0\" width=\"\(fmt(b.width))\" height=\"\(fmt(b.height))\" fill=\"white\"/><path d=\"\(dstr)\" fill=\"black\"/></mask>\n"
                         clipAttr += " mask=\"url(#m\(clipID))\""
                     }
                 }
@@ -184,7 +198,7 @@ public struct SVGWriter {
         var s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         s += "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n"
         s += "     width=\"\(fmt(b.width))\" height=\"\(fmt(b.height))\"\n"
-        s += "     viewBox=\"\(fmt(b.minX)) \(fmt(b.minY)) \(fmt(b.width)) \(fmt(b.height))\">\n"
+        s += "     viewBox=\"0 0 \(fmt(b.width)) \(fmt(b.height))\">\n"
         if !defs.isEmpty { s += "  <defs>\n\(defs)  </defs>\n" }
         s += body
         s += "</svg>\n"
