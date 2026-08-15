@@ -33,7 +33,9 @@ enum ChatArchive {
     /// Deliberately not the whole message. A pending confirmation must not come
     /// back — "this affects 40 layers, go ahead?" answered a week later, against
     /// a document that has moved on, is a trap rather than a convenience — and a
-    /// spinner must not either, since nothing is running any more.
+    /// spinner must not either, since nothing is running any more. That a run
+    /// WAS going is worth keeping, though: it's the difference between a tool
+    /// that never finished and one that never started.
     struct Stored: Codable {
         var role: String
         var text: String
@@ -43,6 +45,8 @@ enum ChatArchive {
         var nothingHappened: Bool
         var activity: Bool
         var steps: [String]
+        /// Optional so transcripts written before this decode as "not running".
+        var running: Bool?
     }
 
     private static func file(for url: URL) -> URL {
@@ -64,6 +68,14 @@ enum ChatArchive {
             m.nothingHappened = s.nothingHappened
             m.activity = s.activity
             m.steps = s.steps
+            // A run that was still going when the app closed is not going now,
+            // and it never will be. It used to come back as a bare title with
+            // its working notes under it and no ending at all, which reads as a
+            // tool that quietly did nothing.
+            if s.running == true {
+                m.role = .error
+                m.text = "\(s.text) stopped when Accomplice closed."
+            }
             return m
         }
     }
@@ -72,7 +84,8 @@ enum ChatArchive {
         let stored = messages.suffix(keep).map { m in
             Stored(role: name(m.role), text: m.text, applied: m.applied,
                    appliedNoun: m.appliedNoun, problems: m.problems,
-                   nothingHappened: m.nothingHappened, activity: m.activity, steps: m.steps)
+                   nothingHappened: m.nothingHappened, activity: m.activity, steps: m.steps,
+                   running: m.running)
         }
         let target = file(for: url)
         do {

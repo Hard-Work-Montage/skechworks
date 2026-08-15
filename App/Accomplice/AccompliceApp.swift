@@ -498,6 +498,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Quit begins: freeze the list and snapshot it while every window is
     /// still standing.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A tool in flight is a minute or two of someone else's computer and
+        // forty credits. The service finishes the job and charges for it whether
+        // or not this app is still here to be handed the result — so quitting
+        // through a run is the one way to pay for nothing at all.
+        if let running = stores.compactMap({ $0.chat.runningTitle }).first {
+            let alert = NSAlert()
+            alert.messageText = "\(running) is still running"
+            alert.informativeText = "Quitting now loses it. The credits are spent either way."
+            alert.addButton(withTitle: "Wait")
+            alert.addButton(withTitle: "Quit Anyway")
+            if alert.runModal() == .alertFirstButtonReturn { return .terminateCancel }
+        }
         terminating = true
         writeSession()
         // The recovery net writes on a background queue; quitting killed whatever

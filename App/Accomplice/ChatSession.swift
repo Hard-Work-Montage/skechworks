@@ -115,6 +115,12 @@ final class ChatSession: ObservableObject {
 
     var canStop: Bool { stopHandler != nil }
 
+    /// What's working right now, by name. Nil when nothing is.
+    ///
+    /// Read at quit: a trace takes a minute or two, and the service finishes it
+    /// and bills it whether or not the app that asked is still there.
+    var runningTitle: String? { messages.first { $0.running }?.text }
+
     func stop() {
         stopHandler?()
         stopHandler = nil
