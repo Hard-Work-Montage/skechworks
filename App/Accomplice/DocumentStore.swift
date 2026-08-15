@@ -40,30 +40,60 @@ final class DocumentStore: ObservableObject {
     /// question — what am I about to take out — and there is already a panel
     /// for that.
     enum PixelPick: String, CaseIterable {
-        case box, wand
+        case brush, box, oval, wand
 
         var symbol: String {
             switch self {
+            case .brush: return "eraser"
             case .box: return "square.dashed"
+            case .oval: return "circle.dashed"
             case .wand: return "wand.and.stars"
             }
         }
         var title: String {
             switch self {
+            case .brush: return "Rub it out"
             case .box: return "Box"
-            case .wand: return "Same colour"
+            case .oval: return "Oval"
+            case .wand: return "Same color"
             }
         }
         var hint: String {
             switch self {
+            case .brush: return "Press E, then paint over the picture."
             case .box: return "Drag a box, then Delete."
-            case .wand: return "Click a colour to select it, then Delete."
+            case .oval: return "Drag an oval, then Delete. Shift keeps it round."
+            case .wand: return "Click a color to select it, then Delete."
             }
         }
+        /// Whether the drag draws a marquee on the picture. The brush paints
+        /// and the wand clicks; the other two are the same gesture and differ
+        /// only in what gets drawn.
+        var isMarquee: Bool { self == .box || self == .oval }
     }
 
-    /// Which of them is armed. Box is the one that was always there.
-    @Published var pixelPick: PixelPick = .box
+    /// Which of them is armed. The brush is the plain eraser and the one most
+    /// presses of E mean, so it leads.
+    @Published var pixelPick: PixelPick = .brush
+
+    /// Arms a mode, rather than leaving you to find the gesture that turns it on.
+    ///
+    /// The picker used to be a note about what a drag WOULD do once you had
+    /// double-clicked into the picture, so choosing Box on a picture you hadn't
+    /// entered yet did nothing at all. Choosing is entering now.
+    func choosePixelPick(_ pick: PixelPick, on id: String) {
+        pixelPick = pick
+        if pick == .brush {
+            exitPixelSelect()
+            tool = .erase
+            return
+        }
+        // The brush cursor over a picture you're about to box is a lie about
+        // what the next drag does.
+        if tool == .erase { tool = .select }
+        if pixelSelectID != id { enterPixelSelect(id) }
+        status = pick.hint
+    }
     /// How far a colour can be from the one clicked and still count as the same
     /// thing. Wide by default: the palette here is four colours a long way
     /// apart, so this only has to clear anti-aliasing.
@@ -117,6 +147,10 @@ final class DocumentStore: ObservableObject {
             // choice, and the next drag quietly ran the free pass instead of the
             // model you asked for.
             if tool != .remove, tool != .extend { pendingUsesModel = false }
+            // Pressing E is the same instruction as picking the brush in the
+            // panel, so the panel says the brush. It used to go on showing Box
+            // while a brush hung off the cursor.
+            if tool == .erase { pixelPick = .brush }
         }
     }
     /// A text layer that was just placed and should open for typing as soon as the
@@ -730,7 +764,7 @@ final class DocumentStore: ObservableObject {
         // The key on the canvas already knew that; the menu item didn't, and the
         // two disagreeing about what Delete means is worse than either answer.
         if let id = pixelSelectID, let rect = pixelSelectRect, rect.width > 1, rect.height > 1 {
-            eraseRect(id, rect: rect)
+            if pixelPick == .oval { eraseOval(id, rect: rect) } else { eraseRect(id, rect: rect) }
             pixelSelectRect = nil
             return
         }
@@ -2089,8 +2123,8 @@ final class DocumentStore: ObservableObject {
             if let attempt = Heal.fill(baked, box: pixels), let png = Renderer.png(attempt.image) {
                 swapPixels(id, png: png, actionName: "Remove")
                 chat.note(entry, attempt.spread < 6
-                          ? "Everything around the box is one colour"
-                          : String(format: "The colour around the box moves by %.0f of 255",
+                          ? "Everything around the box is one color"
+                          : String(format: "The color around the box moves by %.0f of 255",
                                    attempt.spread))
                 chat.note(entry, String(format: "Continuing it inward is off by %.0f of 255 where I could check",
                                         attempt.error))
@@ -2223,7 +2257,8 @@ final class DocumentStore: ObservableObject {
         pixelSelectID = id
         pixelSelectRect = nil
         selection = [id]
-        status = "Drag a box · ⌘C copies those pixels · ⌘V pastes over them · Esc leaves"
+        let drag = pixelPick == .oval ? "Drag an oval" : "Drag a box"
+        status = "\(drag) · ⌘C copies those pixels · ⌘V pastes over them · Esc leaves"
     }
 
     func exitPixelSelect() {
@@ -2334,7 +2369,32 @@ final class DocumentStore: ObservableObject {
         shrinkToWhatIsLeft(id)
     }
 
-    /// The outline of the patch of colour under a point, in the layer's own
+    /// An oval erase patch, drawn inside the box the drag made.
+    ///
+    /// Kept as its outline rather than as a shape of its own, because a closed
+    /// outline is a thing every part of this already handles: it saves, it
+    /// reopens, it moves when the frame shrinks, it undoes. A fourth kind of
+    /// stroke would have to be taught all four.
+    func eraseOval(_ id: String, rect: CGRect) {
+        guard rect.width > 1, rect.height > 1 else { return }
+        edit(id, actionName: "Erase Oval") { l in
+            guard case .bitmap = l.kind else { return }
+            l.erased.append(EraseStroke(polygon: Self.ovalPoints(in: rect)))
+        }
+        shrinkToWhatIsLeft(id)
+    }
+
+    /// An oval as points. Seventy-two of them: a coin is worked at a size where
+    /// twenty-four shows as flats around the curve.
+    static func ovalPoints(in rect: CGRect, segments: Int = 72) -> [CGPoint] {
+        let a = rect.width / 2, b = rect.height / 2
+        return (0..<segments).map { i in
+            let t = 2 * .pi * CGFloat(i) / CGFloat(segments)
+            return CGPoint(x: rect.midX + a * cos(t), y: rect.midY + b * sin(t))
+        }
+    }
+
+    /// The outline of the patch of color under a point, in the layer's own
     /// coordinates. Shown as a selection first — picking and erasing are two
     /// decisions, and the range often wants a nudge before the second one.
     func wandOutline(_ id: String, at point: CGPoint) -> [CGPoint]? {
@@ -2364,7 +2424,7 @@ final class DocumentStore: ObservableObject {
             layer.erased.append(EraseStroke(polygon: polygon))
         }
         shrinkToWhatIsLeft(id)
-        status = "Erased that colour"
+        status = "Erased that color"
     }
 
     /// Records an erase stroke against a bitmap layer.

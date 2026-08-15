@@ -81,8 +81,13 @@ final class PageCanvas: NSView {
         }
     }
     /// True when the wand is the armed way of picking pixels: a click asks for
-    /// the patch of colour under it instead of starting a box.
+    /// the patch of color under it instead of starting a box.
     var wandMode = false
+    /// True when the marquee is an oval. The drag is the same drag; what gets
+    /// drawn inside it and what gets cut out of the picture are not.
+    var ovalMode = false
+    /// An oval erase on a bitmap. (id, the box it sits in, in layer coordinates)
+    var onEraseOval: ((String, CGRect) -> Void)?
     /// Answers a wand click with the outline of the colour under it, in the
     /// layer's own coordinates. Nil when the click found nothing.
     var onWandClick: ((String, CGPoint) -> [CGPoint]?)?
@@ -313,7 +318,7 @@ final class PageCanvas: NSView {
         // and zooming under it; the erase wants it in the layer's own.
         let local = box.applying(t.inverted())
         guard local.width > 1, local.height > 1 else { return false }
-        onEraseRect?(id, local)
+        if ovalMode { onEraseOval?(id, local) } else { onEraseRect?(id, local) }
         pixelDraft = nil
         needsDisplay = true
         return true
@@ -955,7 +960,7 @@ final class PageCanvas: NSView {
                 ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 ctx.setLineWidth(1 / sc)
                 ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
-                ctx.stroke(r)
+                if ovalMode { ctx.strokeEllipse(in: r) } else { ctx.stroke(r) }
                 ctx.setLineDash(phase: 0, lengths: [])
             }
             // A wand selection is the same marching ants round a shape instead
@@ -2306,8 +2311,16 @@ final class PageCanvas: NSView {
             needsDisplay = true
             return
         }
-        if pixelDrag != nil {
-            pixelDrag!.current = p
+        if let d = pixelDrag {
+            // Shift squares the box, which on an oval means a circle. Coin work
+            // is circles, and one drawn by eye is never quite one.
+            if event.modifierFlags.contains(.shift) {
+                let side = max(abs(p.x - d.start.x), abs(p.y - d.start.y))
+                pixelDrag!.current = CGPoint(x: d.start.x + (p.x < d.start.x ? -side : side),
+                                            y: d.start.y + (p.y < d.start.y ? -side : side))
+            } else {
+                pixelDrag!.current = p
+            }
             needsDisplay = true
             return
         }
@@ -2904,6 +2917,8 @@ struct CanvasRepresentable: NSViewRepresentable {
             canvas.beginPathEditing()
         }
         canvas.wandMode = store.pixelPick == .wand
+        canvas.ovalMode = store.pixelPick == .oval
+        canvas.onEraseOval = { id, r in store.eraseOval(id, rect: r) }
         canvas.onWandClick = { id, p in store.wandOutline(id, at: p) }
         canvas.onErasePolygon = { id, poly in store.erasePolygon(id, polygon: poly) }
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }

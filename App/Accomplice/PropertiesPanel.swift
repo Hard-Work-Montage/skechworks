@@ -992,7 +992,7 @@ struct PropertiesPanel: View {
             // this in a bar above the canvas; it belongs next to the eraser's
             // own settings, because it is the same question.
             Picker("", selection: Binding(get: { store.pixelPick },
-                                          set: { store.pixelPick = $0 })) {
+                                          set: { store.choosePixelPick($0, on: l.id) })) {
                 ForEach(DocumentStore.PixelPick.allCases, id: \.self) { pick in
                     Image(systemName: pick.symbol).help(pick.title).tag(pick)
                 }
@@ -1000,28 +1000,31 @@ struct PropertiesPanel: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
+            // Only what the armed mode uses. Size and Soft are the brush's, and
+            // sitting under a picked-out box they read as settings for the box —
+            // which has a hard edge and a size you drew yourself.
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
                 GridRow {
-                    if store.pixelPick == .wand {
-                        NumberField(label: "Range", value: CGFloat(store.wandTolerance)) {
-                            store.wandTolerance = Int(min(160, max(1, $0)))
-                        }
-                    } else {
+                    switch store.pixelPick {
+                    case .brush:
                         NumberField(label: "Size", value: CGFloat(store.eraseRadius)) {
                             store.eraseRadius = Double(max(1, $0))
                         }
-                    }
-                    NumberField(label: "Soft", value: CGFloat(store.eraseSoftness * 100), suffix: "%") {
-                        store.eraseSoftness = Double(min(100, max(0, $0)) / 100)
+                        NumberField(label: "Soft", value: CGFloat(store.eraseSoftness * 100), suffix: "%") {
+                            store.eraseSoftness = Double(min(100, max(0, $0)) / 100)
+                        }
+                    case .wand:
+                        NumberField(label: "Range", value: CGFloat(store.wandTolerance)) {
+                            store.wandTolerance = Int(min(160, max(1, $0)))
+                        }
+                    case .box, .oval:
+                        EmptyView()
                     }
                 }
             }
             Text(store.pixelPick.hint)
                 .font(.caption).foregroundStyle(.tertiary)
-            if l.erased.isEmpty {
-                Text("Press E, then paint over the image.")
-                    .font(.caption).foregroundStyle(.tertiary)
-            } else {
+            if !l.erased.isEmpty {
                 HStack {
                     Text("\(l.erased.count) stroke\(l.erased.count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
