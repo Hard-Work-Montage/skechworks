@@ -256,7 +256,7 @@ final class ChatSession: ObservableObject {
                     if turn.turn.needsConfirmation(affecting: affected) {
                         reply.pending = turn.turn.commands
                         reply.awaitingConfirmation = true
-                        reply.confirmPrompt = "This affects \(affected) layers. Go ahead?"
+                        reply.confirmPrompt = store.describeAffected(turn.turn.commands)
                         messages.append(reply)
                     } else {
                         reply.applied = apply(turn.turn.commands, store: store)

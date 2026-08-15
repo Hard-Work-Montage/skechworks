@@ -854,12 +854,61 @@ final class DocumentStore: ObservableObject {
         return touched.count
     }
 
+    /// The same question, said in full: how many, and which boards they sit on.
+    ///
+    /// "This affects 12 layers" is true of a change to one board and of the same
+    /// change to all six, and those are not remotely the same thing to agree to.
+    /// The boards are the part worth reading before pressing yes.
+    func describeAffected(_ commands: [DocumentCommand]) -> String {
+        guard let page else { return "" }
+        var touched: Set<String> = []
+        var scope: Set<String>? = selection.isEmpty ? nil : selection
+        for c in commands {
+            let ids = c.query.isEmpty ? Array(scope ?? []) : page.find(c.query, selection: selection)
+            if case .select = c { scope = Set(ids) } else { touched.formUnion(ids) }
+        }
+        let count = touched.count
+        let layers = "\(count) layer\(count == 1 ? "" : "s")"
+        // The board a layer sits on is the outermost artboard above it. Anything
+        // loose on the page has none, and says so rather than being counted in.
+        var boards: [String] = []
+        var loose = false
+        for id in touched {
+            let board = page.ancestors(of: id).compactMap { page.layer($0) }
+                .first { $0.isArtboard }
+            if let board {
+                let name = board.name.isEmpty ? "an unnamed board" : board.name
+                if !boards.contains(name) { boards.append(name) }
+            } else {
+                loose = true
+            }
+        }
+        guard !boards.isEmpty else { return "This affects \(layers). Go ahead?" }
+        var where_ = boards.count == 1
+            ? "on \(boards[0])"
+            : "across \(boards.count) artboards (\(boards.sorted().joined(separator: ", ")))"
+        if loose { where_ += " and off the boards" }
+        return "This affects \(layers) \(where_). Go ahead?"
+    }
+
     /// What a model is shown before it decides anything.
     func describeDocument() -> String {
         guard let page else { return "No document open." }
         var out = "document: \(displayName)\n"
         out += "pages: \((source?.pages ?? []).map(\.name).joined(separator: ", "))\n"
-        out += "selection: \(selection.count) layer\(selection.count == 1 ? "" : "s")\n\n"
+        // WHICH layer, not just how many. "selection: 1 layer" is no help at all
+        // to a request like "take the black out of this one" — the model can see
+        // six boards and can't tell which is under the handles, so it acted on
+        // all six. Naming it is what makes "this" resolvable.
+        out += "selection: \(selection.count) layer\(selection.count == 1 ? "" : "s")"
+        let picked = selection.compactMap { page.layer($0) }
+            .prefix(8).map { "\($0.apiType) “\($0.name)”" }
+        if !picked.isEmpty {
+            var said = picked.joined(separator: ", ")
+            if selection.count > picked.count { said += ", and \(selection.count - picked.count) more" }
+            out += " (\(said))"
+        }
+        out += "\n\n"
         out += page.describe()
         return out
     }

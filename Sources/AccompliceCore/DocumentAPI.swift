@@ -36,6 +36,15 @@ public struct LayerQuery: Codable, Sendable {
     public var maxWidth: Double?
     /// Containers with nothing inside — the cleanup case.
     public var empty: Bool?
+    /// Only what sits inside a container with this name — an artboard or a group.
+    /// Case-insensitive substring, the same as `name`. The container itself is
+    /// never a match, only what's on it.
+    ///
+    /// The selector a page of artboards cannot do without. "Take the black out of
+    /// the back" means the black on THAT board, and every other selector here
+    /// describes a layer rather than where it lives — so the query said black,
+    /// and every black path in the document went, on all six boards.
+    public var inside: String?
     /// Restrict to the current selection.
     public var selectedOnly: Bool?
     /// Cap the result, so a mistaken query can't rewrite a whole document.
@@ -49,7 +58,7 @@ public struct LayerQuery: Codable, Sendable {
     public var isEmpty: Bool {
         name == nil && type == nil && fill == nil && stroke == nil && text == nil
             && visible == nil && minWidth == nil && maxWidth == nil && selectedOnly == nil
-            && minPoints == nil && maxPoints == nil && empty == nil
+            && minPoints == nil && maxPoints == nil && empty == nil && inside == nil
     }
 }
 
@@ -105,17 +114,31 @@ extension Page {
     /// Every layer matching a query, outermost first.
     public func find(_ q: LayerQuery, selection: Set<String> = []) -> [String] {
         var out: [String] = []
-        func walk(_ ls: [Layer]) {
+        let container = q.inside?.trimmingCharacters(in: .whitespacesAndNewlines)
+        func opens(_ l: Layer) -> Bool {
+            guard let container, !container.isEmpty else { return false }
+            switch l.kind {
+            case .group, .shapeGroup: return l.name.localizedCaseInsensitiveContains(container)
+            default: return false
+            }
+        }
+        /// `within` is true once the walk is under a container that matched.
+        /// A board named "back" and a board named "back color" both answer to
+        /// "back", which is the same substring rule every other selector uses.
+        func walk(_ ls: [Layer], _ within: Bool) {
             for l in ls {
                 let inScope = (q.selectedOnly != true) || selection.contains(l.id)
-                if inScope && l.matches(q) { out.append(l.id) }
+                // The container itself is where you're pointing, not what you're
+                // pointing at: "delete the black in the back" must not take the
+                // board with it.
+                if (container == nil || within) && inScope && l.matches(q) { out.append(l.id) }
                 switch l.kind {
-                case .group(let k), .shapeGroup(let k, _): walk(k)
+                case .group(let k), .shapeGroup(let k, _): walk(k, within || opens(l))
                 default: continue
                 }
             }
         }
-        walk(layers)
+        walk(layers, false)
         if let limit = q.limit, out.count > limit { out = Array(out.prefix(limit)) }
         return out
     }
@@ -596,6 +619,12 @@ extension DocumentCommand {
         q.maxPoints = (src["maxPoints"] as? Int) ?? (src["maxPoints"] as? Double).map(Int.init)
         q.minWidth = src["minWidth"] as? Double
         q.maxWidth = src["maxWidth"] as? Double
+        // Models reach for whichever preposition the sentence had. They all mean
+        // the same thing, and a round trip to correct the spelling of a key is a
+        // round trip spent on nothing.
+        for key in ["in", "inside", "within", "parent", "artboard", "board", "onArtboard"] {
+            if let v = src[key] as? String, !v.isEmpty { q.inside = v; break }
+        }
         q.selectedOnly = src["selectedOnly"] as? Bool
         q.limit = src["limit"] as? Int
         return q
@@ -615,6 +644,12 @@ extension DocumentCommand {
         inline (or nested under "where"):
 
           name         substring of the layer name, case-insensitive
+          in           name of the artboard or group to look inside, case-insensitive
+                       substring. ONLY what sits on it is matched, never the
+                       container itself. Use this whenever the user names a board
+                       or says "on this one" — every other selector describes a
+                       layer, so without it "the black on the back" matches every
+                       black layer on every board in the document.
           type         artboard | group | shapeGroup | path | text | image
           fill         hex, e.g. "#000000"
           stroke       hex
@@ -683,6 +718,10 @@ extension DocumentCommand {
         Example — "clean up the traced shapes":
         {"say":"Simplified the paths carrying far more points than they need.",
          "commands":[{"op":"simplify","type":"path","minPoints":80,"detail":0.5}]}
+
+        Example — "remove the black from the back color artboard":
+        {"say":"Deleted the black layers on back color. The other boards are untouched.",
+         "commands":[{"op":"delete","in":"back color","fill":"#000000"}]}
           curve        radius, angle (degrees clockwise from 12 o'clock), flipped
                        Inside an artboard the ring is centred on the artboard, so
                        don't try to position the text first — set angle 180 for the

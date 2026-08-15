@@ -35,12 +35,22 @@ fi
 
 xcodegen generate
 
+# The exit status has to be xcodebuild's, not grep's. Piped into a filter that
+# ends in `|| true`, a compile error printed its message and the script carried
+# straight on — signing, and then INSTALLING, the bundle left over from the last
+# build that worked. You get a green run, a fresh timestamp on /Applications, and
+# yesterday's code inside it.
+set -o pipefail
 xcodebuild \
   -project Accomplice.xcodeproj \
   -scheme Accomplice \
   -configuration Release \
   -derivedDataPath build \
-  "$@" | grep -E "error:|BUILD" || true
+  "$@" | grep -E "error:|BUILD" || {
+    echo "build failed — nothing installed, /Applications still has the last good build."
+    exit 1
+  }
+set +o pipefail
 
 APP="build/Build/Products/Release/Accomplice.app"
 [ -d "$APP" ] || { echo "build failed: no app bundle"; exit 1; }

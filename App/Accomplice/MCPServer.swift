@@ -249,10 +249,12 @@ final class MCPServer {
         ],
         [
             "name": "find_layers",
-            "description": "Find layers by name, type, fill, stroke, text, visibility or width without changing anything.",
+            "description": "Find layers by name, type, fill, stroke, text, visibility or width without changing anything. Pass `in` to look inside one artboard or group.",
             "inputSchema": ["type": "object", "properties": [
                 "name": ["type": "string"], "type": ["type": "string"],
                 "fill": ["type": "string"], "text": ["type": "string"],
+                "in": ["type": "string",
+                       "description": "Name of the artboard or group to look inside. Only what sits on it matches."],
                 "selectedOnly": ["type": "boolean"],
             ]],
         ],
