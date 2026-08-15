@@ -10,9 +10,21 @@ public struct Renderer {
 
     public var images: [String: Data] = [:]
     public var background: Color?
-    public init(images: [String: Data] = [:], background: Color? = nil) {
+    /// Honors each artboard's "include fill in export", dropping the plate a board
+    /// says not to hand on. SVG has always done this and PNG never did, so the
+    /// same checkbox gave a transparent SVG and a PNG with the white still baked
+    /// in — from the same board, in the same export panel.
+    ///
+    /// Off by default, because most renders here are not exports. The cover
+    /// thumbnail inside a document and the picture a model is shown both want the
+    /// board as it looks, and a board that disappears in either is a picture with
+    /// a hole in it.
+    public var honorsExportFlags = false
+    public init(images: [String: Data] = [:], background: Color? = nil,
+                honorsExportFlags: Bool = false) {
         self.images = images
         self.background = background
+        self.honorsExportFlags = honorsExportFlags
     }
 
     /// `adjusting` and `live` preview a move or resize, exactly as the canvas does
@@ -72,6 +84,12 @@ public struct Renderer {
             let d = drawables[i]
             if let v = visible, !d.isMarker, d.groupShadows == nil,
                !Self.roughBounds(of: d).intersects(v) {
+                i += 1
+                continue
+            }
+            // The one drawable an export is allowed to leave out, and only when
+            // the board it belongs to asked. Same rule SVGWriter follows.
+            if honorsExportFlags, d.isArtboardBackground, !d.includeInExport {
                 i += 1
                 continue
             }

@@ -3651,8 +3651,11 @@ final class DocumentStore: ObservableObject {
                 let svg = SVGWriter(images: imgs).svg(page: t.page, bounds: t.bounds)
                 if (try? Data(svg.utf8).write(to: file)) != nil { written += 1 }
             case .png, .jpg:
+                // JPEG has no transparency, so a board that skips its fill gets
+                // white under it rather than black. PNG keeps the hole.
                 let r = Renderer(images: imgs,
-                                 background: format == .jpg ? Color(r: 1, g: 1, b: 1, a: 1) : nil)
+                                 background: format == .jpg ? Color(r: 1, g: 1, b: 1, a: 1) : nil,
+                                 honorsExportFlags: true)
                 let maxDim = max(t.bounds.width, t.bounds.height) * scale
                 guard let img = r.render(page: t.page, maxDimension: maxDim, bounds: t.bounds),
                       let data = format == .png ? Renderer.png(img) : Renderer.jpeg(img) else { continue }

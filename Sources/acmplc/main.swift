@@ -241,8 +241,8 @@ case "artboards":
             // at --size, which is what a website wants.
             if flag("--png") {
                 let px = value("--size").flatMap { CGFloat(Double($0) ?? 0) } ?? 1024
-                if let img = Renderer(images: images).render(page: iso.page, maxDimension: px,
-                                                            bounds: iso.bounds),
+                if let img = Renderer(images: images, honorsExportFlags: true)
+                    .render(page: iso.page, maxDimension: px, bounds: iso.bounds),
                    let d = Renderer.png(img) {
                     try? d.write(to: dir.appendingPathComponent("\(base).png"))
                 }

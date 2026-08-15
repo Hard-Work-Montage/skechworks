@@ -210,7 +210,16 @@ public struct Layer: @unchecked Sendable {
     /// Sketch's "include background in export". The coin `front`/`back` artboards are
     /// white on canvas but set this false, so an engraving SVG has to come out
     /// transparent rather than with a white plate baked underneath.
-    public var backgroundInExport = true
+    ///
+    /// Off for a board this app makes. A white plate is what you want to draw
+    /// against and almost never what you want to hand on — an engraving SVG, a
+    /// logo, anything going over artwork. Sketch defaults it on and it's the one
+    /// checkbox you had to remember every single time.
+    ///
+    /// Files decide for themselves. Every board we save writes the flag, and the
+    /// readers keep their own fallbacks, so a document made before this still
+    /// exports exactly as it did.
+    public var backgroundInExport = false
     public var style = Style()
     public var kind: LayerKind
 
