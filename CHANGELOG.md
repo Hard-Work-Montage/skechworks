@@ -3,6 +3,13 @@
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.29 (August 15, 2026)
+
+- The eraser now does ovals as well as boxes, hold Shift for a circle
+- Running out of credits now says so in the chat, with a button to buy more
+- Vectorize and AI Draw now say why they didn't run
+- Exported SVGs now start at the origin
+
 ## 0.1.24 (August 7, 2026)
 
 - Better drag and drop, cut and paste both into and out of Accomplice
