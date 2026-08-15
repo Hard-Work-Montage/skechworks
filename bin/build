@@ -52,8 +52,16 @@ codesign --force --options runtime $TIMESTAMP --sign "$SIGN_ID" \
   "$APP" >/dev/null 2>&1
 
 codesign --verify --deep --strict "$APP" 2>&1 && echo "signature ok: $SIGN_ID"
-echo -n "gatekeeper: "
-spctl -a -vv -t exec "$APP" 2>&1 | tail -1
+# The whole verdict, not the last line of it. `tail -1` printed the origin and
+# swallowed the word "rejected" above it, so a build Gatekeeper turns down read
+# exactly like one it accepts.
+GATEKEEPER=$(spctl -a -vv -t exec "$APP" 2>&1 || true)
+echo "gatekeeper: $(echo "$GATEKEEPER" | tr '\n' ' ')"
+if echo "$GATEKEEPER" | grep -q rejected; then
+  echo "warning: Gatekeeper rejects this build. It launches, but a document that"
+  echo "         carries a quarantine flag is challenged on open and offered to the"
+  echo "         Trash by name. Run bin/notarize before working in one."
+fi
 
 echo "built $APP"
 
