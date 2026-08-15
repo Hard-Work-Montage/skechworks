@@ -5,8 +5,13 @@ import SwiftUI
 
 enum ChatRole { case user, assistant, error }
 
-/// Something worth money, waiting on a yes.
-struct PaidOffer {
+/// A button in the transcript, waiting on a yes.
+///
+/// Spending money was the only thing it was ever for, and it is still the main
+/// one. Buying credits and opening Settings arrived later and want the same
+/// thing: a run that stopped, the reason it stopped, and the one press that
+/// gets past it sitting right underneath.
+struct Offer {
     var label: String
     /// What the free pass already produced, said plainly, so the choice is
     /// between two things rather than between a button and a mystery.
@@ -38,7 +43,7 @@ struct ChatMessage: Identifiable {
     /// it did. When the surroundings are too busy for that to be honest — a
     /// photograph rather than flat artwork — it says so and leaves this behind
     /// rather than quietly billing forty cents for the better answer.
-    var offer: PaidOffer?
+    var offer: Offer?
 
     /// A tool working, rather than something said. Shows a spinner while it runs
     /// and keeps its log afterwards, which is the point: the canvas status line
@@ -161,10 +166,26 @@ final class ChatSession: ObservableObject {
         // oldest away and left the one just pressed sitting there asking to be
         // pressed again.
         let taken = messages[i].id
-        messages[i].offer = PaidOffer(label: label, note: note) { [weak self] in
+        messages[i].offer = Offer(label: label, note: note) { [weak self] in
             self?.declineOffer(taken)      // one press only: it goes as it is taken
             run()
         }
+    }
+
+    /// A tool declining to start, said where the tools say everything else.
+    ///
+    /// These landed in the status line and nowhere else, which is grey type
+    /// under the canvas that the next thing you do wipes out. Pick Vectorize
+    /// with a group selected and the menu closes, nothing appears, and the app
+    /// has told you nothing you can see. Opens the panel for the same reason a
+    /// run does: a report nobody can read isn't one.
+    @discardableResult
+    func problem(_ text: String) -> UUID {
+        UserDefaults.standard.set(true, forKey: "showChat")
+        UserDefaults.standard.set(false, forKey: "chatCollapsed")
+        let m = ChatMessage(role: .error, text: text)
+        messages.append(m)
+        return m.id
     }
 
     /// Running out of credits is the one failure with a button attached.
@@ -176,8 +197,17 @@ final class ChatSession: ObservableObject {
     /// where it was.
     func offerCredits(on id: UUID) {
         guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[i].offer = PaidOffer(label: "Buy credits") {
+        messages[i].offer = Offer(label: "Buy credits") {
             NSWorkspace.shared.open(ModelConnector.creditsURL)
+        }
+    }
+
+    /// The same shape for the failure whose fix is a setting rather than a
+    /// purchase: the sentence says what's missing, the button goes and gets it.
+    func offerSettings(on id: UUID) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[i].offer = Offer(label: "Open Settings…") {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
     }
 

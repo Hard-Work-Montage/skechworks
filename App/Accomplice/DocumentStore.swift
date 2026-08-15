@@ -160,6 +160,50 @@ final class DocumentStore: ObservableObject {
         status = said
     }
 
+    /// What a layer is, in the word a person would use for it.
+    private func noun(_ l: Layer) -> String {
+        switch l.kind {
+        case .group: return l.isArtboard ? "an artboard" : "a group"
+        case .shapeGroup: return "a group of shapes"
+        case .path: return "a shape"
+        case .text: return "some text"
+        case .bitmap: return "a picture"
+        }
+    }
+
+    /// A tool turning a menu press down, and saying what's selected instead.
+    ///
+    /// Naming what IS there is the whole point. Vectorize leaves the shapes it
+    /// made selected, so pressing it twice lands on a group — and "select one
+    /// image layer" reads as an instruction you already followed.
+    private func refuse(_ tool: String, needs: String) {
+        let has: String
+        if selection.count > 1 {
+            has = "You have \(selection.count) layers selected."
+        } else if let id = selectedLayerID, let l = page?.layer(id) {
+            has = "You have \(noun(l)) selected."
+        } else {
+            has = "Nothing is selected."
+        }
+        refuse(saying: "\(tool) works on \(needs). \(has)")
+    }
+
+    /// A tool that can't start, for a reason of its own. Both places, always:
+    /// the transcript keeps it and the status line catches whoever has the
+    /// panel closed.
+    private func refuse(saying said: String) {
+        chat.problem(said)
+        status = said
+    }
+
+    /// The paid tools all need the account, and all of them used to say so in
+    /// grey type under the canvas and leave you to find Settings yourself.
+    private func needsAccount(_ tool: String) {
+        let said = "\(tool) needs your Accomplice account. Connect it in Settings."
+        chat.offerSettings(on: chat.problem(said))
+        status = said
+    }
+
     /// Closes out a run that failed, and puts the fix next to it when there is
     /// one. Every paid tool ends the same way, and the one failure a person can
     /// do something about there and then is having nothing left to spend.
@@ -1273,7 +1317,7 @@ final class DocumentStore: ObservableObject {
         guard let id = selectedLayerID, let page,
               let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref] else {
-            status = "Select one image layer to vectorize"
+            refuse("Vectorize", needs: "a picture")
             return
         }
         // Vectorize what the user SEES. A cropped or adjusted bitmap must go out
@@ -1288,7 +1332,7 @@ final class DocumentStore: ObservableObject {
             data = raw
         }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
-            status = "Vectorize needs your Accomplice account — connect it in Settings ▸ Model"
+            needsAccount("Vectorize")
             return
         }
         // Reported into the chat, the same as AI Draw. It takes a minute or two
@@ -1468,7 +1512,7 @@ final class DocumentStore: ObservableObject {
         guard let id = selectedLayerID, let page,
               let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref] else {
-            status = "Select one image layer to draw"
+            refuse("AI Draw", needs: "a picture")
             return
         }
         // Redraw what the user SEES, the same rule Vectorize learned: a cropped or
@@ -1482,7 +1526,7 @@ final class DocumentStore: ObservableObject {
             data = raw
         }
         guard let source = BitmapImage.load(data)?.image else {
-            status = "That image can't be read"
+            refuse(saying: "AI Draw can't read that picture.")
             return
         }
         let connector = ModelConnector(settings: .current)
@@ -1764,7 +1808,7 @@ final class DocumentStore: ObservableObject {
         // partly rubbed out went off to be worked on with the rubbed-out parts
         // still in it.
         guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else {
-            status = "Can't read that image"
+            refuse(saying: "Extend can't read that picture.")
             return
         }
 
@@ -1914,7 +1958,7 @@ final class DocumentStore: ObservableObject {
                 offset: offset),
               let data = Renderer.png(outgoing) else { return }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
-            status = "That needs your Accomplice account. Connect it in Settings ▸ Model"
+            needsAccount("Extend")
             return
         }
 
@@ -2020,11 +2064,11 @@ final class DocumentStore: ObservableObject {
         // also guarantees PNG going out; the stored bytes may be JPEG or HEIC.
         guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
               let data = Renderer.png(baked) else {
-            status = "Can't read that image"
+            refuse(saying: "Remove can't read that picture.")
             return
         }
         guard !(Credentials.get(.accompliceToken) ?? "").isEmpty else {
-            status = "Remove needs your Accomplice account. Connect it in Settings ▸ Model"
+            needsAccount("Remove")
             return
         }
         // The box in unit coordinates: layer space spans the frame, y-down like
