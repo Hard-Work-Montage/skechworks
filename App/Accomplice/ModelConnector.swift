@@ -290,6 +290,26 @@ struct ModelConnector {
         return (email, credits)
     }
 
+    /// Where credits are bought. One place, so the button in the transcript and
+    /// the link in Settings can't drift apart.
+    static var creditsURL: URL { URL(string: Settings().accompliceHost + "/credits")! }
+
+    /// What the account service said went wrong, in the app's own terms.
+    ///
+    /// Vectorize and Remove each read their own status codes and called every
+    /// one of them a reply that couldn't be read. So running out of credits
+    /// arrived as "The model's reply couldn't be read: Vectorizing costs 40
+    /// credits" — a sentence that sends you to look for a bug instead of to the
+    /// one button that fixes it.
+    private static func failure(status: Int, json: [String: Any]) -> Failure {
+        let said = (json["error"] as? [String: Any])?["message"] as? String
+        switch status {
+        case 401, 403: return .notSignedIn
+        case 402: return .outOfCredits(said ?? "You're out of credits.")
+        default: return .badResponse(said ?? "HTTP \(status)")
+        }
+    }
+
     /// Tools ▸ Vectorize: a bitmap goes to the account service, a traced SVG
     /// comes back. Static because it doesn't depend on the chat backend choice,
     /// only on the signed-in account.
@@ -317,8 +337,7 @@ struct ModelConnector {
         }
         let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-            let message = (json["error"] as? [String: Any])?["message"] as? String
-            throw Failure.badResponse(message ?? "HTTP \(http.statusCode)")
+            throw failure(status: http.statusCode, json: json)
         }
         guard let svg = json["svg"] as? String else {
             throw Failure.badResponse("no SVG in the reply")
@@ -384,8 +403,7 @@ struct ModelConnector {
         }
         let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-            let message = (json["error"] as? [String: Any])?["message"] as? String
-            throw Failure.badResponse(message ?? "HTTP \(http.statusCode)")
+            throw failure(status: http.statusCode, json: json)
         }
         guard let b64 = json["image"] as? String, let out = Data(base64Encoded: b64) else {
             throw Failure.badResponse("no image in the reply")

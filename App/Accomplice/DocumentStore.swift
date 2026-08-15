@@ -159,6 +159,18 @@ final class DocumentStore: ObservableObject {
         alarm = Alarm(title: "\(what) couldn't finish", detail: said, settings: inSettings)
         status = said
     }
+
+    /// Closes out a run that failed, and puts the fix next to it when there is
+    /// one. Every paid tool ends the same way, and the one failure a person can
+    /// do something about there and then is having nothing left to spend.
+    func failRun(_ entry: UUID, _ error: Error, doing what: String) {
+        let said = error.localizedDescription
+        chat.endActivity(entry, text: said, failed: true)
+        if let failure = error as? ModelConnector.Failure, case .outOfCredits = failure {
+            chat.offerCredits(on: entry)
+        }
+        status = "\(what) failed: \(said)"
+    }
     /// Brush settings, kept across strokes and documents — you pick a size once.
     /// UserDefaults directly rather than @AppStorage: this is a store, not a view.
     var eraseRadius: Double {
@@ -1365,8 +1377,7 @@ final class DocumentStore: ObservableObject {
                     status = "Vectorize stopped"
                     return
                 }
-                chat.endActivity(entry, text: error.localizedDescription, failed: true)
-                status = "Vectorize failed: \(error.localizedDescription)"
+                failRun(entry, error, doing: "Vectorize")
             }
         }
     }
@@ -1685,7 +1696,7 @@ final class DocumentStore: ObservableObject {
                 }
                 // The log of how far it got is worth keeping when it fails —
                 // more so than when it works.
-                chat.endActivity(entry, text: error.localizedDescription, failed: true)
+                failRun(entry, error, doing: "AI Draw")
                 report(error, doing: "AI Draw")
             }
         }
@@ -1955,8 +1966,7 @@ final class DocumentStore: ObservableObject {
                     status = "Extend stopped"
                     return
                 }
-                chat.endActivity(entry, text: error.localizedDescription, failed: true)
-                status = "Extend failed: \(error.localizedDescription)"
+                failRun(entry, error, doing: "Extend")
             }
         }
     }
@@ -2091,8 +2101,7 @@ final class DocumentStore: ObservableObject {
                     status = "Remove stopped"
                     return
                 }
-                chat.endActivity(entry, text: error.localizedDescription, failed: true)
-                status = "Remove failed: \(error.localizedDescription)"
+                failRun(entry, error, doing: "Remove")
             }
         }
     }

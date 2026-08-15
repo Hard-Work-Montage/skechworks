@@ -116,7 +116,7 @@ struct ModelSettings: View {
                             Text(balance)
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        Link("Buy credits", destination: URL(string: "https://accomplice.ai/credits")!)
+                        Link("Buy credits", destination: ModelConnector.creditsURL)
                             .font(.caption)
                     }
                 }

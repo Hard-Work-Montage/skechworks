@@ -1,4 +1,5 @@
 import AccompliceCore
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -166,6 +167,20 @@ final class ChatSession: ObservableObject {
         }
     }
 
+    /// Running out of credits is the one failure with a button attached.
+    ///
+    /// The line above it already says what the job costs and what's left, so
+    /// this is the button and nothing else. It doesn't clear itself the way a
+    /// paid offer does — pressing it opens a web page rather than spending, and
+    /// coming back from a checkout that didn't finish should leave the way back
+    /// where it was.
+    func offerCredits(on id: UUID) {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[i].offer = PaidOffer(label: "Buy credits") {
+            NSWorkspace.shared.open(ModelConnector.creditsURL)
+        }
+    }
+
     /// Puts the offer away without taking it. The activity it came from stays
     /// in the transcript — only the invitation to spend goes.
     func declineOffer(_ id: UUID) {
@@ -214,6 +229,10 @@ final class ChatSession: ObservableObject {
                 }
             } catch {
                 messages.append(ChatMessage(role: .error, text: error.localizedDescription))
+                if let failure = error as? ModelConnector.Failure, case .outOfCredits = failure,
+                   let id = messages.last?.id {
+                    offerCredits(on: id)
+                }
             }
             busy = false
         }
