@@ -59,7 +59,7 @@ private struct ColorPickerPane: View {
         _sat = State(initialValue: s)
         _bri = State(initialValue: b)
         _alpha = State(initialValue: a)
-        _hexTyped = State(initialValue: color.hex.uppercased())
+        _hexTyped = State(initialValue: Self.digits(color))
     }
 
     var body: some View {
@@ -235,10 +235,18 @@ private struct ColorPickerPane: View {
 
     private func commitHex() {
         guard let c = AccompliceCore.Color(hex: hexTyped, alpha: alpha) else {
-            hexTyped = current.hex.uppercased()
+            hexTyped = Self.digits(current)
             return
         }
         adopt(c.nsColor)
+    }
+
+    /// The six digits on their own. `Color.hex` carries a hash because SVG wants
+    /// one, and the field draws its own in grey to the left, so the value showed
+    /// up as ## FFFFFF. Pasting a hash in still works: the parser drops it.
+    private static func digits(_ c: AccompliceCore.Color) -> String {
+        let s = c.hex.uppercased()
+        return s.hasPrefix("#") ? String(s.dropFirst()) : s
     }
 
     /// Takes an RGB colour into the HSB state. Greys have no hue of their own, so
@@ -254,7 +262,7 @@ private struct ColorPickerPane: View {
     }
 
     private func push() {
-        hexTyped = current.hex.uppercased()
+        hexTyped = Self.digits(current)
         onChange(current)
     }
 }
