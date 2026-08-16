@@ -51,8 +51,8 @@ targets:
       properties:
         CFBundleDisplayName: Accomplice
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.1.29"
-        CFBundleVersion: "31"
+        CFBundleShortVersionString: "0.1.30"
+        CFBundleVersion: "32"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
@@ -111,7 +111,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
-        MARKETING_VERSION: "0.1.29"
+        MARKETING_VERSION: "0.1.30"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps

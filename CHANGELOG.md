@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.30 (August 16, 2026)
+
+- Fixed bug where an exported SVG could come out blank
+
 ## 0.1.29 (August 15, 2026)
 
 - The eraser now does ovals as well as boxes, hold Shift for a circle
