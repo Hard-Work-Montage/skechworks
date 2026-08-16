@@ -76,7 +76,13 @@ public struct SVGWriter {
             var attrs = ""
             if let clip = d.clip, !clipsNothing(clip, around: d) {
                 clipID += 1
-                defs += "  <clipPath id=\"c\(clipID)\"><path d=\"\(pathData(clip))\"/></clipPath>\n"
+                // The clip arrives in document coordinates like everything else, so it
+                // needs the same shift into the export box. Without it the clip stays at
+                // the artboard's place on the canvas while the art moves to 0,0, and an
+                // artboard anywhere but the origin exports a blank file.
+                var clipT = origin
+                let placedClip = clip.copy(using: &clipT) ?? clip
+                defs += "  <clipPath id=\"c\(clipID)\"><path d=\"\(pathData(placedClip))\"/></clipPath>\n"
                 attrs += " clip-path=\"url(#c\(clipID))\""
             }
             if d.opacity != 1 { attrs += " opacity=\"\(fmt(d.opacity))\"" }

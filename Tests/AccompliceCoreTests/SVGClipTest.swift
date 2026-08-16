@@ -104,6 +104,28 @@ private func shape(_ rect: CGRect, stroke: CGFloat = 0) -> Layer {
     #expect(!svg.contains("clip-path"), "a translated board's clip was kept")
 }
 
+@Test func aKeptClipIsWrittenWhereTheArtIs() {
+    // A board far down the canvas, with art hanging off it so the clip survives.
+    // The clip arrives in canvas coordinates and everything else gets shifted to
+    // 0,0, so an unshifted clip sits a thousand points below the viewBox and cuts
+    // the whole drawing away. The file opens blank with nothing reporting a problem.
+    var b = Layer(kind: .group([ shape(CGRect(x: 300, y: 50, width: 400, height: 100)) ]))
+    b.isArtboard = true
+    b.frame = CGRect(x: 100, y: 1030, width: 400, height: 400)
+    var p = Page(name: "t")
+    p.layers = [ b ]
+    let svg = SVGWriter().svg(page: p)
+
+    #expect(svg.contains("clip-path"), "art overflowing the board must still be cut")
+    let d = svg.components(separatedBy: "<clipPath")[1]
+        .components(separatedBy: "<path d=\"")[1]
+        .components(separatedBy: "\"")[0]
+    let numbers = String(d.map { "MLZ".contains($0) ? " " : $0 })
+        .split(separator: " ").compactMap { Double($0) }
+    #expect(numbers.allSatisfy { $0 >= -1 && $0 <= 401 },
+            "the clip kept its canvas position and now misses the viewBox: \(d)")
+}
+
 @Test func twoBoardsSideBySideBothComeOutClean() {
     // What the drawn-beside-original layout actually produces.
     func made(_ x: CGFloat) -> Layer {
