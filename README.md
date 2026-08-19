@@ -77,8 +77,8 @@ The built-in chat handles the busywork:
 > make every black fill our brand blue
 > swap the headline on all six artboards
 
-It runs against a model on your own machine (Ollama works out of the box) or an API
-key you own. It only acts when you ask, every change lands as one ordinary undo
+Use your own OpenRouter key or Accomplice credits. There's nothing to download
+either way. It only acts when you ask, every change lands as one ordinary undo
 step, and your files are never used to train anything.
 
 ## The format
