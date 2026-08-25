@@ -619,6 +619,28 @@ final class PageCanvas: NSView {
         NSCursor.arrow.set()
     }
 
+    /// Where the next pen point lands, with shift held or not.
+    ///
+    /// Shift locks the segment you're about to lay down to the nearest 45° from the
+    /// point you're coming out of, so horizontals, verticals and diagonals land exact.
+    /// The point still rides as far along that line as the pointer is, so the length
+    /// follows the mouse and only the angle is taken away.
+    private func penTarget(_ p: CGPoint) -> CGPoint {
+        guard NSEvent.modifierFlags.contains(.shift), let last = penPoints.last
+        else { return p }
+        return constrained(p, from: last.point)
+    }
+
+    /// Snaps a point onto the nearest 45° ray from an anchor.
+    private func constrained(_ p: CGPoint, from anchor: CGPoint) -> CGPoint {
+        let dx = p.x - anchor.x, dy = p.y - anchor.y
+        guard dx != 0 || dy != 0 else { return p }
+        let step = CGFloat.pi / 4
+        let heading = (atan2(dy, dx) / step).rounded() * step
+        let along = dx * cos(heading) + dy * sin(heading)
+        return CGPoint(x: anchor.x + along * cos(heading), y: anchor.y + along * sin(heading))
+    }
+
     /// True when a pen click at `p` would close the path rather than extend it.
     private func penWouldClose(at p: CGPoint) -> Bool {
         guard let first = penPoints.first, penPoints.count >= 2 else { return false }
@@ -1819,7 +1841,10 @@ final class PageCanvas: NSView {
                 finishPen(close: true)          // clicking the first point closes it
                 onExitTool?()                  // …and the shape is done, so hand back the cursor
             } else {
-                penPoints.append(VectorPoint(p))
+                // Closing is judged on where the pointer really is — shift is about
+                // the angle of the new segment, and it shouldn't get between you and
+                // the first point when you're trying to shut the shape.
+                penPoints.append(VectorPoint(penTarget(p)))
                 needsDisplay = true
             }
             return
@@ -2132,7 +2157,7 @@ final class PageCanvas: NSView {
         hoverPoint = p
 
         if tool == .pen, !penPoints.isEmpty {
-            penCursor = p
+            penCursor = penTarget(p)
             needsDisplay = true
         } else {
             // Show where a point would land while editing one. Double-click is not a
@@ -2259,6 +2284,12 @@ final class PageCanvas: NSView {
 
     /// Shift can be pressed without the pointer moving, and the preview has to follow.
     override func flagsChanged(with event: NSEvent) {
+        // The rubber-band segment is the only thing telling you what shift is doing,
+        // so it has to answer the key itself rather than wait for the next move.
+        if tool == .pen, !penPoints.isEmpty, let p = hoverPoint {
+            penCursor = penTarget(p)
+            needsDisplay = true
+        }
         refreshInsertPreview()
         if let p = hoverPoint { updateCursor(at: p) }
         super.flagsChanged(with: event)
