@@ -94,6 +94,18 @@ public struct VectorPoint: Sendable {
         curveTo = CGPoint(x: curveTo.x + d.x, y: curveTo.y + d.y)
     }
 
+    /// Takes one handle away, for an anchor that has just become the end of a path.
+    ///
+    /// A handle only means anything as the tangent of a segment. Once that segment
+    /// is gone the handle would sit in space pointing at nothing, and worse, a
+    /// mirrored point would grow the missing one back the moment the other was
+    /// dragged. So the point is left with whatever handle still has a segment to
+    /// shape, and a type that will keep it that way.
+    public mutating func dropHandle(out: Bool) {
+        if out { hasCurveFrom = false; curveFrom = point } else { hasCurveTo = false; curveTo = point }
+        mode = (hasCurveFrom || hasCurveTo) ? .disconnected : .straight
+    }
+
     /// Sets one handle and brings the other along according to the mode.
     public mutating func setHandle(out: Bool, to p: CGPoint) {
         if out { curveFrom = p; hasCurveFrom = true } else { curveTo = p; hasCurveTo = true }
@@ -494,6 +506,44 @@ public struct VectorPath: Sendable {
         let at = i + 1
         points.insert(made, at: at)
         return at
+    }
+
+    /// Whether the scissors can take this segment out and leave a path behind.
+    ///
+    /// The one case they can't is a bare line: an open path with two points has
+    /// one segment, and cutting it leaves two stranded points that are not a path.
+    /// Delete does that job already.
+    public func canCut(segment i: Int) -> Bool {
+        i >= 0 && i < segmentCount && (closed || points.count > 2)
+    }
+
+    /// Takes one segment out, the way Sketch's scissors do.
+    ///
+    /// A closed path opens where the cut was. The point on the far side of the
+    /// cut becomes the start, so nothing about the shape moves and the ends are
+    /// exactly the two anchors that used to be joined. An open path comes apart:
+    /// this one keeps the run before the cut, and the run after it comes back as
+    /// a new path for the caller to make a layer of. A run of one point is not a
+    /// path, so cutting either end segment off an open path just drops the end
+    /// point and returns nil.
+    ///
+    /// The handles that reached across the cut go with it — see `dropHandle`.
+    @discardableResult
+    public mutating func cut(segment i: Int) -> VectorPath? {
+        guard canCut(segment: i) else { return nil }
+        let j = (i + 1) % points.count
+        points[i].dropHandle(out: true)
+        points[j].dropHandle(out: false)
+        if closed {
+            closed = false
+            points = Array(points[j...]) + Array(points[..<j])
+            return nil
+        }
+        let head = Array(points[...i])
+        let tail = Array(points[j...])
+        if head.count < 2 { points = tail; return nil }
+        points = head
+        return tail.count >= 2 ? VectorPath(points: tail, closed: false) : nil
     }
 
     /// Nearest segment to a point, for hit-testing the bend tool.

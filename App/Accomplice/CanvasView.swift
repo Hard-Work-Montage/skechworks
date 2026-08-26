@@ -25,6 +25,9 @@ final class PageCanvas: NSView {
             if selected != oldValue, editingLayerID != nil, selected != [editingLayerID!] {
                 editingLayerID = nil
             }
+            // With the scissors armed, picking a path is enough to open it: the
+            // tool has one job and there is no other reason to have selected one.
+            if tool == .scissors, editingLayerID == nil { beginPathEditing() }
             updateDragSet(); rebuildEditPath(); needsDisplay = true
         }
     }
@@ -151,6 +154,8 @@ final class PageCanvas: NSView {
         didSet {
             guard tool != oldValue else { return }
             if tool != .pen { finishPen(close: false) }
+            if tool != .scissors { hoveredSegment = nil }
+            if tool == .scissors, editingLayerID == nil { beginPathEditing() }
             rebuildEditPath()
             refreshCursor()
             needsDisplay = true
@@ -180,6 +185,8 @@ final class PageCanvas: NSView {
     /// the only way to find out whether you're close enough is to press and see.
     private var hoveredPoint: Int?
     private var hoveredHandle: (index: Int, out: Bool)?
+    /// The segment the scissors are over, lit so you can see what a click cuts.
+    private var hoveredSegment: Int? { didSet { if hoveredSegment != oldValue { needsDisplay = true } } }
 
     /// The selected path, exploded into editable points (page space).
     private var editPath: VectorPath?
@@ -257,7 +264,8 @@ final class PageCanvas: NSView {
     /// neither is one under anything opaque — so Path ▸ Edit Path and Enter
     /// both come through here, where selection is all that matters.
     func beginPathEditing() {
-        guard tool == .select, let page, selected.count == 1, let id = selected.first,
+        guard tool == .select || tool == .scissors,
+              let page, selected.count == 1, let id = selected.first,
               let l = page.layer(id), case .path = l.kind else { return }
         if let group = page.ancestors(of: id).last,
            page.layer(group)?.isContainer == true { enteredGroup = group }
@@ -384,14 +392,46 @@ final class PageCanvas: NSView {
 
     private func commitEdit(_ name: String) {
         guard let vp = editPath, let id = editLayerID else { return }
-        // Back into the layer's own space, undoing the transform we applied to edit in.
-        var local = VectorPath(cgPath: vp.cgPath().transformed(by: editTransform.inverted()))
-        // Carry the chosen types across; the round trip through CGPath drops them.
-        if local.points.count == vp.points.count {
-            for i in local.points.indices { local.points[i].mode = vp.points[i].mode }
-        }
-        onEditPath?(local, id, name)
+        onEditPath?(localised(vp), id, name)
     }
+
+    /// A page-space path back in the layer's own space, undoing the transform
+    /// we applied to edit in.
+    private func localised(_ vp: VectorPath) -> VectorPath {
+        var local = VectorPath(cgPath: vp.cgPath().transformed(by: editTransform.inverted()))
+        // Carry the chosen types and corner radii across; the round trip through
+        // CGPath drops both. Radii used to be left behind here, so nudging one
+        // point of a shape with its own corner values quietly reset them all.
+        if local.points.count == vp.points.count {
+            for i in local.points.indices {
+                local.points[i].mode = vp.points[i].mode
+                local.points[i].cornerRadius = vp.points[i].cornerRadius
+            }
+        }
+        return local
+    }
+
+    /// The scissors: takes one segment out of the path being edited.
+    ///
+    /// A closed shape opens there. An open one comes apart, and the far piece
+    /// goes up to the store to become its own layer, since a layer holds one path.
+    private func cutSegment(_ i: Int) {
+        guard var vp = editPath, let id = editLayerID, vp.canCut(segment: i) else { return }
+        let tail = vp.cut(segment: i)
+        editPath = vp
+        selectedPoints = []
+        lastTouchedPoint = nil
+        hoveredSegment = nil
+        if let tail {
+            onSplitPath?(localised(vp), localised(tail), id)
+        } else {
+            commitEdit("Cut Segment")
+        }
+        refreshInsertPreview()
+        needsDisplay = true
+    }
+    /// An open path cut in two. (kept run, cut-off run, layer id)
+    var onSplitPath: ((VectorPath, VectorPath, String) -> Void)?
 
     func finishPen(close: Bool) {
         guard penPoints.count >= 2 else { penPoints = []; penCursor = nil; return }
@@ -573,6 +613,10 @@ final class PageCanvas: NSView {
             NSCursor.crosshair.set()
             return
         }
+        if tool == .scissors {
+            VectorCursors.scissors.set()
+            return
+        }
         // An armed drawing tool has to look armed. Otherwise pressing R and seeing
         // nothing happen reads as the key not having landed.
         if tool.draws {
@@ -656,6 +700,7 @@ final class PageCanvas: NSView {
         window?.invalidateCursorRects(for: self)
         guard let p = hoverPoint else {
             if tool == .pen { VectorCursors.pen(.add).set() }
+            if tool == .scissors { VectorCursors.scissors.set() }
             if tool.draws { NSCursor.crosshair.set() }
             return
         }
@@ -1011,6 +1056,19 @@ final class PageCanvas: NSView {
         ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.7).cgColor)
         ctx.setLineWidth(1 / sc)
         ctx.strokePath()
+
+        // The segment under the scissors, drawn heavy: the click takes exactly this.
+        if tool == .scissors, let i = hoveredSegment, let (a, b) = vp.segment(i) {
+            ctx.move(to: a.point)
+            ctx.addCurve(to: b.point,
+                         control1: a.hasCurveFrom ? a.curveFrom : a.point,
+                         control2: b.hasCurveTo ? b.curveTo : b.point)
+            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            ctx.setLineWidth(3.5 / sc)
+            ctx.setLineCap(.round)
+            ctx.strokePath()
+            ctx.setLineCap(.butt)
+        }
 
         for (i, p) in vp.points.enumerated() {
             // Handles first, so anchors sit on top of their own lines.
@@ -1932,6 +1990,17 @@ final class PageCanvas: NSView {
             return
         }
 
+        // --- Scissors: click a segment and it's gone ---
+        //
+        // Points and handles don't get in the way: with the scissors armed the
+        // only thing a click can mean is the nearest segment. Missing the path
+        // does nothing, and with no path open the click falls through to plain
+        // selection, which the scissors then open for cutting.
+        if tool == .scissors, let vp = editPath {
+            if let hit = vp.closestSegment(to: p, within: grabRadius * 2) { cutSegment(hit.index) }
+            return
+        }
+
         // --- Drag a segment to bend it ---
         //
         // Was its own tool. It isn't one: it's a gesture on a path you're already
@@ -2159,6 +2228,8 @@ final class PageCanvas: NSView {
         if tool == .pen, !penPoints.isEmpty {
             penCursor = penTarget(p)
             needsDisplay = true
+        } else if tool == .scissors {
+            hoveredSegment = editPath?.closestSegment(to: p, within: grabRadius * 2)?.index
         } else {
             // Show where a point would land while editing one. Double-click is not a
             // gesture anyone guesses at, so the path has to offer it.
@@ -2180,7 +2251,7 @@ final class PageCanvas: NSView {
             point = i                       // stays lit for the whole drag
         } else if let h = draggingHandle {
             handle = h
-        } else if let p, let vp = editPath {
+        } else if let p, let vp = editPath, tool != .scissors {
             // Handles before anchors, the same order a press resolves in — otherwise
             // where the two overlap the highlight would promise one thing and the click
             // do another.
@@ -2221,7 +2292,7 @@ final class PageCanvas: NSView {
     /// sits *on* the curve — halfway between the neighbouring points along the path,
     /// and on a straight segment exactly their geometric midpoint.
     private func insertionTarget(at p: CGPoint, centred: Bool) -> (segment: Int, t: CGFloat)? {
-        guard let vp = editPath, !isOnPointOrHandle(p),
+        guard let vp = editPath, tool != .scissors, !isOnPointOrHandle(p),
               let hit = vp.closestSegment(to: p, within: grabRadius * 2) else { return nil }
         return (hit.index, centred ? 0.5 : hit.t)
     }
@@ -2984,6 +3055,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onRotateEnd = { degrees, centre in store.endRotate(degrees: degrees, centre: centre) }
         canvas.onDrawPath = { vp in store.commitDrawnPath(vp) }
         canvas.onEditPath = { vp, id, name in store.commitEditedPath(vp, layerID: id, actionName: name) }
+        canvas.onSplitPath = { head, tail, id in store.splitEditedPath(head, tail, layerID: id) }
         canvas.onExitTool = { store.tool = .select }
         canvas.onPointSelection = { [weak store] picked in
             guard let store, store.selectedPoints != picked else { return }
@@ -2997,6 +3069,7 @@ struct CanvasRepresentable: NSViewRepresentable {
             case "insertRect": store.tool = .rect
             case "insertOval": store.tool = .oval
             case "insertText": store.tool = .text
+            case "scissors": store.armScissors()
             default: return false      // the arrows and delete are handled on the canvas
             }
             return true

@@ -150,6 +150,9 @@ struct AccompliceApp: App {
                 // and a menu item holding Return takes it away from every text
                 // field and number box in the app.
                 Button("Edit Path") { AppDelegate.shared?.active?.editSelectedPath() }
+                // The bare C lives on the canvas, like the other tool keys —
+                // see ShortcutBinding for why it can't be a menu equivalent.
+                Button("Scissors") { AppDelegate.shared?.active?.armScissors() }
                 Divider()
                 Button("Convert to Outlines") { AppDelegate.shared?.active?.convertToOutlines() }
                     .keyboardShortcut("o", modifiers: [.command, .option])

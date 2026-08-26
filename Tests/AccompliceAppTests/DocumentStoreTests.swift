@@ -876,4 +876,53 @@ extension DocumentStoreTests {
         XCTAssertEqual(after.cornerRadius(at: 4), 0, "the sharp corner is still the tail")
         XCTAssertEqual(after.cornerRadius(at: 0), 25)
     }
+
+    // MARK: - Scissors
+
+    /// A store holding one open three-point line at the root.
+    private func storeWithZigzag() -> (DocumentStore, String) {
+        let vp = VectorPath(points: [
+            VectorPoint(CGPoint(x: 0, y: 0)),
+            VectorPoint(CGPoint(x: 50, y: 60)),
+            VectorPoint(CGPoint(x: 100, y: 0)),
+            VectorPoint(CGPoint(x: 150, y: 60)),
+        ])
+        var l = Layer(kind: .path(vp.cgPath(), closed: false))
+        l.name = "Zig"
+        l.frame = CGRect(x: 200, y: 300, width: 150, height: 60)
+        var b = Border(); b.color = .black; b.thickness = 3
+        l.style.borders = [b]
+        var page = Page(name: "Page 1")
+        page.layers = [l]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        store.selection = [l.id]
+        return (store, l.id)
+    }
+
+    func testCuttingTheMiddleOfALineMakesTwoLayersInOneUndoStep() throws {
+        let (store, id) = storeWithZigzag()
+        let l = try XCTUnwrap(store.page?.layer(id))
+        guard case .path(let cg, _) = l.kind else { return XCTFail("not a path") }
+        var head = VectorPath(cgPath: cg, modes: l.curveModes)
+        let tail = try XCTUnwrap(head.cut(segment: 1))
+        store.splitEditedPath(head, tail, layerID: id)
+
+        let layers = try XCTUnwrap(store.page?.layers)
+        XCTAssertEqual(layers.count, 2)
+        XCTAssertEqual(layers.map(\.name), ["Zig", "Zig"], "the new piece keeps the name")
+        let kept = try XCTUnwrap(store.page?.layer(id))
+        let made = try XCTUnwrap(layers.first { $0.id != id })
+        XCTAssertEqual(made.style.borders.first?.thickness, 3, "…and the style")
+        // Each piece's frame sits on its own points, in page space.
+        XCTAssertEqual(kept.frame, CGRect(x: 200, y: 300, width: 50, height: 60))
+        XCTAssertEqual(made.frame, CGRect(x: 300, y: 300, width: 50, height: 60))
+        XCTAssertEqual(store.selection, [id], "the original stays selected, so editing carries on")
+
+        store.undo()
+        XCTAssertEqual(store.page?.layers.count, 1, "one click, one undo")
+        XCTAssertEqual(store.page?.layer(id)?.frame.width, 150)
+    }
 }

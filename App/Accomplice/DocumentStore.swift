@@ -100,11 +100,12 @@ final class DocumentStore: ObservableObject {
     @Published var wandTolerance: Int = Wand.defaultTolerance
 
     enum Tool: String, CaseIterable {
-        case select, pen, erase, remove, extend, rect, oval, text
+        case select, pen, erase, remove, extend, rect, oval, text, scissors
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
+            case .scissors: return "scissors"
             case .erase: return "eraser"
             case .remove: return "wand.and.stars"
             case .extend: return "arrow.up.left.and.arrow.down.right"
@@ -117,6 +118,7 @@ final class DocumentStore: ObservableObject {
             switch self {
             case .select: return "Select"
             case .pen: return "Vector"
+            case .scissors: return "Scissors"
             case .erase: return "Erase"
             case .remove: return "Remove"
             case .extend: return "Extend"
@@ -2548,6 +2550,14 @@ final class DocumentStore: ObservableObject {
         editPathToken &+= 1
     }
 
+    /// Arms the scissors on the selected path, turning its points on if they
+    /// aren't already. Sketch's scissors: click a segment and it's gone.
+    func armScissors() {
+        guard canEditPath else { return }
+        tool = .scissors
+        editPathToken &+= 1
+    }
+
     /// One path selected, and nothing else.
     var canEditPath: Bool {
         guard let page, selection.count == 1, let id = selection.first,
@@ -3224,19 +3234,45 @@ final class DocumentStore: ObservableObject {
         let cg = vp.cgPath()
         let box = cg.boundingBoxOfPath
         guard box.width.isFinite, box.height.isFinite else { return }
-        edit(layerID, actionName: actionName) { l in
-            // Solved through the layer's own transform, because a flip mirrors
-            // the path about the frame's centre — so moving the frame moves the
-            // mirror, and the naive sum cancels the edit out.
-            let placed = Compose.reframed(l, localBounds: box)
-            let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
-            l.kind = .path(local, closed: vp.closed)
-            l.curveModes = vp.points.map(\.mode)
-            // Only stored when a corner actually differs, so an ordinary shape
-            // does not grow an array of identical numbers in its file.
-            let radii = vp.points.map(\.cornerRadius)
-            l.cornerRadii = radii.contains { $0 >= 0 } ? radii : []
-            l.frame = placed
+        edit(layerID, actionName: actionName) { l in Self.place(vp, cg: cg, box: box, into: &l) }
+    }
+
+    /// Writes a path into a layer, moving the frame to sit on the new bounds.
+    private static func place(_ vp: VectorPath, cg: CGPath, box: CGRect, into l: inout Layer) {
+        // Solved through the layer's own transform, because a flip mirrors
+        // the path about the frame's centre — so moving the frame moves the
+        // mirror, and the naive sum cancels the edit out.
+        let placed = Compose.reframed(l, localBounds: box)
+        let local = cg.transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+        l.kind = .path(local, closed: vp.closed)
+        l.curveModes = vp.points.map(\.mode)
+        // Only stored when a corner actually differs, so an ordinary shape
+        // does not grow an array of identical numbers in its file.
+        let radii = vp.points.map(\.cornerRadius)
+        l.cornerRadii = radii.contains { $0 >= 0 } ? radii : []
+        l.frame = placed
+    }
+
+    /// The scissors took a segment out of the middle of an open path.
+    ///
+    /// The layer keeps the run before the cut and a new layer, right behind it
+    /// with the same name and style, takes the run after. One undo step: the
+    /// cut was one click, so ⌘Z has to be one press.
+    func splitEditedPath(_ head: VectorPath, _ tail: VectorPath, layerID: String) {
+        guard let page, let original = page.layer(layerID) else { return }
+        let headCG = head.cgPath(), tailCG = tail.cgPath()
+        let headBox = headCG.boundingBoxOfPath, tailBox = tailCG.boundingBoxOfPath
+        guard headBox.width.isFinite, headBox.height.isFinite,
+              tailBox.width.isFinite, tailBox.height.isFinite else { return }
+        var second = original
+        second.id = UUID().uuidString
+        Self.place(tail, cg: tailCG, box: tailBox, into: &second)
+        mutatePage("Cut Path") { p in
+            p.updateLayer(layerID) { Self.place(head, cg: headCG, box: headBox, into: &$0) }
+            let parent = p.ancestors(of: layerID).last
+            let siblings = p.children(of: parent)
+            let at = siblings.firstIndex { $0.id == layerID } ?? siblings.count
+            p.insertLayer(second, parent: parent, index: at)
         }
     }
 

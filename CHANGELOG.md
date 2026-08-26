@@ -3,6 +3,11 @@
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.33 (August 26, 2026)
+
+- New Scissors tool cuts a segment out of a vector path, press C while editing points or use Path ▸ Scissors
+- Fixed per-point corner radii resetting when you moved a point
+
 ## 0.1.32 (August 26, 2026)
 
 - Drop shadows now work on images and come through in SVG exports

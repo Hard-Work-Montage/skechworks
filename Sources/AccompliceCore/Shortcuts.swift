@@ -170,6 +170,11 @@ public enum Shortcuts {
               keyCodes: [21], group: "Editing Points"),
         .init(id: "centrePoint", title: "Add Point Centered on the Segment", key: "⇧click",
               modifiers: .shift, context: .points, group: "Editing Points"),
+        // Illustrator's key for the same tool. Canvas context, not points: the key
+        // arms the scissors on the selected path whether its points are showing
+        // yet or not, and opens them if not.
+        .init(id: "scissors", title: "Scissors", key: "C", context: .canvas, keyCodes: [8],
+              group: "Editing Points"),
     ]
 
     public static subscript(_ id: String) -> Shortcut {

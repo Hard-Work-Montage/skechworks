@@ -126,6 +126,18 @@ struct ContentView: View {
                     .help("\(store.tool.title) mode — press Esc to go back to the cursor")
                 }
             }
+            // Sketch keeps the scissors in the toolbar while a path is open for
+            // editing. Shown whenever one path is selected, which is the same
+            // moment the tool has anything to cut.
+            ToolbarItem {
+                if store.canEditPath {
+                    Button { store.armScissors() } label: {
+                        Label("Scissors", systemImage: "scissors")
+                    }
+                    .help("Scissors — click a segment to cut it out (C)")
+                    .foregroundStyle(store.tool == .scissors ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                }
+            }
             // The way out. Escape does the same thing, but only while the canvas has
             // the keyboard — after typing in the inspector there has to be something
             // to click.

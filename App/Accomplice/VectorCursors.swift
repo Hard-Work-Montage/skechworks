@@ -76,6 +76,37 @@ enum VectorCursors {
         }
     }
 
+    /// Scissors, tips at the hot spot, pointing up and to the left like the arrow.
+    ///
+    /// The blades are the recognisable part at this size, so they get the weight;
+    /// the finger rings are drawn thin or they close up into two dots.
+    static var scissors: NSCursor {
+        cursor(key: "scissors") { ctx in
+            ctx.saveGState()
+            // Drawn pointing straight up, tips on the origin, then swung a quarter
+            // of a right angle so the tips point the way a pointer does.
+            ctx.rotate(by: .pi / 4)
+            let blades = CGMutablePath()
+            for side in [CGFloat(-1), 1] {
+                // Tip, then the near and far edges down to the pivot.
+                blades.move(to: CGPoint(x: side * 0.4, y: 0))
+                blades.addLine(to: CGPoint(x: side * 2.4, y: -0.9))
+                blades.addLine(to: CGPoint(x: side * -1.0, y: -7.6))
+                blades.addLine(to: CGPoint(x: side * -2.0, y: -7.0))
+                blades.closeSubpath()
+            }
+            fill(ctx, blades, edge: 2.4)
+            let rings = CGMutablePath()
+            for side in [CGFloat(-1), 1] {
+                rings.move(to: CGPoint(x: side * -1.5, y: -7.3))
+                rings.addLine(to: CGPoint(x: side * -2.9, y: -9.2))
+                rings.addEllipse(in: CGRect(x: side * -3.6 - 2.4, y: -13.9, width: 4.8, height: 4.8))
+            }
+            stroke(ctx, rings, weight: 1.3, edge: 2.8)
+            ctx.restoreGState()
+        }
+    }
+
     /// Four-way arrow, drawn as one outline.
     ///
     /// Each arm is the same run of points a quarter-turn on from the last, and an arm
