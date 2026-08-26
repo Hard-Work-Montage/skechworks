@@ -15,8 +15,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Any profile for the same Apple ID / team works; reuse the existing one by default.
-PROFILE="${NOTARY_PROFILE:-pelocan-notary}"
+# accomplice-notary is the App Store Connect API key (GB4X56ZPZ2) stored via
+# store-credentials --key. The older pelocan-notary profile was an app-specific
+# password and started returning 401 on 2026-08-26.
+PROFILE="${NOTARY_PROFILE:-accomplice-notary}"
 APP="build/Build/Products/Release/Accomplice.app"
 ZIP="build/Accomplice.zip"
 
