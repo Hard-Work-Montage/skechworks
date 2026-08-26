@@ -102,7 +102,7 @@ public struct Renderer {
                 // trade for supporting more than one shadow at all.
                 for s in shadows {
                     ctx.saveGState()
-                    ctx.setShadow(offset: s.offset, blur: s.blur, color: s.color.cg)
+                    Self.setShadow(s, in: ctx)
                     ctx.beginTransparencyLayer(auxiliaryInfo: nil)
                     for c in inner where !c.isMarker { draw(c, in: ctx) }
                     ctx.endTransparencyLayer()
@@ -179,6 +179,83 @@ public struct Renderer {
         return nil
     }
 
+    /// Paints a bitmap layer in its frame: warped, erased, adjusted, or as it came.
+    private func drawBitmap(_ d: Drawable, data: Data, loaded o: BitmapImage.Oriented, ref: String,
+                            in ctx: CGContext) {
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.concatenate(d.transform)
+        let r = CGRect(origin: .zero, size: d.layer.frame.size)
+
+        // Perspective warp: bake the display image (orientation, adjustments,
+        // crop) and project it onto the corner quad. The warped picture can
+        // spill outside the frame — that's the point of dragging a corner out.
+        if d.layer.warpCorners != nil,
+           let (warped, unitBox) = BitmapWarp.warpedDisplayImage(data: data, ref: ref, layer: d.layer) {
+            let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
+                             width: unitBox.width * r.width, height: unitBox.height * r.height)
+            ctx.translateBy(x: box.minX, y: box.minY)
+            ctx.scaleBy(x: box.width / max(1, CGFloat(warped.width)),
+                        y: box.height / max(1, CGFloat(warped.height)))
+            ctx.translateBy(x: 0, y: CGFloat(warped.height))
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(warped, in: CGRect(x: 0, y: 0, width: warped.width, height: warped.height))
+            return
+        }
+
+        // Erase strokes clip the image rather than altering it. Built at twice the
+        // layer size so a soft edge stays soft when you zoom in.
+        //
+        // clip(to:mask:) shares draw(_:in:)'s orientation rules, and this space is
+        // y-down — apply it un-flipped and the holes land mirrored, which reads as
+        // "erase does nothing" whenever the mirrored spot is already transparent.
+        // Flip around the layer box just for the clip; the region itself is stored
+        // in device space, so it survives the flip back.
+        if !d.layer.erased.isEmpty,
+           let mask = EraseMask.image(strokes: d.layer.erased, size: r.size) {
+            ctx.translateBy(x: 0, y: r.height)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.clip(to: r, mask: mask)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.translateBy(x: 0, y: -r.height)
+        }
+
+        // Adjusted or cropped: the baked image arrives already in display
+        // orientation, so it draws with a plain flip.
+        if d.layer.hasBitmapAdjustments,
+           let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer) {
+            ctx.scaleBy(x: r.width / max(1, CGFloat(baked.width)),
+                        y: r.height / max(1, CGFloat(baked.height)))
+            ctx.translateBy(x: 0, y: CGFloat(baked.height))
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(baked, in: CGRect(x: 0, y: 0, width: baked.width, height: baked.height))
+            return
+        }
+
+        // Order is load-bearing. The EXIF transform is defined in y-DOWN display
+        // space, so it has to be applied while we're still in that space. Flipping
+        // first (for CGImage's y-up drawing) and rotating after mirrors the result.
+        //   layer frame -> display box -> native pixels -> flip -> draw
+        ctx.scaleBy(x: r.width / max(1, o.displaySize.width),
+                    y: r.height / max(1, o.displaySize.height))
+        ctx.concatenate(o.transform)
+        ctx.translateBy(x: 0, y: o.nativeSize.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(img: o.image, size: o.nativeSize)
+    }
+
+    /// `setShadow` takes its offset and blur in the context's base space, the one
+    /// the CTM maps into: y-up and unzoomed. The page is y-down and drawn through
+    /// a scale, so a shadow handed over raw fell upward and stayed the same size
+    /// at every zoom. Push both through the CTM first.
+    static func setShadow(_ s: Shadow, in ctx: CGContext) {
+        let m = ctx.ctm
+        let offset = CGSize(width: m.a * s.offset.width + m.c * s.offset.height,
+                            height: m.b * s.offset.width + m.d * s.offset.height)
+        let scale = sqrt(abs(m.a * m.d - m.b * m.c))
+        ctx.setShadow(offset: offset, blur: s.blur * scale, color: s.color.cg)
+    }
+
     private func draw(_ d: Drawable, in ctx: CGContext) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
@@ -190,68 +267,25 @@ public struct Renderer {
         if d.opacity != 1 { ctx.setAlpha(d.opacity) }
 
         if let ref = d.imageRef, let data = images[ref], let o = BitmapImage.load(data) {
-            ctx.saveGState()
-            ctx.concatenate(d.transform)
-            let r = CGRect(origin: .zero, size: d.layer.frame.size)
-
-            // Perspective warp: bake the display image (orientation, adjustments,
-            // crop) and project it onto the corner quad. The warped picture can
-            // spill outside the frame — that's the point of dragging a corner out.
-            if d.layer.warpCorners != nil,
-               let (warped, unitBox) = BitmapWarp.warpedDisplayImage(data: data, ref: ref, layer: d.layer) {
-                let box = CGRect(x: unitBox.minX * r.width, y: unitBox.minY * r.height,
-                                 width: unitBox.width * r.width, height: unitBox.height * r.height)
-                ctx.translateBy(x: box.minX, y: box.minY)
-                ctx.scaleBy(x: box.width / max(1, CGFloat(warped.width)),
-                            y: box.height / max(1, CGFloat(warped.height)))
-                ctx.translateBy(x: 0, y: CGFloat(warped.height))
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.draw(warped, in: CGRect(x: 0, y: 0, width: warped.width, height: warped.height))
-                ctx.restoreGState()
-                return
+            // A picture's shadow is cast from its own alpha, so it is drawn with the
+            // shadow set rather than filling a silhouette first. The transparency
+            // layer matters: erase strokes and crops clip the picture from inside
+            // drawBitmap, and a shadow painted under that clip stops at the frame.
+            // Composited as one layer it lands wherever it falls. Each pass leaves
+            // the picture on top, so one shadow draws it once; several redraw it,
+            // the same trade group shadows make.
+            if d.style.shadows.isEmpty {
+                drawBitmap(d, data: data, loaded: o, ref: ref, in: ctx)
+            } else {
+                for s in d.style.shadows {
+                    ctx.saveGState()
+                    Self.setShadow(s, in: ctx)
+                    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                    drawBitmap(d, data: data, loaded: o, ref: ref, in: ctx)
+                    ctx.endTransparencyLayer()
+                    ctx.restoreGState()
+                }
             }
-
-            // Erase strokes clip the image rather than altering it. Built at twice the
-            // layer size so a soft edge stays soft when you zoom in.
-            //
-            // clip(to:mask:) shares draw(_:in:)'s orientation rules, and this space is
-            // y-down — apply it un-flipped and the holes land mirrored, which reads as
-            // "erase does nothing" whenever the mirrored spot is already transparent.
-            // Flip around the layer box just for the clip; the region itself is stored
-            // in device space, so it survives the flip back.
-            if !d.layer.erased.isEmpty,
-               let mask = EraseMask.image(strokes: d.layer.erased, size: r.size) {
-                ctx.translateBy(x: 0, y: r.height)
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.clip(to: r, mask: mask)
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.translateBy(x: 0, y: -r.height)
-            }
-
-            // Adjusted or cropped: the baked image arrives already in display
-            // orientation, so it draws with a plain flip.
-            if d.layer.hasBitmapAdjustments,
-               let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: d.layer) {
-                ctx.scaleBy(x: r.width / max(1, CGFloat(baked.width)),
-                            y: r.height / max(1, CGFloat(baked.height)))
-                ctx.translateBy(x: 0, y: CGFloat(baked.height))
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.draw(baked, in: CGRect(x: 0, y: 0, width: baked.width, height: baked.height))
-                ctx.restoreGState()
-                return
-            }
-
-            // Order is load-bearing. The EXIF transform is defined in y-DOWN display
-            // space, so it has to be applied while we're still in that space. Flipping
-            // first (for CGImage's y-up drawing) and rotating after mirrors the result.
-            //   layer frame -> display box -> native pixels -> flip -> draw
-            ctx.scaleBy(x: r.width / max(1, o.displaySize.width),
-                        y: r.height / max(1, o.displaySize.height))
-            ctx.concatenate(o.transform)
-            ctx.translateBy(x: 0, y: o.nativeSize.height)
-            ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(img: o.image, size: o.nativeSize)
-            ctx.restoreGState()
             return
         }
 
@@ -272,7 +306,7 @@ public struct Renderer {
 
         for s in d.style.shadows {
             ctx.saveGState()
-            ctx.setShadow(offset: s.offset, blur: s.blur, color: s.color.cg)
+            Self.setShadow(s, in: ctx)
             ctx.addPath(p)
             ctx.setFillColor(CGColor(gray: 0, alpha: 1))
             ctx.fillPath()

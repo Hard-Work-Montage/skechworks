@@ -56,12 +56,7 @@ public struct SVGWriter {
             // works from the combined silhouette, exactly as it does on canvas.
             if let shadows = d.groupShadows {
                 filterID += 1
-                let parts = shadows.map { s in
-                    "<feDropShadow dx=\"\(fmt(s.offset.width))\" dy=\"\(fmt(s.offset.height))\" "
-                        + "stdDeviation=\"\(fmt(s.blur / 2))\" flood-color=\"\(s.color.hex)\" "
-                        + "flood-opacity=\"\(fmt(s.color.a))\"/>"
-                }.joined()
-                defs += "  <filter id=\"s\(filterID)\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\">\(parts)</filter>\n"
+                defs += shadowFilter(id: filterID, shadows)
                 body += "  <g filter=\"url(#s\(filterID))\">\n"
                 openGroups += 1
                 continue
@@ -86,6 +81,14 @@ public struct SVGWriter {
                 attrs += " clip-path=\"url(#c\(clipID))\""
             }
             if d.opacity != 1 { attrs += " opacity=\"\(fmt(d.opacity))\"" }
+            // A layer's own shadow rides on the element as the same filter a group
+            // gets. For a picture that means the shadow is cast from its alpha, which
+            // is what the canvas shows.
+            if !d.style.shadows.isEmpty {
+                filterID += 1
+                defs += shadowFilter(id: filterID, d.style.shadows)
+                attrs += " filter=\"url(#s\(filterID))\""
+            }
 
             if let run = d.text {
                 guard let p = TextOutline.path(run, in: CGRect(origin: .zero, size: d.layer.frame.size)) else { continue }
@@ -209,6 +212,18 @@ public struct SVGWriter {
         s += body
         s += "</svg>\n"
         return s
+    }
+
+    /// One `<filter>` carrying every shadow in the list, as feDropShadow. The
+    /// region is padded generously: a shadow reaches past the element's box and
+    /// SVG's default 10% would clip it.
+    private func shadowFilter(id: Int, _ shadows: [Shadow]) -> String {
+        let parts = shadows.map { s in
+            "<feDropShadow dx=\"\(fmt(s.offset.width))\" dy=\"\(fmt(s.offset.height))\" "
+                + "stdDeviation=\"\(fmt(s.blur / 2))\" flood-color=\"\(s.color.hex)\" "
+                + "flood-opacity=\"\(fmt(s.color.a))\"/>"
+        }.joined()
+        return "  <filter id=\"s\(id)\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\">\(parts)</filter>\n"
     }
 
     private func paintFill(_ f: Fill, _ defs: inout String) -> (String, String) {

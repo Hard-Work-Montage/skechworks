@@ -3,6 +3,11 @@
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.32 (August 26, 2026)
+
+- Drop shadows now work on images and come through in SVG exports
+- Fixed drop shadows falling upward and not scaling with zoom
+
 ## 0.1.31 (August 24, 2026)
 
 - Hold Shift while drawing vectors to snap to 45° angles

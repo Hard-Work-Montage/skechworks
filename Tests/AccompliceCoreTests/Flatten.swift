@@ -102,3 +102,46 @@ private func png(_ w: Int, _ h: Int) -> Data {
     let box = try #require(Flatten.bounds(of: [bitmap("a", CGRect(x: 5, y: 5, width: 30, height: 30))]))
     #expect(box == CGRect(x: 5, y: 5, width: 30, height: 30))
 }
+
+// MARK: - A picture's own shadow
+
+private func shadowedPhoto() -> (Page, [String: Data]) {
+    var photo = bitmap("p.png", CGRect(x: 40, y: 40, width: 40, height: 40))
+    var s = Shadow()
+    s.offset = CGSize(width: 0, height: 20)
+    s.blur = 0
+    s.color = Color(r: 0, g: 0, b: 0, a: 1)
+    photo.style.shadows = [s]
+    // A plain board so the shadow has something to land on.
+    var board = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 120, height: 120),
+                                         transform: nil), closed: true))
+    board.frame = CGRect(x: 0, y: 0, width: 120, height: 120)
+    board.style.fills = [Fill(paint: .color(Color(r: 1, g: 1, b: 1, a: 1)))]
+    var page = Page(name: "p")
+    page.layers = [board, photo]
+    return (page, ["p.png": png(40, 40)])
+}
+
+@Test func aPicturesShadowIsPaintedAndFallsTheWayTheOffsetPoints() throws {
+    let (page, images) = shadowedPhoto()
+    let image = try #require(Renderer(images: images).render(page: page, maxDimension: 120))
+    let px = Golden.pixels(image)
+    func grey(_ x: Int, _ y: Int) -> Int { Int(px.data[y * px.width + x]) }
+
+    // The picture itself, red on the flattening test's PNG, reads mid-grey.
+    #expect(grey(60, 60) < 200)
+    // Twenty points below it, the shadow: black, where the board was white.
+    #expect(grey(60, 90) < 40)
+    // Twenty points above, nothing: the offset is y-down like everything else.
+    #expect(grey(60, 30) > 240)
+    // And beside it the board is untouched.
+    #expect(grey(20, 60) > 240)
+}
+
+@Test func aPicturesShadowSurvivesExportAsAFilter() {
+    let (page, images) = shadowedPhoto()
+    let svg = SVGWriter(images: images).svg(page: page)
+    #expect(svg.contains("<image filter=\"url(#s1)\"") || svg.contains("<image clip-path"))
+    #expect(svg.contains("feDropShadow"))
+    #expect(svg.contains("dy=\"20\""))
+}
