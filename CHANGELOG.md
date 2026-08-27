@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.34 (August 26, 2026)
+
+- Fixed point editing on vectorized pictures, no more stray lines across the shape and moving a point no longer breaks it
+
 ## 0.1.33 (August 26, 2026)
 
 - New Scissors tool cuts a segment out of a vector path, press C while editing points or use Path ▸ Scissors

@@ -38,12 +38,20 @@ public struct VectorPoint: Sendable {
     /// after it, and a side table would quietly reassign radii to the wrong
     /// corners. Riding along with the point, it cannot.
     public var cornerRadius: CGFloat
+    /// True on the point that begins a new outline: the hole in a letter, one
+    /// island of a trace. A layer holds one path but a path is not always one
+    /// outline, and a flat list of points has to know where one outline stops
+    /// and the next starts or it draws a line between them. That line is what
+    /// a traced picture used to be full of. The first point of a path begins an
+    /// outline whether or not it says so.
+    public var startsSubpath: Bool
 
     public init(_ p: CGPoint) {
         point = p; curveFrom = p; curveTo = p
         hasCurveFrom = false; hasCurveTo = false
         mode = .straight
         cornerRadius = -1
+        startsSubpath = false
     }
 
     public var isCorner: Bool { !hasCurveFrom && !hasCurveTo }
@@ -131,9 +139,67 @@ public struct VectorPath: Sendable {
         self.closed = closed
     }
 
+    /// Segments are numbered by the point they leave from, so a segment index
+    /// is a point index. On an open path the last point leaves from nowhere,
+    /// and so does the last point of every inner outline: `segment(_:)` is nil
+    /// there.
     public var segmentCount: Int {
         guard points.count >= 2 else { return 0 }
         return closed ? points.count : points.count - 1
+    }
+
+    // MARK: - Outlines
+
+    /// Where each outline begins. The first point always does.
+    public var subpathStarts: [Int] {
+        guard !points.isEmpty else { return [] }
+        var starts = [0]
+        for i in points.indices.dropFirst() where points[i].startsSubpath { starts.append(i) }
+        return starts
+    }
+
+    /// The points of each outline, in order.
+    public var subpathRanges: [Range<Int>] {
+        let starts = subpathStarts
+        return starts.indices.map { k in
+            starts[k]..<(k + 1 < starts.count ? starts[k + 1] : points.count)
+        }
+    }
+
+    /// More than one outline.
+    public var isCompound: Bool {
+        points.indices.dropFirst().contains { points[$0].startsSubpath }
+    }
+
+    /// The outline point `i` belongs to.
+    public func subpath(containing i: Int) -> Range<Int> {
+        guard points.indices.contains(i) else { return 0..<0 }
+        var s = i, e = i
+        while s > 0, !points[s].startsSubpath { s -= 1 }
+        while e + 1 < points.count, !points[e + 1].startsSubpath { e += 1 }
+        return s..<(e + 1)
+    }
+
+    /// The point after `i` along its own outline. Wraps on a closed path, and
+    /// is nil at the open end. Cheap for every point but the last of an
+    /// outline, so a loop over all of them stays linear.
+    public func next(_ i: Int) -> Int? {
+        guard points.indices.contains(i) else { return nil }
+        if i + 1 < points.count, !points[i + 1].startsSubpath { return i + 1 }
+        guard closed else { return nil }
+        var s = i
+        while s > 0, !points[s].startsSubpath { s -= 1 }
+        return s == i ? nil : s
+    }
+
+    /// The point before `i` along its own outline.
+    public func previous(_ i: Int) -> Int? {
+        guard points.indices.contains(i) else { return nil }
+        if i > 0, !points[i].startsSubpath { return i - 1 }
+        guard closed else { return nil }
+        var e = i
+        while e + 1 < points.count, !points[e + 1].startsSubpath { e += 1 }
+        return e == i ? nil : e
     }
 
     /// Lines the named points up with each other along one edge.
@@ -172,16 +238,24 @@ public struct VectorPath: Sendable {
     }
 
     public func segment(_ i: Int) -> (a: VectorPoint, b: VectorPoint)? {
-        guard i >= 0, i < segmentCount else { return nil }
-        return (points[i], points[(i + 1) % points.count])
+        guard i >= 0, i < segmentCount, let j = next(i) else { return nil }
+        return (points[i], points[j])
     }
 
     // MARK: - CGPath in
 
     /// Rebuilds editable points from a baked path.
+    ///
+    /// Every moveTo begins an outline. They used to be read as just another
+    /// point, so a traced picture, one path with hundreds of holes and islands,
+    /// came back as one chain with a straight segment from the end of each
+    /// outline to the start of the next. Those segments criss-crossed the
+    /// drawing, and writing the chain back fused every outline into one.
     public init(cgPath: CGPath) {
         var pts: [VectorPoint] = []
-        var isClosed = false
+        var starts: [Int] = []
+        var closedFlags: [Bool] = []
+        var subClosed = false
 
         /// A control point sitting on its own anchor is not a handle.
         ///
@@ -195,11 +269,28 @@ public struct VectorPath: Sendable {
         func real(_ control: CGPoint, _ anchor: CGPoint) -> Bool {
             abs(control.x - anchor.x) > 0.001 || abs(control.y - anchor.y) > 0.001
         }
+        /// Ends the outline being read. A closed one repeats its start as the
+        /// final lineTo; drop the duplicate, keeping its incoming handle.
+        func finishSubpath() {
+            guard let start = starts.last else { return }
+            if subClosed, pts.count - start > 1, let l = pts.last,
+               abs(pts[start].point.x - l.point.x) < 0.001,
+               abs(pts[start].point.y - l.point.y) < 0.001 {
+                if l.hasCurveTo { pts[start].curveTo = l.curveTo; pts[start].hasCurveTo = true }
+                pts.removeLast()
+            }
+            closedFlags.append(subClosed)
+        }
         cgPath.applyWithBlock { e in
             let p = e.pointee.points
             switch e.pointee.type {
             case .moveToPoint:
-                pts.append(VectorPoint(p[0]))
+                finishSubpath()
+                starts.append(pts.count)
+                subClosed = false
+                var first = VectorPoint(p[0])
+                first.startsSubpath = !pts.isEmpty
+                pts.append(first)
             case .addLineToPoint:
                 pts.append(VectorPoint(p[0]))
             case .addCurveToPoint:
@@ -231,18 +322,17 @@ public struct VectorPath: Sendable {
                 }
                 pts.append(next)
             case .closeSubpath:
-                isClosed = true
+                subClosed = true
             @unknown default:
                 break
             }
         }
-        // A closed path repeats its start as the final lineTo; drop the duplicate.
-        if isClosed, pts.count > 1, let f = pts.first, let l = pts.last,
-           abs(f.point.x - l.point.x) < 0.001, abs(f.point.y - l.point.y) < 0.001 {
-            if l.hasCurveTo { pts[0].curveTo = l.curveTo; pts[0].hasCurveTo = true }
-            pts.removeLast()
-        }
+        finishSubpath()
         for i in pts.indices { pts[i].mode = Self.inferMode(pts[i]) }
+        // One flag for the whole path, the same as the layer keeps. An outline
+        // that is really open keeps the path open: a fill closes itself anyway,
+        // and a stroke would rather miss one closing line than gain a wrong one.
+        let isClosed = !closedFlags.isEmpty && closedFlags.allSatisfy { $0 }
         self.init(points: pts, closed: isClosed)
     }
 
@@ -278,25 +368,30 @@ public struct VectorPath: Sendable {
 
     public func cgPath() -> CGPath {
         let path = CGMutablePath()
-        guard points.count >= 2 else {
-            if let only = points.first { path.move(to: only.point); }
-            return path.copy() ?? path
-        }
-        path.move(to: points[0].point)
-        for i in 0..<segmentCount {
-            let a = points[i], b = points[(i + 1) % points.count]
-            let isClosingSegment = closed && i == segmentCount - 1
-            if a.hasCurveFrom || b.hasCurveTo {
-                path.addCurve(to: b.point,
-                              control1: a.hasCurveFrom ? a.curveFrom : a.point,
-                              control2: b.hasCurveTo ? b.curveTo : b.point)
-            } else if !isClosingSegment {
-                path.addLine(to: b.point)
+        for r in subpathRanges {
+            let n = r.count
+            guard n >= 2 else {
+                if let only = r.first { path.move(to: points[only].point) }
+                continue
             }
-            // A straight closing segment is left to closeSubpath, which draws exactly
-            // that line. Emitting it too would duplicate the edge on every round-trip.
+            path.move(to: points[r.lowerBound].point)
+            let segments = closed ? n : n - 1
+            for k in 0..<segments {
+                let i = r.lowerBound + k
+                let a = points[i], b = points[k + 1 < n ? i + 1 : r.lowerBound]
+                let isClosingSegment = closed && k == segments - 1
+                if a.hasCurveFrom || b.hasCurveTo {
+                    path.addCurve(to: b.point,
+                                  control1: a.hasCurveFrom ? a.curveFrom : a.point,
+                                  control2: b.hasCurveTo ? b.curveTo : b.point)
+                } else if !isClosingSegment {
+                    path.addLine(to: b.point)
+                }
+                // A straight closing segment is left to closeSubpath, which draws exactly
+                // that line. Emitting it too would duplicate the edge on every round-trip.
+            }
+            if closed { path.closeSubpath() }
         }
-        if closed { path.closeSubpath() }
         return path.copy() ?? path
     }
 
@@ -309,8 +404,7 @@ public struct VectorPath: Sendable {
     /// B(0.5) = (P0 + 3·P1 + 3·P2 + P3) / 8, so shifting BOTH controls by d moves the
     /// midpoint by 0.75·d — hence the 4/3.
     public mutating func bend(segment i: Int, to target: CGPoint) {
-        guard i >= 0, i < segmentCount else { return }
-        let j = (i + 1) % points.count
+        guard i >= 0, i < segmentCount, let j = next(i) else { return }
         var a = points[i], b = points[j]
         if !a.hasCurveFrom { a.curveFrom = a.point; a.hasCurveFrom = true }
         if !b.hasCurveTo { b.curveTo = b.point; b.hasCurveTo = true }
@@ -338,10 +432,8 @@ public struct VectorPath: Sendable {
     /// other deletion gets the closest single cubic there is.
     public mutating func removePoint(_ i: Int) {
         guard points.indices.contains(i), points.count > 1 else { return }
-        let prev = (i - 1 + points.count) % points.count
-        let next = (i + 1) % points.count
 
-        if points.count > 2, closed || (i > 0 && i < points.count - 1),
+        if let prev = previous(i), let next = next(i), prev != next, prev != i,
            let (a, b) = refitAcross(prev: prev, gone: i, next: next) {
             points[prev].curveFrom = a
             points[prev].hasCurveFrom = true
@@ -350,7 +442,13 @@ public struct VectorPath: Sendable {
             if points[prev].mode == .straight { points[prev].mode = .disconnected }
             if points[next].mode == .straight { points[next].mode = .disconnected }
         }
+        // The outline's start goes with the point that had it; the one after
+        // takes over, so the outline doesn't get glued onto the one before.
+        if i == 0 || points[i].startsSubpath, i + 1 < points.count, !points[i + 1].startsSubpath {
+            points[i + 1].startsSubpath = i > 0
+        }
         points.remove(at: i)
+        if !points.isEmpty { points[0].startsSubpath = false }
     }
 
     /// Least-squares fit of one cubic to the two segments either side of `gone`.
@@ -471,7 +569,7 @@ public struct VectorPath: Sendable {
     /// Returns the index of the new point.
     @discardableResult
     public mutating func insertPoint(onSegment i: Int, at t: CGFloat) -> Int? {
-        guard i >= 0, i < segmentCount, let (a0, b0) = segment(i) else { return nil }
+        guard i >= 0, i < segmentCount, let j = next(i), let (a0, b0) = segment(i) else { return nil }
         let t = max(0.001, min(0.999, t))
         var a = a0, b = b0
         // Treat a straight segment as a cubic with controls at its ends, so the same
@@ -500,7 +598,6 @@ public struct VectorPath: Sendable {
             b.curveTo = q2; b.hasCurveTo = true
         }
 
-        let j = (i + 1) % points.count
         points[i] = a
         points[j] = b
         let at = i + 1
@@ -514,7 +611,8 @@ public struct VectorPath: Sendable {
     /// one segment, and cutting it leaves two stranded points that are not a path.
     /// Delete does that job already.
     public func canCut(segment i: Int) -> Bool {
-        i >= 0 && i < segmentCount && (closed || points.count > 2)
+        i >= 0 && i < segmentCount && next(i) != nil
+            && (closed || subpath(containing: i).count > 2)
     }
 
     /// Takes one segment out, the way Sketch's scissors do.
@@ -527,22 +625,46 @@ public struct VectorPath: Sendable {
     /// path, so cutting either end segment off an open path just drops the end
     /// point and returns nil.
     ///
+    /// On a path of several outlines the cut one leaves as its own path, open
+    /// at the cut, and the others stay closed where they are: one flag covers
+    /// the whole path, so the only way to open a hole is to let it go.
+    ///
     /// The handles that reached across the cut go with it — see `dropHandle`.
     @discardableResult
     public mutating func cut(segment i: Int) -> VectorPath? {
-        guard canCut(segment: i) else { return nil }
-        let j = (i + 1) % points.count
+        guard canCut(segment: i), let j = next(i) else { return nil }
         points[i].dropHandle(out: true)
         points[j].dropHandle(out: false)
-        if closed {
-            closed = false
-            points = Array(points[j...]) + Array(points[..<j])
-            return nil
+        let r = subpath(containing: i)
+        var run = Array(points[r])
+        run[0].startsSubpath = false
+        let before = Array(points[..<r.lowerBound])
+        let after = Array(points[r.upperBound...])
+        /// Puts the outline back between its neighbours, or leaves it out.
+        func assemble(_ middle: [VectorPoint]) {
+            var out = before
+            for piece in [middle, after] where !piece.isEmpty {
+                var p = piece
+                p[0].startsSubpath = !out.isEmpty
+                out += p
+            }
+            points = out
         }
-        let head = Array(points[...i])
-        let tail = Array(points[j...])
-        if head.count < 2 { points = tail; return nil }
-        points = head
+        if closed {
+            let at = j - r.lowerBound
+            let opened = Array(run[at...]) + Array(run[..<at])
+            if before.isEmpty && after.isEmpty {
+                closed = false
+                points = opened
+                return nil
+            }
+            assemble([])
+            return VectorPath(points: opened, closed: false)
+        }
+        let head = Array(run[...(i - r.lowerBound)])
+        let tail = Array(run[(j - r.lowerBound)...])
+        if head.count < 2 { assemble(tail); return nil }
+        assemble(head)
         return tail.count >= 2 ? VectorPath(points: tail, closed: false) : nil
     }
 

@@ -24,7 +24,24 @@ extension VectorPath {
     /// a different shape — and on an engraved coin it's the difference between a
     /// crisp point and a blob.
     public mutating func simplify(tolerance: CGFloat) {
-        guard tolerance > 0, points.count > 2 else { return }
+        guard tolerance > 0 else { return }
+        let ranges = subpathRanges
+        guard ranges.count > 1 else { simplifyOutline(tolerance: tolerance); return }
+        // Each outline on its own: a fit that ran across the join between a
+        // letter and its hole would draw a curve through the paper.
+        var out: [VectorPoint] = []
+        for r in ranges {
+            var one = VectorPath(points: Array(points[r]), closed: closed)
+            one.points[0].startsSubpath = false
+            one.simplifyOutline(tolerance: tolerance)
+            one.points[0].startsSubpath = !out.isEmpty
+            out += one.points
+        }
+        points = out
+    }
+
+    private mutating func simplifyOutline(tolerance: CGFloat) {
+        guard points.count > 2 else { return }
 
         // Sample densely enough that the fit sees the real curve, not a polygon.
         var samples: [CGPoint] = []

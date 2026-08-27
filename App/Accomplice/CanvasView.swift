@@ -2330,8 +2330,8 @@ final class PageCanvas: NSView {
 
     func applyPointMode(_ m: CurveMode) {
         guard let vp = editPath, let i = lastTouchedPoint, vp.points.indices.contains(i) else { return }
-        let prev = i > 0 ? vp.points[i - 1].point : (vp.closed ? vp.points.last?.point : nil)
-        let next = i < vp.points.count - 1 ? vp.points[i + 1].point : (vp.closed ? vp.points.first?.point : nil)
+        let prev = vp.previous(i).map { vp.points[$0].point }
+        let next = vp.next(i).map { vp.points[$0].point }
         editPath?.points[i].convert(to: m, previous: prev, next: next)
         commitEdit("Change Point Type")
         onPointSelected?(i, m)
