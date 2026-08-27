@@ -7,6 +7,11 @@ which is the fuller record: 0.1.18 through 0.1.23 were written up there and neve
 
 - Refresh button in Settings shows credits bought on the web right away
 
+## 0.1.36 (August 27, 2026)
+
+- New Sketchyworks icon
+- Refresh button in Settings shows credits bought on the web right away
+
 ## 0.1.35 (August 27, 2026)
 
 - Accomplice is now Sketchyworks
