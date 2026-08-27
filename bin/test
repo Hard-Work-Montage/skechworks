@@ -17,7 +17,7 @@ echo "── Core (swift-testing) ──"
 swift test 2>&1 | tail -3
 
 # A stale instance steals the launch and the hosted tests then find no window at all.
-pkill -x Accomplice 2>/dev/null || true
+pkill -x Sketchyworks 2>/dev/null || true
 
 if [ -n "$WITH_UI" ]; then
   echo
@@ -26,16 +26,16 @@ if [ -n "$WITH_UI" ]; then
 else
   echo
   echo "── App layer (XCTest, hosted) ──"
-  SKIP="-skip-testing:AccompliceUITests"
+  SKIP="-skip-testing:SketchyworksUITests"
 fi
 
-xcodebuild test -project Accomplice.xcodeproj -scheme Accomplice \
+xcodebuild test -project Sketchyworks.xcodeproj -scheme Sketchyworks \
   -destination 'platform=macOS' $SKIP 2>&1 \
   | grep -E "^/Users.*error:|Test Case.*(passed|failed)|TEST SUCCEEDED|TEST FAILED" \
-  | sed 's/Test Case .-\[Accomplice\(App\)\?\(UI\)\?Tests\.//; s/\].//'
+  | sed 's/Test Case .-\[Sketchyworks\(App\)\?\(UI\)\?Tests\.//; s/\].//'
 
 [ -n "$WITH_UI" ] || echo "(UI tests skipped — bin/test --ui to include them)"
 
-# The hosted tests build a Debug Accomplice.app and LaunchServices registers it,
-# so every test run adds another Accomplice to Open With — see bin/lsclean.
+# The hosted tests build a Debug Sketchyworks.app and LaunchServices registers it,
+# so every test run adds another Sketchyworks to Open With — see bin/lsclean.
 bin/lsclean >/dev/null 2>&1 || true

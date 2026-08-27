@@ -1,19 +1,19 @@
-name: Accomplice
+name: Sketchyworks
 options:
-  bundleIdPrefix: com.accomplice
+  bundleIdPrefix: com.sketchyworks
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
 
 targets:
   # Same sources SPM builds for the CLI, wrapped as a framework so the app can
-  # `import AccompliceCore` exactly like the CLI does. One implementation, two
+  # `import SketchyworksCore` exactly like the CLI does. One implementation, two
   # front ends — the renderer must never fork.
-  AccompliceCore:
+  SketchyworksCore:
     type: framework
     platform: macOS
     sources:
-      - path: Sources/AccompliceCore
+      - path: Sources/SketchyworksCore
       # zstd travels inside the framework rather than as a target of its own.
       # SwiftPM builds it as a separate C module; Xcode compiles the same C into
       # this framework and reaches it through the bridging header below, so both
@@ -23,7 +23,7 @@ targets:
           - "include/**"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.AccompliceCore
+        PRODUCT_BUNDLE_IDENTIFIER: com.sketchyworks.SketchyworksCore
         SWIFT_VERSION: "6.0"
         HEADER_SEARCH_PATHS: "$(SRCROOT)/Sources/CZstd/lib $(SRCROOT)/Sources/CZstd/lib/common $(SRCROOT)/Sources/CZstd/include"
         GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) ZSTD_DISABLE_ASM=1"
@@ -32,24 +32,24 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         GENERATE_INFOPLIST_FILE: YES
 
-  Accomplice:
+  Sketchyworks:
     type: application
     platform: macOS
     sources:
-      - path: App/Accomplice
+      - path: App/Sketchyworks
         excludes:
           - "Icons/**"
       # Blue-folder-free: the colourways ship as flat resources so
       # Bundle.main.url(forResource:) finds them by name.
-      - path: App/Accomplice/Icons
+      - path: App/Sketchyworks/Icons
         buildPhase: resources
     dependencies:
-      - target: AccompliceCore
+      - target: SketchyworksCore
         embed: true
     info:
-      path: App/Accomplice/Info.plist
+      path: App/Sketchyworks/Info.plist
       properties:
-        CFBundleDisplayName: Accomplice
+        CFBundleDisplayName: Sketchyworks
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: "0.1.34"
         CFBundleVersion: "36"
@@ -58,10 +58,21 @@ targets:
         NSHighResolutionCapable: true
         NSHumanReadableCopyright: ""
         # Our own type, declared as a *compound* extension. LaunchServices matches the
-        # longest extension it knows, so `foo.acmplc.png` resolves to us while a plain
+        # longest extension it knows, so `foo.sw.png` resolves to us while a plain
         # `foo.png` still belongs to Preview. Conforming to public.png is what keeps
         # Finder thumbnails and Quick Look working for free.
         UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.sketchyworks.document
+            UTTypeDescription: Sketchyworks Document
+            UTTypeConformsTo:
+              - public.png
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - sw
+                - sw.png
+        # The type the app declared while it was Accomplice. Imported rather
+        # than exported now, so files that never got renamed keep opening here.
+        UTImportedTypeDeclarations:
           - UTTypeIdentifier: com.accomplice.document
             UTTypeDescription: Accomplice Document
             UTTypeConformsTo:
@@ -70,16 +81,17 @@ targets:
               public.filename-extension:
                 - acmplc
                 - acmplc.png
-        # One Accomplice, ever. Opening a picture from Finder started a second
+        # One Sketchyworks, ever. Opening a picture from Finder started a second
         # copy alongside the one already running, which then had its own
         # windows, its own recovery snapshots and its own idea of what was
         # unsaved.
         LSMultipleInstancesProhibited: true
         CFBundleDocumentTypes:
-          - CFBundleTypeName: Accomplice Document
+          - CFBundleTypeName: Sketchyworks Document
             CFBundleTypeRole: Editor
             LSHandlerRank: Owner
             LSItemContentTypes:
+              - com.sketchyworks.document
               - com.accomplice.document
           - CFBundleTypeName: SVG Image
             CFBundleTypeRole: Editor
@@ -110,7 +122,7 @@ targets:
               - fig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.accomplice.Accomplice
+        PRODUCT_BUNDLE_IDENTIFIER: com.sketchyworks.Sketchyworks
         MARKETING_VERSION: "0.1.34"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
@@ -127,13 +139,13 @@ targets:
   # The app layer had no tests at all — DocumentStore and the canvas between them are
   # 2,300 lines, and that is where nearly every bug found in use has lived. A unit-test
   # bundle hosted by the app can reach them with @testable import.
-  AccompliceTests:
+  SketchyworksTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Tests/AccompliceAppTests
+      - path: Tests/SketchyworksAppTests
     dependencies:
-      - target: Accomplice
+      - target: Sketchyworks
     settings:
       base:
         SWIFT_VERSION: "6.0"
@@ -144,31 +156,31 @@ targets:
   # Drives the real app through the accessibility tree. This is the only kind of test
   # that catches "clicking a layer row does nothing" — which is exactly what happened
   # when .onDrag was attached to a List row and silently ate the tap.
-  AccompliceUITests:
+  SketchyworksUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
-      - path: Tests/AccompliceUITests
+      - path: Tests/SketchyworksUITests
     dependencies:
-      - target: Accomplice
+      - target: Sketchyworks
     settings:
       base:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
-        TEST_TARGET_NAME: Accomplice
+        TEST_TARGET_NAME: Sketchyworks
 
 schemes:
-  Accomplice:
+  Sketchyworks:
     build:
       targets:
-        Accomplice: all
-        AccompliceTests: [test]
-        AccompliceUITests: [test]
+        Sketchyworks: all
+        SketchyworksTests: [test]
+        SketchyworksUITests: [test]
     test:
       targets:
-        - AccompliceTests
-        - AccompliceUITests
+        - SketchyworksTests
+        - SketchyworksUITests
     run:
       config: Debug

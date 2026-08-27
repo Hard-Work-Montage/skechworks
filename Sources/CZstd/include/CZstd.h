@@ -1,4 +1,4 @@
-// Accomplice's window onto zstd.
+// Sketchyworks's window onto zstd.
 //
 // Figma compresses a .fig's document chunk with it, and macOS has no zstd of
 // its own — Compression offers zlib, lzma, lz4, brotli and lzfse and stops — so
@@ -9,8 +9,8 @@
 // compression library's entire surface into this app's namespace to call two
 // functions. These match upstream exactly; a mismatch would be a link error,
 // not a silent one.
-#ifndef ACCOMPLICE_CZSTD_H
-#define ACCOMPLICE_CZSTD_H
+#ifndef SKETCHYWORKS_CZSTD_H
+#define SKETCHYWORKS_CZSTD_H
 
 #include <stddef.h>
 

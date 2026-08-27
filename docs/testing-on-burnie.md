@@ -14,7 +14,7 @@ which is the one hard requirement. Everything below is a one-time setup.
 - [x] Xcode 26.6 copied to `/Applications/Xcode.app` on Burnie — 4 GB, no App
       Store and no Apple ID needed. Burnie runs macOS 26.4.1 and Xcode wants
       26.2, so it's compatible.
-- [x] `accomplice` cloned to `~/Development/accomplice` on Burnie.
+- [x] `sketchyworks` cloned to `~/Development/sketchyworks` on Burnie.
 - [x] `bin/test-remote` written here. It sends the working tree, uncommitted
       changes and all, then runs the suite over there.
 - [x] Checked the things that quietly break this: 73 GB free, a real framebuffer,

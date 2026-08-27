@@ -16,8 +16,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
-ICONS=App/Accomplice/Icons
-RAW=${ACMPLC_ICON_MASTERS:-"$HOME/Downloads"}
+ICONS=App/Sketchyworks/Icons
+RAW=${SW_ICON_MASTERS:-"$HOME/Downloads"}
 TILE=824
 RADIUS=185
 
@@ -27,9 +27,9 @@ if [ "$1" = "--process" ]; then
 import subprocess, glob, os, sys, shutil
 icons, TILE, RADIUS = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 CANVAS = 1024
-backup = "/tmp/acmplc-icon-src"
+backup = "/tmp/sw-icon-src"
 os.makedirs(backup, exist_ok=True)
-mask = "/tmp/acmplc-mask.png"
+mask = "/tmp/sw-mask.png"
 # CopyOpacity reads luminance, so white = opaque. Drawing the shape in black
 # yields an entirely transparent icon, which is a confusing five minutes.
 subprocess.run(["magick", "-size", f"{TILE}x{TILE}", "xc:black", "-fill", "white",
@@ -52,10 +52,10 @@ for src in sorted(glob.glob(os.path.join(icons, "*.png"))):
     y0 = max(0, y + h // 2 - side // 2)
     side = min(side, CANVAS - x0, CANVAS - y0)
     subprocess.run(["magick", stash, "-crop", f"{side}x{side}+{x0}+{y0}", "+repage",
-                    "-resize", f"{TILE}x{TILE}!", "/tmp/acmplc-tile.png"], check=True)
-    subprocess.run(["magick", "/tmp/acmplc-tile.png", mask, "-alpha", "off",
-                    "-compose", "CopyOpacity", "-composite", "/tmp/acmplc-masked.png"], check=True)
-    subprocess.run(["magick", "-size", f"{CANVAS}x{CANVAS}", "xc:none", "/tmp/acmplc-masked.png",
+                    "-resize", f"{TILE}x{TILE}!", "/tmp/sw-tile.png"], check=True)
+    subprocess.run(["magick", "/tmp/sw-tile.png", mask, "-alpha", "off",
+                    "-compose", "CopyOpacity", "-composite", "/tmp/sw-masked.png"], check=True)
+    subprocess.run(["magick", "-size", f"{CANVAS}x{CANVAS}", "xc:none", "/tmp/sw-masked.png",
                     "-gravity", "center", "-composite", src], check=True)
     print(f"  {name:14s} {side}px tile -> {TILE} centred in {CANVAS}")
 NORMALISE
@@ -64,12 +64,12 @@ fi
 
 SRC="$ICONS/${1:-gradient}.png"
 [ -f "$SRC" ] || SRC="$ICONS/gradient.png"
-OUT="App/Accomplice/AppIcon.iconset"
+OUT="App/Sketchyworks/AppIcon.iconset"
 rm -rf "$OUT"; mkdir -p "$OUT"
 for s in 16 32 128 256 512; do
   sips -z $s $s "$SRC" --out "$OUT/icon_${s}x${s}.png" >/dev/null
   sips -z $((s*2)) $((s*2)) "$SRC" --out "$OUT/icon_${s}x${s}@2x.png" >/dev/null
 done
-iconutil -c icns "$OUT" -o App/Accomplice/AppIcon.icns
+iconutil -c icns "$OUT" -o App/Sketchyworks/AppIcon.icns
 rm -rf "$OUT"
 echo "AppIcon.icns <- $(basename "$SRC")"

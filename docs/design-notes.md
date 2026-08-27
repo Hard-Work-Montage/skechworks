@@ -4,10 +4,10 @@
 
 ```
 ./bin/build          # generate the Xcode project, build Release, re-sign
-open build/Build/Products/Release/Accomplice.app
+open build/Build/Products/Release/Sketchyworks.app
 ```
 
-A viewer, for now: open an `.acmplc.png` (or a `.sketch` directly), browse pages,
+A viewer, for now: open an `.sw.png` (or a `.sketch` directly), browse pages,
 inspect the layer tree, click the canvas to select a layer, export one page or all
 pages as SVG. Zoom and pan with the trackpad.
 
@@ -15,17 +15,17 @@ The canvas draws through the same `Renderer.draw(page:in:)` the exporter uses, s
 is on screen and what lands in the SVG cannot drift apart.
 
 Note `bin/build` re-signs the whole bundle in one pass at the end. Without that,
-xcodebuild gives the app and the embedded `AccompliceCore.framework` separate ad-hoc
+xcodebuild gives the app and the embedded `SketchyworksCore.framework` separate ad-hoc
 identities and dyld refuses to load the framework with "different Team IDs".
 
 ## Usage
 
 ```
-acmplc info    <file.sketch>                    # what's in it
-acmplc svg     <file.sketch> [-o dir]           # every page as SVG
-acmplc png     <file.sketch> [-o dir] [--size]  # every page as PNG
-acmplc convert <file.sketch> [-o out] [--cover N]
-acmplc verify  <file.acmplc.png>                # prove both halves are intact
+sw info    <file.sketch>                    # what's in it
+sw svg     <file.sketch> [-o dir]           # every page as SVG
+sw png     <file.sketch> [-o dir] [--size]  # every page as PNG
+sw convert <file.sketch> [-o out] [--cover N]
+sw verify  <file.sw.png>                # prove both halves are intact
 ```
 
 ## Status
@@ -39,7 +39,7 @@ Rendering is checked against Sketch's own embedded `previews/preview.png` as an
 oracle. On the moon-phases coin, after eroding antialiased edges, **2 pixels differ
 out of 250,000** — the geometry is exact and the residual is rasterizer antialiasing.
 
-`acmplc roundtrip` writes a document, reads it back, renders both and diffs: worst
+`sw roundtrip` writes a document, reads it back, renders both and diffs: worst
 byte difference **0.07–0.15%** across lighthouse / moon phases / bear.
 
 Size is honest: the converted library is **0.96× the size of the original `.sketch`

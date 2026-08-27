@@ -1,9 +1,9 @@
 #!/bin/sh
-# Build Accomplice.app (Release) and leave it runnable.
+# Build Sketchyworks.app (Release) and leave it runnable.
 #
 # Signing matters more than it looks. Two things bite:
 #
-# 1. xcodebuild signs the app and the embedded AccompliceCore.framework as separate
+# 1. xcodebuild signs the app and the embedded SketchyworksCore.framework as separate
 #    identities, and dyld then refuses to load the framework ("different Team IDs").
 #    Signing the whole bundle in one pass, inside-out, gives it one identity.
 #
@@ -13,12 +13,12 @@
 #    ... free of malware" naming the DOCUMENT, and strips the binding. So the launch
 #    binding is only safe once the app carries a real Developer ID signature.
 #
-# Override the identity with ACMPLC_SIGN_ID; falls back to ad-hoc if no Developer ID
+# Override the identity with SW_SIGN_ID; falls back to ad-hoc if no Developer ID
 # is installed, in which case bin/build warns and the binding should stay off.
 set -e
 cd "$(dirname "$0")/.."
 
-SIGN_ID="${ACMPLC_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
+SIGN_ID="${SW_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
   | grep 'Developer ID Application' | head -1 | sed 's/.*"\(.*\)"/\1/')}"
 
 # A real identity must carry a secure timestamp or notarization rejects the build
@@ -30,7 +30,7 @@ if [ -z "$SIGN_ID" ]; then
   TIMESTAMP="--timestamp=none"
   echo "warning: no Developer ID found; signing ad-hoc."
   echo "         Gatekeeper will reject this build, so documents bound to it will be"
-  echo "         challenged on open. Run 'acmplc unclaim' on your library if that bites."
+  echo "         challenged on open. Run 'sw unclaim' on your library if that bites."
 fi
 
 xcodegen generate
@@ -42,8 +42,8 @@ xcodegen generate
 # yesterday's code inside it.
 set -o pipefail
 xcodebuild \
-  -project Accomplice.xcodeproj \
-  -scheme Accomplice \
+  -project Sketchyworks.xcodeproj \
+  -scheme Sketchyworks \
   -configuration Release \
   -derivedDataPath build \
   "$@" | grep -E "error:|BUILD" || {
@@ -52,12 +52,12 @@ xcodebuild \
   }
 set +o pipefail
 
-APP="build/Build/Products/Release/Accomplice.app"
+APP="build/Build/Products/Release/Sketchyworks.app"
 [ -d "$APP" ] || { echo "build failed: no app bundle"; exit 1; }
 
 # Inside-out: framework first, then the app that embeds it.
 codesign --force --options runtime $TIMESTAMP --sign "$SIGN_ID" \
-  "$APP/Contents/Frameworks/AccompliceCore.framework" >/dev/null 2>&1
+  "$APP/Contents/Frameworks/SketchyworksCore.framework" >/dev/null 2>&1
 codesign --force --options runtime $TIMESTAMP --sign "$SIGN_ID" \
   "$APP" >/dev/null 2>&1
 
@@ -78,9 +78,9 @@ echo "built $APP"
 # Land it where double-click finds it. Every build replaces /Applications, so
 # "the latest" and "the one in Applications" are always the same app — a
 # running instance keeps its old copy alive until it relaunches.
-rm -rf /Applications/Accomplice.app
-ditto "$APP" /Applications/Accomplice.app
-echo "installed /Applications/Accomplice.app"
+rm -rf /Applications/Sketchyworks.app
+ditto "$APP" /Applications/Sketchyworks.app
+echo "installed /Applications/Sketchyworks.app"
 
 # Only the installed copy should be launchable — see bin/lsclean.
 bin/lsclean >/dev/null 2>&1 || true

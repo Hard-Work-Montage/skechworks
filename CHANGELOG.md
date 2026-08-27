@@ -1,6 +1,6 @@
 # Changelog
 
-Short notes on every release. Also published at [accomplice.ai/whats-new](https://accomplice.ai/whats-new),
+Short notes on every release. Also published at [sketchy.works/whats-new](https://sketchy.works/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
 ## 0.1.34 (August 26, 2026)
@@ -34,7 +34,7 @@ which is the fuller record: 0.1.18 through 0.1.23 were written up there and neve
 
 ## 0.1.24 (August 7, 2026)
 
-- Better drag and drop, cut and paste both into and out of Accomplice
+- Better drag and drop, cut and paste both into and out of Sketchyworks
 - Vector points can now have different rounded corner values
 - Fixed bug with dragging and selecting several vector points at once
 - Escape now properly deselects, edited text jumps around less
@@ -131,8 +131,8 @@ which is the fuller record: 0.1.18 through 0.1.23 were written up there and neve
 - Artboards are picked on purpose: click the name label or the layer list. Select All gathers the artwork, never the boards themselves.
 - Pasting can no longer drop a copied artboard inside another one and plate over its contents.
 - Chat: "make every layer white" now works however the reply spells the color.
-- Fixed: signing in to Accomplice could land you back on the sign-in button even after pressing Allow. The token is now stored, verified, and a real storage failure says so out loud.
-- `acmplc bench` accepts an .svg, so you can measure what a big file costs before opening it.
+- Fixed: signing in to Sketchyworks could land you back on the sign-in button even after pressing Allow. The token is now stored, verified, and a real storage failure says so out loud.
+- `sw bench` accepts an .svg, so you can measure what a big file costs before opening it.
 
 ## 0.1.2 (August 3, 2026)
 
@@ -142,7 +142,7 @@ which is the fuller record: 0.1.18 through 0.1.23 were written up there and neve
 
 ## 0.1.1 (August 3, 2026)
 
-- Remove: drag a box over anything in a photo and it gets painted out, the gap filled from its surroundings. Accomplice reads the picture and works out what you meant.
+- Remove: drag a box over anything in a photo and it gets painted out, the gap filled from its surroundings. Sketchyworks reads the picture and works out what you meant.
 - Vectorize: a bitmap goes out, editable paths come back, sitting exactly where the image was.
 - Bitmap editing: crop, brightness, contrast, saturation, and an eraser that never destroys a pixel.
 - Sign in from Settings and see your credit balance.
@@ -158,4 +158,4 @@ which is the fuller record: 0.1.18 through 0.1.23 were written up there and neve
 ## 0.1 (July 30, 2026)
 
 - First public release. Pages, artboards, a pen tool with real point editing, boolean shapes, curved text, Sketch import, SVG in and out.
-- Files are .acmplc.png: a real PNG any app can preview, with the editable document riding inside.
+- Files are .sw.png: a real PNG any app can preview, with the editable document riding inside.

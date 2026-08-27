@@ -17,7 +17,7 @@ jobs:
         run: swift test 2>&1 | tee test.log
       - name: Release build
         run: swift build -c release
-      # The homepage chip on accomplice.ai reads this count from the badges
+      # The homepage chip on sketchy.works reads this count from the badges
       # branch, so the number on the site is the number that actually ran here
       # rather than whatever someone last remembered to type.
       - name: Publish test count

@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "accomplice",
+    name: "sketchyworks",
     platforms: [.macOS(.v13)],   // .v13 is the floor: CGPath boolean ops land here
     products: [
-        .library(name: "AccompliceCore", targets: ["AccompliceCore"]),
-        .executable(name: "acmplc", targets: ["acmplc"]),
+        .library(name: "SketchyworksCore", targets: ["SketchyworksCore"]),
+        .executable(name: "sw", targets: ["sw"]),
     ],
     targets: [
         // zstd, decompression only. Figma compresses a .fig's document chunk
@@ -27,8 +27,8 @@ let package = Package(
                 .define("ZSTD_LIB_DICTBUILDER", to: "0"),
             ]
         ),
-        .target(name: "AccompliceCore", dependencies: ["CZstd"]),
-        .executableTarget(name: "acmplc", dependencies: ["AccompliceCore"]),
-        .testTarget(name: "AccompliceCoreTests", dependencies: ["AccompliceCore"]),
+        .target(name: "SketchyworksCore", dependencies: ["CZstd"]),
+        .executableTarget(name: "sw", dependencies: ["SketchyworksCore"]),
+        .testTarget(name: "SketchyworksCoreTests", dependencies: ["SketchyworksCore"]),
     ]
 )
