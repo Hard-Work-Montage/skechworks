@@ -649,6 +649,25 @@ extension DocumentStoreTests {
         XCTAssertFalse(store.selection.contains(where: { store.page?.layer($0)?.isArtboard == true }))
     }
 
+    func testSavingALegacyNamedDocumentMovesItOntoTheNewExtension() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let old = dir.appendingPathComponent("Coin.acmplc.png")
+        try Data("stale".utf8).write(to: old)
+
+        let (store, _, _) = loaded()
+        store.url = old
+        let done = expectation(description: "written")
+        store.save { ok in XCTAssertTrue(ok); done.fulfill() }
+        wait(for: [done], timeout: 10)
+
+        XCTAssertEqual(store.url?.lastPathComponent, "Coin.sw.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Coin.sw.png").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path), "the old name does not linger beside the new one")
+    }
+
     func testUnsavedWorkSurvivesThroughARecoverySnapshot() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("recovery-\(UUID().uuidString)", isDirectory: true)

@@ -3547,7 +3547,21 @@ final class DocumentStore: ObservableObject {
     /// a detached task whose result is a plain value, so no non-Sendable closure has
     /// to cross an isolation boundary.
     private func writeToDisk(completion: ((Bool) -> Void)? = nil) {
-        guard let src = source, let url else { completion?(false); return }
+        guard let src = source, var url else { completion?(false); return }
+        // A document still named the Accomplice way moves onto .sw.png as it is
+        // saved, and the old file goes. Plain Save keeps a document's name, so
+        // without this a file opened under the old extension, or brought back
+        // from a recovery snapshot that remembered it, stayed .acmplc.png for good.
+        var legacy: URL?
+        if SketchyworksFile.isOwnDocumentName(url.lastPathComponent),
+           !url.lastPathComponent.lowercased().hasSuffix("." + SketchyworksFile.suffix) {
+            legacy = url
+            url = url.deletingLastPathComponent()
+                .appendingPathComponent(SketchyworksFile.normalisedName(url.lastPathComponent))
+            self.url = url
+        }
+        let out = url
+        let retire = legacy
         isLoading = true
         status = "Saving…"
         var opts = SketchyworksFile.Options()
@@ -3561,9 +3575,10 @@ final class DocumentStore: ObservableObject {
                     // untouched pages survive a save unchanged.
                     let doc = src.fullDocument()
                     let data = try SketchyworksFile.write(document: doc, images: src.images, options: options)
-                    try data.write(to: url)
-                    LaunchBinding.claim(url)
-                    return (true, "Saved \(url.lastPathComponent)")
+                    try data.write(to: out)
+                    LaunchBinding.claim(out)
+                    if let retire { try? FileManager.default.removeItem(at: retire) }
+                    return (true, "Saved \(out.lastPathComponent)")
                 } catch {
                     return (false, "Save failed: \(error)")
                 }
