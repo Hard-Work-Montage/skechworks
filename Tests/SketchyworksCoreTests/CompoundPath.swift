@@ -102,3 +102,42 @@ private func ring() -> CGPath {
     let box = vp.cgPath().boundingBoxOfPath
     #expect(abs(box.minX - 20) < 1 && abs(box.maxX - 180) < 1)
 }
+
+// Simplify on traced straight edges.
+
+/// A triangle traced as 300 points a pixel or so apart, wobbling half a pixel
+/// either side of each edge, the way a bitmap trace hands one back.
+private func tracedTriangle() -> VectorPath {
+    let corners = [CGPoint(x: 0, y: 0), CGPoint(x: 300, y: 0), CGPoint(x: 150, y: 260)]
+    var pts: [VectorPoint] = []
+    var seed: UInt32 = 7
+    func noise() -> CGFloat { seed = seed &* 1664525 &+ 1013904223; return CGFloat(seed % 100) / 100 - 0.5 }
+    for k in 0..<3 {
+        let a = corners[k], b = corners[(k + 1) % 3]
+        for s in 0..<100 {
+            let t = CGFloat(s) / 100
+            let nx = -(b.y - a.y), ny = b.x - a.x
+            let len = hypot(nx, ny)
+            let p = CGPoint(x: a.x + (b.x - a.x) * t + nx / len * noise(),
+                            y: a.y + (b.y - a.y) * t + ny / len * noise())
+            pts.append(VectorPoint(p))
+        }
+    }
+    return VectorPath(points: pts, closed: true)
+}
+
+@Test func aTracedTriangleSimplifiesToThreeStraightCorners() {
+    var vp = tracedTriangle()
+    #expect(vp.points.count == 300)
+    vp.simplify(tolerance: 1.5)
+    #expect(vp.points.count == 3, "three corners, nothing else: got \(vp.points.count)")
+    #expect(vp.points.allSatisfy { $0.isCorner && $0.mode == .straight }, "straight edges stay straight, no handles")
+    #expect(vp.closed)
+}
+
+@Test func thinningKeepsRealCornersAndDropsWobble() {
+    let line = (0..<50).map { CGPoint(x: CGFloat($0) * 2, y: $0 % 2 == 0 ? 0.3 : -0.3) }
+    #expect(VectorPath.thin(line, tolerance: 1, closed: false).count == 2)
+    let bent = line + (1..<50).map { CGPoint(x: 98, y: CGFloat($0) * 2) }
+    #expect(VectorPath.thin(bent, tolerance: 1, closed: false).count == 3)
+}

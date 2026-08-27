@@ -43,16 +43,41 @@ extension VectorPath {
     private mutating func simplifyOutline(tolerance: CGFloat) {
         guard points.count > 2 else { return }
 
+        // Traced artwork arrives as a polyline: hundreds of points a pixel apart,
+        // wobbling along what is really a straight edge. Measured point to point,
+        // that wobble turns through big angles, so every point looked like a
+        // corner, every corner was kept, and Simplify did nothing at all. A
+        // polyline gets its corners found over a short stretch of path instead,
+        // and a run between corners that never leaves the tolerance of its own
+        // chord comes out as one straight segment.
+        let polyline = points.allSatisfy { !$0.hasCurveFrom && !$0.hasCurveTo }
+        var flat: [CGPoint]? = nil
+        var polylineCorners = Set<Int>()
+        if polyline {
+            var pts = points.map(\.point)
+            polylineCorners = Self.polylineCorners(pts, tolerance: tolerance, closed: closed)
+            // A closed outline can start anywhere, and the start point always
+            // survives. Start it on a corner so the survivor is one anyway.
+            if closed, let first = polylineCorners.min(), first > 0 {
+                pts = Array(pts[first...]) + Array(pts[..<first])
+                polylineCorners = Set(polylineCorners.map { ($0 - first + pts.count) % pts.count })
+                points = pts.map { VectorPoint($0) }
+            }
+            flat = pts
+        }
+
         // Sample densely enough that the fit sees the real curve, not a polygon.
         var samples: [CGPoint] = []
         var cornerAt: [Int] = []          // indices into samples that must be kept
+        var straightAt = Set<Int>()       // sample index where a straight segment starts
         let steps = 12
 
         for i in 0..<segmentCount {
             guard let (a, b) = Self.pair(points, i, closed: closed) else { continue }
-            if Self.turnsSharply(points, at: i, closed: closed) {
-                cornerAt.append(samples.count)
-            }
+            let corner = flat == nil ? Self.turnsSharply(points, at: i, closed: closed)
+                                     : polylineCorners.contains(i)
+            if corner { cornerAt.append(samples.count) }
+            if !a.hasCurveFrom && !b.hasCurveTo { straightAt.insert(samples.count) }
             for s in 0..<steps {
                 samples.append(Self.evaluate(a, b, CGFloat(s) / CGFloat(steps)))
             }
@@ -73,12 +98,23 @@ extension VectorPath {
         for k in 0..<(bounds.count - 1) {
             let run = Array(samples[bounds[k]...bounds[k + 1]])
             guard run.count >= 2 else { continue }
-            let fitted = Self.fit(run, tolerance: tolerance)
+            // One straight segment between two corners is already as simple as
+            // it gets. Fitting a cubic to it hands back the same line wearing
+            // two handles it never asked for.
+            let fitted: [VectorPoint]
+            if run.count == steps + 1, straightAt.contains(bounds[k]) {
+                fitted = [VectorPoint(run[0]), VectorPoint(run[run.count - 1])]
+            } else if let flat, Self.isStraight(flat, from: bounds[k] / steps, to: bounds[k + 1] / steps,
+                                                tolerance: tolerance) {
+                fitted = [VectorPoint(run[0]), VectorPoint(run[run.count - 1])]
+            } else {
+                fitted = Self.fit(run, tolerance: tolerance)
+            }
             // The runs share endpoints; keep one copy, merging the handles.
             if var last = out.popLast(), let first = fitted.first {
                 last.curveFrom = first.curveFrom
                 last.hasCurveFrom = first.hasCurveFrom
-                last.mode = .disconnected
+                last.mode = (last.hasCurveFrom || last.hasCurveTo) ? .disconnected : .straight
                 out.append(last)
                 out.append(contentsOf: fitted.dropFirst())
             } else {
@@ -102,6 +138,111 @@ extension VectorPath {
         var copy = self
         copy.simplify(tolerance: tolerance)
         return copy
+    }
+
+    // MARK: - Polylines
+
+    /// Where a polyline really turns.
+    ///
+    /// The turn is measured between the path a few pixels behind a point and
+    /// the path a few pixels ahead, not between its two neighbours: half a
+    /// pixel of trace wobble turns through 60° neighbour to neighbour and
+    /// through nothing at all over a stretch. A real corner shows up over
+    /// several points in a row, and only the sharpest of them is kept.
+    static func polylineCorners(_ pts: [CGPoint], tolerance: CGFloat, closed: Bool) -> Set<Int> {
+        let n = pts.count
+        guard n > 2 else { return [] }
+        let reach = max(tolerance * 4, 2)
+        func heading(_ i: Int, _ step: Int) -> CGPoint? {
+            var j = i, travelled: CGFloat = 0, last = pts[i], taken = 0
+            while taken < n - 1 {
+                var k = j + step
+                if closed { k = (k + n) % n } else if k < 0 || k >= n { break }
+                travelled += hypot(pts[k].x - last.x, pts[k].y - last.y)
+                last = pts[k]; j = k; taken += 1
+                if travelled >= reach { break }
+            }
+            let d = CGPoint(x: last.x - pts[i].x, y: last.y - pts[i].y)
+            let len = hypot(d.x, d.y)
+            guard len > 0.0001 else { return nil }
+            return CGPoint(x: d.x / len, y: d.y / len)
+        }
+        // Cosine of the turn: 1 is dead straight, smaller is sharper.
+        var cosine = [CGFloat](repeating: 1, count: n)
+        for i in 0..<n {
+            if !closed && (i == 0 || i == n - 1) { continue }
+            guard let back = heading(i, -1), let ahead = heading(i, 1) else { continue }
+            cosine[i] = -(back.x * ahead.x + back.y * ahead.y)
+        }
+        let threshold: CGFloat = 0.85        // about 32 degrees, as for curved paths
+        let flagged = cosine.map { $0 < threshold }
+        guard let start = flagged.firstIndex(of: false) else { return [] }
+        var corners = Set<Int>()
+        var i = start
+        var visited = 0
+        while visited < n {
+            if flagged[i] {
+                var best = i, j = i
+                while flagged[j] && visited < n {
+                    if cosine[j] < cosine[best] { best = j }
+                    j = (j + 1) % n; visited += 1
+                    if !closed && j == 0 { break }
+                }
+                corners.insert(best)
+                i = j
+            } else {
+                i = (i + 1) % n; visited += 1
+            }
+        }
+        return corners
+    }
+
+    /// Whether the run of points from `a` to `b` (wrapping past the end) stays
+    /// within `tolerance` of the straight line between them.
+    static func isStraight(_ pts: [CGPoint], from a: Int, to b: Int, tolerance: CGFloat) -> Bool {
+        guard b > a else { return false }
+        var run: [CGPoint] = []
+        for i in a...b { run.append(pts[i % pts.count]) }
+        return thin(run, tolerance: tolerance, closed: false).count <= 2
+    }
+
+    // MARK: - Thinning
+
+    /// Douglas–Peucker: drops every point that sits within `tolerance` of the
+    /// line between the points kept either side of it. A closed outline is cut
+    /// at the point farthest from its start so both halves have a real chord.
+    static func thin(_ pts: [CGPoint], tolerance: CGFloat, closed: Bool) -> [CGPoint] {
+        guard pts.count > 2 else { return pts }
+        func distance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
+            let dx = b.x - a.x, dy = b.y - a.y
+            let len2 = dx * dx + dy * dy
+            guard len2 > 0.000001 else { return hypot(p.x - a.x, p.y - a.y) }
+            let t = max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+            return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+        }
+        func reduce(_ run: ArraySlice<CGPoint>) -> [CGPoint] {
+            guard run.count > 2, let a = run.first, let b = run.last else { return Array(run) }
+            var worst: CGFloat = 0, at = run.startIndex
+            for i in (run.startIndex + 1)..<(run.endIndex - 1) {
+                let d = distance(run[i], a, b)
+                if d > worst { worst = d; at = i }
+            }
+            guard worst > tolerance else { return [a, b] }
+            let head = reduce(run[run.startIndex...at])
+            let tail = reduce(run[at..<run.endIndex])
+            return head + tail.dropFirst()
+        }
+        guard closed else { return reduce(pts[...]) }
+        var far = 0, farthest: CGFloat = -1
+        for (i, p) in pts.enumerated() {
+            let d = hypot(p.x - pts[0].x, p.y - pts[0].y)
+            if d > farthest { farthest = d; far = i }
+        }
+        guard far > 0 else { return pts }
+        let first = reduce(pts[0...far])
+        let second = reduce((Array(pts[far...]) + [pts[0]])[...])
+        // Both halves end where the other begins; the start is not repeated.
+        return first + second.dropFirst().dropLast()
     }
 
     // MARK: - Fitting

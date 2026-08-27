@@ -54,7 +54,7 @@ enum AppIconTheme: String, CaseIterable, Identifiable {
 
     static var current: AppIconTheme {
         get {
-            AppIconTheme(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .gradient
+            AppIconTheme(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .white
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
@@ -140,7 +140,7 @@ struct MCPSettings: View {
 }
 
 struct IconSettings: View {
-    @AppStorage(AppIconTheme.defaultsKey) private var raw = AppIconTheme.gradient.rawValue
+    @AppStorage(AppIconTheme.defaultsKey) private var raw = AppIconTheme.white.rawValue
 
     private let columns = [GridItem(.adaptive(minimum: 64), spacing: 14)]
 

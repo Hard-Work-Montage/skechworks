@@ -10,7 +10,7 @@
 # on a 1024 canvas at 824px — the size Apple's grid expects, with the surrounding
 # margin left for the shadow.
 #
-#   bin/make-appicon --process           reprocess masters, then build from gradient
+#   bin/make-appicon --process           reprocess masters, then build from white
 #   bin/make-appicon --process purple    ... and build from a different colourway
 #   bin/make-appicon                     just rebuild the .icns
 set -e
@@ -62,8 +62,8 @@ NORMALISE
   shift
 fi
 
-SRC="$ICONS/${1:-gradient}.png"
-[ -f "$SRC" ] || SRC="$ICONS/gradient.png"
+SRC="$ICONS/${1:-white}.png"
+[ -f "$SRC" ] || SRC="$ICONS/white.png"
 OUT="App/Sketchyworks/AppIcon.iconset"
 rm -rf "$OUT"; mkdir -p "$OUT"
 for s in 16 32 128 256 512; do

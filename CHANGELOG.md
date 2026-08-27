@@ -3,6 +3,11 @@
 Short notes on every release. Also published at [sketchy.works/whats-new](https://sketchy.works/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.38 (August 27, 2026)
+
+- Simplify now works on traced shapes with straight edges
+- The default icon is the gem in its own colors on white
+
 ## 0.1.37 (August 27, 2026)
 
 - New Sketchyworks icon
