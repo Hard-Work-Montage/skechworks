@@ -51,8 +51,8 @@ targets:
       properties:
         CFBundleDisplayName: Sketchyworks
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.1.38"
-        CFBundleVersion: "40"
+        CFBundleShortVersionString: "0.1.39"
+        CFBundleVersion: "41"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
@@ -123,7 +123,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sketchyworks.Sketchyworks
-        MARKETING_VERSION: "0.1.38"
+        MARKETING_VERSION: "0.1.39"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps
