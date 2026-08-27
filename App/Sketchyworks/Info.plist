@@ -95,9 +95,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.34</string>
+	<string>0.1.35</string>
 	<key>CFBundleVersion</key>
-	<string>36</string>
+	<string>37</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.graphics-design</string>
 	<key>LSMinimumSystemVersion</key>
