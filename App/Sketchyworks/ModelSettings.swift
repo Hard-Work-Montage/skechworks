@@ -25,6 +25,11 @@ struct ModelSettings: View {
     /// Bumped after connect/disconnect so the Keychain is re-read; the credential is
     /// deliberately not held in a property, or "Disconnect" wouldn't take effect.
     @State private var credentialsRevision = 0
+    /// Bumped by Refresh. Credits bought in the browser don't announce
+    /// themselves to the app, so the number here is only as fresh as the last
+    /// time somebody asked.
+    @State private var balanceRevision = 0
+    @State private var checkingBalance = false
 
     /// A stored "ollama" no longer resolves, so anyone who had it lands here.
     private var chosen: ModelConnector.Backend {
@@ -116,12 +121,22 @@ struct ModelSettings: View {
                             Text(balance)
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        Link("Buy credits", destination: ModelConnector.creditsURL)
-                            .font(.caption)
+                        HStack(spacing: 10) {
+                            Link("Buy credits", destination: ModelConnector.creditsURL)
+                            Button("Refresh") { balanceRevision += 1 }
+                                .buttonStyle(.link)
+                                .disabled(checkingBalance)
+                            if checkingBalance {
+                                ProgressView().controlSize(.mini)
+                            }
+                        }
+                        .font(.caption)
                     }
                 }
-                .task(id: credentialsRevision) {
+                .task(id: "\(credentialsRevision)-\(balanceRevision)") {
                     guard connectedLabel.contains("Sketchyworks") else { return }
+                    checkingBalance = true
+                    defer { checkingBalance = false }
                     // Ask the service who this is. Swallowing the answer is what let a
                     // dead token look like a healthy account until something else
                     // failed and blamed itself.
