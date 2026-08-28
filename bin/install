@@ -1,0 +1,15 @@
+#!/bin/bash
+# Put a built Skechworks.app in /Applications, where every document's
+# LaunchServices binding points. Refuses while the app is running: swapping
+# the bundle under a live process breaks its keychain access until relaunch.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+APP="${1:-build/Build/Products/Release/Skechworks.app}"
+[ -d "$APP" ] || { echo "no app at $APP — run bin/build or bin/notarize first"; exit 1; }
+if pgrep -xq Skechworks; then
+  echo "Skechworks is running. Quit it first, then run bin/install again."
+  exit 1
+fi
+rm -rf /Applications/Skechworks.app
+ditto "$APP" /Applications/Skechworks.app
+echo "installed /Applications/Skechworks.app"

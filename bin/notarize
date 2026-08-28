@@ -57,9 +57,13 @@ spctl -a -vv -t exec "$APP"
 # bin/build put the UNstapled copy in /Applications on its way through, and that
 # is the copy every document points at. Leaving it there is how a notarized
 # release still challenges a quarantined document the moment the Mac is offline.
-rm -rf /Applications/Skechworks.app
-ditto "$APP" /Applications/Skechworks.app
-echo "→ installed the stapled copy to /Applications"
+# Same rule as bin/build: never under a running app (see the note there).
+if pgrep -xq Skechworks; then
+  echo "→ Skechworks is running — NOT touching /Applications. Quit it, then: bin/install"
+else
+  bin/install "$APP"
+  echo "→ installed the stapled copy to /Applications"
+fi
 
 # Re-zip so any copy handed to someone else carries the stapled ticket.
 xattr -cr "$APP"
