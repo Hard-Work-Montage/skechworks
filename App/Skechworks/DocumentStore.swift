@@ -2445,10 +2445,11 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    /// The outline of the patch of color under a point, in the layer's own
-    /// coordinates. Shown as a selection first — picking and erasing are two
-    /// decisions, and the range often wants a nudge before the second one.
-    func wandOutline(_ id: String, at point: CGPoint) -> [CGPoint]? {
+    /// The patch of color under a point as rings, outside edge first and then
+    /// its holes, in the layer's own coordinates. Shown as a selection first —
+    /// picking and erasing are two decisions, and the tolerance often wants a
+    /// nudge before the second one.
+    func wandOutline(_ id: String, at point: CGPoint) -> [[CGPoint]]? {
         guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref], l.frame.width > 0, l.frame.height > 0,
               let visible = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else { return nil }
@@ -2456,23 +2457,23 @@ final class DocumentStore: ObservableObject {
         // The click arrives in layer points; the picture thinks in its pixels.
         let px = CGPoint(x: point.x * CGFloat(visible.width) / l.frame.width,
                          y: point.y * CGFloat(visible.height) / l.frame.height)
-        guard let outline = Wand.outline(in: visible, at: px, tolerance: wandTolerance) else {
+        guard let rings = Wand.rings(in: visible, at: px, tolerance: wandTolerance) else {
             status = "Nothing to select there"
             return nil
         }
         let back = CGPoint(x: l.frame.width / CGFloat(visible.width),
                            y: l.frame.height / CGFloat(visible.height))
-        return outline.map { CGPoint(x: $0.x * back.x, y: $0.y * back.y) }
+        return rings.map { $0.map { CGPoint(x: $0.x * back.x, y: $0.y * back.y) } }
     }
 
     /// Erases a wand selection. Non-destructive like every other erase here:
     /// what gets stored is the outline of what was picked, so it can be undone
     /// or thrown away months later and the original pixels are never touched.
-    func erasePolygon(_ id: String, polygon: [CGPoint]) {
-        guard polygon.count >= 3 else { return }
-        edit(id, actionName: "Erase Colour") { layer in
+    func erasePolygon(_ id: String, rings: [[CGPoint]]) {
+        guard let outer = rings.first, outer.count >= 3 else { return }
+        edit(id, actionName: "Erase Color") { layer in
             guard case .bitmap = layer.kind else { return }
-            layer.erased.append(EraseStroke(polygon: polygon))
+            layer.erased.append(EraseStroke(polygon: outer, holes: Array(rings.dropFirst())))
         }
         shrinkToWhatIsLeft(id)
         status = "Erased that color"

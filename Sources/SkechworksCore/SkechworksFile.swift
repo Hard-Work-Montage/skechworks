@@ -293,9 +293,11 @@ public struct SkechworksFile {
             if let strokes = j["erased"] as? [[String: Any]] {
                 erased = strokes.compactMap { e in
                     if let poly = e["polygon"] as? [[Double]], poly.count >= 3 {
-                        return EraseStroke(polygon: poly.compactMap {
-                            $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil
-                        })
+                        func points(_ raw: [[Double]]) -> [CGPoint] {
+                            raw.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+                        }
+                        let holes = (e["holes"] as? [[[Double]]] ?? []).map(points)
+                        return EraseStroke(polygon: points(poly), holes: holes)
                     }
                     if let rc = e["rect"] as? [Any], rc.count == 4,
                        let x = dbl(rc[0]), let y = dbl(rc[1]),
@@ -506,7 +508,11 @@ public struct SkechworksFile {
             if !l.erased.isEmpty {
                 d["erased"] = l.erased.map { e -> [String: Any] in
                     if let poly = e.polygon, poly.count >= 3 {
-                        return ["polygon": poly.map { [$0.x, $0.y] }]
+                        var out: [String: Any] = ["polygon": poly.map { [$0.x, $0.y] }]
+                        if !e.holes.isEmpty {
+                            out["holes"] = e.holes.map { $0.map { [$0.x, $0.y] } }
+                        }
+                        return out
                     }
                     if let r = e.rect {
                         return ["rect": [r.minX, r.minY, r.width, r.height]]

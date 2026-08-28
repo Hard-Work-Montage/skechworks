@@ -1014,7 +1014,7 @@ struct PropertiesPanel: View {
                             store.eraseSoftness = Double(min(100, max(0, $0)) / 100)
                         }
                     case .wand:
-                        NumberField(label: "Range", value: CGFloat(store.wandTolerance)) {
+                        NumberField(label: "Tolerance", value: CGFloat(store.wandTolerance)) {
                             store.wandTolerance = Int(min(160, max(1, $0)))
                         }
                     case .box, .oval:

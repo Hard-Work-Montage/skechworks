@@ -81,6 +81,72 @@ private func twoPatches(_ w: Int, _ h: Int) -> CGImage {
     #expect(stroke.polygon?.first == CGPoint(x: 10, y: 10))
 }
 
+/// A dark disc in the middle of white: a coin on its background.
+private func coinOnWhite(_ w: Int, _ h: Int) -> CGImage {
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.setFillColor(CGColor(red: 0.75, green: 0.55, blue: 0.1, alpha: 1))
+    ctx.fillEllipse(in: CGRect(x: w / 4, y: h / 4, width: w / 2, height: h / 2))
+    return ctx.makeImage()!
+}
+
+/// The mask's value at a layer point, 0 hidden and 255 kept.
+private func maskValue(_ mask: CGImage, x: Int, y: Int) -> UInt8 {
+    var bytes = [UInt8](repeating: 0, count: mask.width * mask.height)
+    bytes.withUnsafeMutableBytes { raw in
+        let ctx = CGContext(data: raw.baseAddress, width: mask.width, height: mask.height,
+                            bitsPerComponent: 8, bytesPerRow: mask.width,
+                            space: CGColorSpaceCreateDeviceGray(),
+                            bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+        ctx.draw(mask, in: CGRect(x: 0, y: 0, width: mask.width, height: mask.height))
+    }
+    // The mask is drawn y-up from y-down layer coordinates.
+    return bytes[(mask.height - 1 - y) * mask.width + x]
+}
+
+@Test func theBackgroundAroundACoinComesBackWithTheCoinAsAHole() throws {
+    let img = coinOnWhite(200, 200)
+    let rings = try #require(Wand.rings(in: img, at: CGPoint(x: 5, y: 5)))
+    // The outside edge and one hole. The outside edge alone was the whole
+    // picture, and Delete on that took the coin with the white.
+    #expect(rings.count == 2, "got \(rings.count) rings")
+    let hole = try #require(rings.last)
+    let xs = hole.map(\.x), ys = hole.map(\.y)
+    #expect(xs.min()! > 40 && xs.max()! < 160 && ys.min()! > 40 && ys.max()! < 160,
+            "the hole is not where the coin is")
+    #expect(xs.max()! - xs.min()! > 90, "the hole is smaller than the coin")
+}
+
+@Test func erasingTheBackgroundLeavesTheCoin() throws {
+    let img = coinOnWhite(200, 200)
+    let rings = try #require(Wand.rings(in: img, at: CGPoint(x: 5, y: 5)))
+    let stroke = EraseStroke(polygon: rings[0], holes: Array(rings.dropFirst()))
+    let mask = try #require(EraseMask.image(strokes: [stroke], size: CGSize(width: 200, height: 200), scale: 1))
+    #expect(maskValue(mask, x: 100, y: 100) > 200, "the coin was erased")
+    #expect(maskValue(mask, x: 10, y: 10) < 50, "the white in the corner stayed")
+    #expect(maskValue(mask, x: 100, y: 10) < 50, "the white above the coin stayed")
+}
+
+@Test func aHoleSurvivesBeingSavedAndReopened() throws {
+    var layer = Layer(kind: .bitmap(imageRef: "a"))
+    layer.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    let outer = [CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0), CGPoint(x: 100, y: 100), CGPoint(x: 0, y: 100)]
+    let hole = [CGPoint(x: 30, y: 30), CGPoint(x: 70, y: 30), CGPoint(x: 70, y: 70), CGPoint(x: 30, y: 70)]
+    layer.erased = [EraseStroke(polygon: outer, holes: [hole])]
+    var page = Page(name: "p")
+    page.layers = [layer]
+    var doc = Document()
+    doc.pages = [page]
+
+    let back = try SkechworksFile.read(try SkechworksFile.write(document: doc, images: ["a": Data()]))
+    let stroke = try #require(back.document.pages.first?.layers.first?.erased.first)
+    #expect(stroke.holes.count == 1)
+    #expect(stroke.holes.first?.first == CGPoint(x: 30, y: 30))
+}
+
 @Test func everyKindOfStrokeMovesWhenTheFrameDoes() {
     // Trimming a layer to what is left moves the frame out from under the
     // strokes. Any kind that stays behind rubs its hole in the wrong place, and

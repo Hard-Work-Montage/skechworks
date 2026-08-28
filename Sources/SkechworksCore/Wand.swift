@@ -18,15 +18,78 @@ public enum Wand {
     /// enormous, so this only has to be bigger than anti-aliasing.
     public static let defaultTolerance = 32
 
-    /// The outline of the area around `point`, in image pixels, y down.
+    /// The outside edge of the area around `point`, in image pixels, y down.
+    /// Just that edge; `rings` has the holes as well.
+    public static func outline(in image: CGImage, at point: CGPoint,
+                               tolerance: Int = defaultTolerance) -> [CGPoint]? {
+        rings(in: image, at: point, tolerance: tolerance)?.first
+    }
+
+    /// The area around `point` as rings: its outside edge first, then one ring
+    /// per hole in it. In image pixels, y down.
+    ///
+    /// The holes are the whole point. The white around a coin is one area with
+    /// the coin missing from the middle, and its outside edge alone is the
+    /// picture's edge — erase that and the coin goes with it. Filled even-odd,
+    /// the edge and the hole together erase the white and nothing else.
     ///
     /// Nil when the click lands somewhere with nothing to select — off the
     /// picture, or on a region so small it is a stray pixel.
-    public static func outline(in image: CGImage, at point: CGPoint,
-                               tolerance: Int = defaultTolerance) -> [CGPoint]? {
+    public static func rings(in image: CGImage, at point: CGPoint,
+                             tolerance: Int = defaultTolerance) -> [[CGPoint]]? {
         guard let mask = region(in: image, at: point, tolerance: tolerance) else { return nil }
-        guard let traced = trace(mask.bits, w: mask.w, h: mask.h) else { return nil }
-        return simplify(traced, epsilon: 1.2)
+        let w = mask.w, h = mask.h, bits = mask.bits
+
+        // Whatever is not the area and can be reached from the picture's edge
+        // without crossing it is outside. What is left of "not the area" is
+        // inside it: the holes.
+        var outside = [Bool](repeating: false, count: w * h)
+        var stack: [Int] = []
+        func seed(_ i: Int) {
+            if !bits[i] && !outside[i] { outside[i] = true; stack.append(i) }
+        }
+        for x in 0..<w { seed(x); seed((h - 1) * w + x) }
+        for y in 0..<h { seed(y * w); seed(y * w + w - 1) }
+        while let i = stack.popLast() {
+            let x = i % w, y = i / w
+            if x > 0 { seed(i - 1) }
+            if x < w - 1 { seed(i + 1) }
+            if y > 0 { seed(i - w) }
+            if y < h - 1 { seed(i + w) }
+        }
+
+        // The solid version of the area gives the outside edge.
+        guard let first = (0..<(w * h)).first(where: { !outside[$0] }),
+              let outer = trace(w: w, h: h, start: first, filled: { x, y in !outside[y * w + x] })
+        else { return nil }
+        var out = [simplify(outer, epsilon: 1.2)]
+
+        // Each hole is its own ring: label them by flooding, trace each one.
+        var label = [Int32](repeating: 0, count: w * h)
+        var next: Int32 = 0
+        for i in 0..<(w * h) where !bits[i] && !outside[i] && label[i] == 0 {
+            next += 1
+            let mine = next
+            var count = 0
+            label[i] = mine
+            stack.append(i)
+            while let j = stack.popLast() {
+                count += 1
+                let x = j % w, y = j / w
+                for k in [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1,
+                          y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]
+                where k >= 0 && !bits[k] && !outside[k] && label[k] == 0 {
+                    label[k] = mine
+                    stack.append(k)
+                }
+            }
+            // A hole of a few pixels is anti-aliasing, not something to keep.
+            guard count > 4,
+                  let ring = trace(w: w, h: h, start: i, filled: { x, y in label[y * w + x] == mine })
+            else { continue }
+            out.append(simplify(ring, epsilon: 1.2))
+        }
+        return out
     }
 
     /// The filled area itself, as a bitmap of flags.
@@ -104,10 +167,17 @@ public enum Wand {
     /// comes back solid, which for a patch of flat colour is nearly always what
     /// was meant anyway.
     static func trace(_ bits: [Bool], w: Int, h: Int) -> [CGPoint]? {
-        func filled(_ x: Int, _ y: Int) -> Bool {
-            x >= 0 && y >= 0 && x < w && y < h && bits[y * w + x]
-        }
         guard let start = (0..<(w * h)).first(where: { bits[$0] }) else { return nil }
+        return trace(w: w, h: h, start: start) { x, y in bits[y * w + x] }
+    }
+
+    /// The same walk over any filled test. `start` is the first filled cell in
+    /// raster order, which the caller already knows and would otherwise be
+    /// found again by scanning the whole picture once per hole.
+    static func trace(w: Int, h: Int, start: Int, filled isIn: (Int, Int) -> Bool) -> [CGPoint]? {
+        func filled(_ x: Int, _ y: Int) -> Bool {
+            x >= 0 && y >= 0 && x < w && y < h && isIn(x, y)
+        }
         let sx = start % w, sy = start / w
 
         // Directions, clockwise from east. The walk keeps the filled area on its

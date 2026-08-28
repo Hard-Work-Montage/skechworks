@@ -3,6 +3,11 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.42 (August 28, 2026)
+
+- The wand eraser can now pick a background out from around a shape
+- The wand's Range is now called Tolerance
+
 ## 0.1.41 (August 28, 2026)
 
 - Paste or drop an .svg file and its shapes land in the document you have open

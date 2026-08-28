@@ -29,6 +29,9 @@ public struct EraseStroke: Sendable, Equatable {
     /// saved, reopened and undone, and a handful of points does that where a
     /// second picture kept beside the first one forever does not.
     public var polygon: [CGPoint]?
+    /// Rings inside `polygon` that the erase leaves alone, filled even-odd. The
+    /// wand's answer to a background with something in the middle of it.
+    public var holes: [[CGPoint]] = []
 
     public init(points: [CGPoint], radius: CGFloat, softness: CGFloat = 0.5) {
         self.points = points
@@ -45,11 +48,12 @@ public struct EraseStroke: Sendable, Equatable {
     }
 
     /// An erase shaped like whatever was selected.
-    public init(polygon: [CGPoint]) {
+    public init(polygon: [CGPoint], holes: [[CGPoint]] = []) {
         self.points = []
         self.radius = 1
         self.softness = 0
         self.polygon = polygon
+        self.holes = holes.filter { $0.count >= 3 }
     }
 
     /// The same stroke, shifted.
@@ -67,6 +71,7 @@ public struct EraseStroke: Sendable, Equatable {
         out.points = points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
         out.rect = rect?.offsetBy(dx: dx, dy: dy)
         out.polygon = polygon?.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+        out.holes = holes.map { $0.map { CGPoint(x: $0.x + dx, y: $0.y + dy) } }
         return out
     }
 
@@ -127,14 +132,17 @@ public enum EraseMask {
             ctx.fill(r)
             return
         }
-        // A selected area is its own outline, filled.
+        // A selected area is its own outline, filled, minus any holes in it.
         if let poly = stroke.polygon, poly.count >= 3 {
             ctx.setFillColor(gray: 0, alpha: 1)
             ctx.beginPath()
-            ctx.move(to: poly[0])
-            for p in poly.dropFirst() { ctx.addLine(to: p) }
+            ctx.addLines(between: poly)
             ctx.closePath()
-            ctx.fillPath()
+            for hole in stroke.holes where hole.count >= 3 {
+                ctx.addLines(between: hole)
+                ctx.closePath()
+            }
+            ctx.fillPath(using: .evenOdd)
             return
         }
         let spacing = max(0.5, stroke.radius / 4)

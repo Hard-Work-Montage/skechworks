@@ -93,8 +93,8 @@ final class PageCanvas: NSView {
     var onEraseOval: ((String, CGRect) -> Void)?
     /// Answers a wand click with the outline of the colour under it, in the
     /// layer's own coordinates. Nil when the click found nothing.
-    var onWandClick: ((String, CGPoint) -> [CGPoint]?)?
-    var onErasePolygon: ((String, [CGPoint]) -> Void)?
+    var onWandClick: ((String, CGPoint) -> [[CGPoint]]?)?
+    var onErasePolygon: ((String, [[CGPoint]]) -> Void)?
     var onEnterPixelSelect: ((String) -> Void)?
     var onPixelRect: ((CGRect) -> Void)?
     var onExtendRect: ((String, CGRect) -> Void)?
@@ -104,7 +104,7 @@ final class PageCanvas: NSView {
     private var pixelDraft: CGRect?
     /// The standing wand selection, in page coordinates, and the layer it
     /// belongs to.
-    private var pixelPolygon: (id: String, points: [CGPoint])?
+    private var pixelPolygon: (id: String, rings: [[CGPoint]])?
     /// A marquee erase on a bitmap. (id, rect in the layer's own coordinates)
     var onEraseRect: ((String, CGRect) -> Void)?
     /// A new shape was dragged out. The rect is page coordinates; an empty one
@@ -313,9 +313,9 @@ final class PageCanvas: NSView {
     /// falls through to its usual meaning.
     private func eraseSelectedPixels() -> Bool {
         guard let id = pixelSelectID else { return false }
-        if let poly = pixelPolygon, poly.id == id, poly.points.count >= 3,
+        if let poly = pixelPolygon, poly.id == id, (poly.rings.first?.count ?? 0) >= 3,
            let t = transformOf(id, in: page?.layers ?? [], base: .identity) {
-            onErasePolygon?(id, poly.points.map { $0.applying(t.inverted()) })
+            onErasePolygon?(id, poly.rings.map { $0.map { $0.applying(t.inverted()) } })
             pixelPolygon = nil
             needsDisplay = true
             return true
@@ -1032,11 +1032,13 @@ final class PageCanvas: NSView {
             }
             // A wand selection is the same marching ants round a shape instead
             // of a box, so it reads as the same kind of thing.
-            if let poly = pixelPolygon, poly.points.count >= 3 {
+            if let poly = pixelPolygon, (poly.rings.first?.count ?? 0) >= 3 {
                 ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
                 ctx.setLineWidth(1 / sc)
                 ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
-                ctx.addLines(between: poly.points + [poly.points[0]])
+                for ring in poly.rings where ring.count >= 3 {
+                    ctx.addLines(between: ring + [ring[0]])
+                }
                 ctx.strokePath()
                 ctx.setLineDash(phase: 0, lengths: [])
             }
@@ -2646,7 +2648,7 @@ final class PageCanvas: NSView {
                 pixelDraft = nil
                 if let pid = pixelSelectID,
                    let outline = onWandClick?(pid, d.start.applying(d.t.inverted())) {
-                    pixelPolygon = (pid, outline.map { $0.applying(d.t) })
+                    pixelPolygon = (pid, outline.map { $0.map { $0.applying(d.t) } })
                 } else {
                     pixelPolygon = nil
                 }
@@ -3022,7 +3024,7 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.ovalMode = store.pixelPick == .oval
         canvas.onEraseOval = { id, r in store.eraseOval(id, rect: r) }
         canvas.onWandClick = { id, p in store.wandOutline(id, at: p) }
-        canvas.onErasePolygon = { id, poly in store.erasePolygon(id, polygon: poly) }
+        canvas.onErasePolygon = { id, rings in store.erasePolygon(id, rings: rings) }
         canvas.onEnterPixelSelect = { store.enterPixelSelect($0) }
         canvas.onPixelRect = { store.pixelSelectRect = $0 }
         canvas.onExitPixelSelect = { store.exitPixelSelect() }
