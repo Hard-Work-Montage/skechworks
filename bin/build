@@ -76,8 +76,7 @@ fi
 echo "built $APP"
 
 # Land it where double-click finds it. Every build replaces /Applications, so
-# "the latest" and "the one in Applications" are always the same app — a
-# running instance keeps its old copy alive until it relaunches.
+# "the latest" and "the one in Applications" are always the same app.
 #
 # Unless it is running. Swapping the bundle under a live process leaves the
 # process's binary and the one on disk different files, and the keychain
