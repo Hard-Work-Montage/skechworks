@@ -2797,7 +2797,7 @@ final class DocumentStore: ObservableObject {
                 if let d = try? Data(contentsOf: u),
                    placeImage(d, name: u.deletingPathExtension().lastPathComponent) { return }
             }
-            if let doc = urls.first(where: Self.isDocument) { open(doc); return }
+            if let doc = urls.first(where: Self.isDocument) { placeOrOpen(doc); return }
         }
         for type in [NSPasteboard.PasteboardType.png, .tiff] {
             if let d = pb.data(forType: type), placeImage(d, name: "Pasted Image") { return }
@@ -3193,8 +3193,25 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// A file that could be opened as a document, arriving by paste or drop.
+    ///
+    /// An .svg is a drawing before it is a document: copy one in Finder and
+    /// ⌘V, and what you meant was "put these shapes here", the same as an
+    /// icon site's Copy SVG. It used to open the file instead, in this window,
+    /// which closed whatever you were working on to do it. Anything else that
+    /// really is a document (.sketch, .sw.png) still opens, but the way Open
+    /// does: in this window only if it is empty, otherwise in its own tab.
+    private func placeOrOpen(_ url: URL) {
+        if url.pathExtension.lowercased() == "svg",
+           let data = try? Data(contentsOf: url),
+           placeSVG(data, name: url.deletingPathExtension().lastPathComponent) {
+            return
+        }
+        if isVacant { open(url) } else { AppDelegate.shared?.openInNewWindow(url) }
+    }
+
     func acceptDropped(_ url: URL) {
-        if Self.isDocument(url) { open(url); return }
+        if Self.isDocument(url) { placeOrOpen(url); return }
         guard let data = try? Data(contentsOf: url),
               placeImage(data, name: url.deletingPathExtension().lastPathComponent) else {
             status = "Can't place \(url.lastPathComponent)"

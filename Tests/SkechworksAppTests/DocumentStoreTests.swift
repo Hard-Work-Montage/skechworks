@@ -819,6 +819,47 @@ extension DocumentStoreTests {
         let bytes = try XCTUnwrap(store.images[ref])
         XCTAssertEqual(Array(bytes.prefix(4)), [0x89, 0x50, 0x4E, 0x47], "should be normalised to PNG")
     }
+
+    /// Copy an .svg in Finder, ⌘V on the canvas: the shapes land in the document
+    /// you are working on. It used to OPEN the file instead, in this window,
+    /// which threw away the document you had — an .svg counts as a document,
+    /// so the paste took the open-a-document branch.
+    func testAnSVGFilePastedAsAURLIsPlacedNotOpened() throws {
+        var existing = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40),
+                                                transform: nil), closed: true))
+        existing.name = "Already here"
+        existing.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+        var page = Page(name: "Mine")
+        page.layers = [existing]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        store.source = DocumentSource.eager(doc, images: [:])
+        let mine = FileManager.default.temporaryDirectory.appendingPathComponent("mine.sw.png")
+        store.url = mine
+
+        let svg = FileManager.default.temporaryDirectory.appendingPathComponent("music.svg")
+        try Data("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" \
+        fill="none" stroke="currentColor" stroke-width="2">\
+        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        """.utf8).write(to: svg)
+        defer { try? FileManager.default.removeItem(at: svg) }
+
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([svg as NSURL])
+        store.paste()
+
+        XCTAssertEqual(store.url, mine, "the document you had open should still be the one open")
+        let layers = try XCTUnwrap(store.page?.layers)
+        XCTAssertEqual(layers.count, 2, "the SVG should arrive as a layer next to what was there")
+        XCTAssertTrue(layers.contains { $0.name == "Already here" }, "the existing work was replaced")
+        let placed = try XCTUnwrap(layers.first { $0.name == "music" })
+        guard case .group(let kids) = placed.kind else { return XCTFail("three shapes should come in as one group") }
+        XCTAssertEqual(kids.count, 3)
+    }
 }
 
 extension DocumentStoreTests {
