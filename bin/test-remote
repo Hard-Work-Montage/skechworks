@@ -17,7 +17,7 @@
 set -euo pipefail
 
 HOST="${BURNIE_HOST:-burnie@100.105.168.11}"
-REMOTE="Development/sketchyworks"
+REMOTE="Development/skechworks"
 ARGS="${1---ui}"
 
 cd "$(dirname "$0")/.."

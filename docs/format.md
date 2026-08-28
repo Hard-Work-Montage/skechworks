@@ -1,6 +1,6 @@
 # The `.sw.png` format
 
-An Sketchyworks document is a PNG **and** a ZIP, at the same time. PNG readers stop at
+An Skechworks document is a PNG **and** a ZIP, at the same time. PNG readers stop at
 `IEND`; ZIP readers scan backward for the central directory. Neither notices the other.
 
 - **Double-click it** — Finder thumbnails it, Preview opens it, any image viewer on
@@ -15,12 +15,12 @@ entire point.
 This is the Fireworks `.fw.png` trick, which nobody has shipped since Adobe killed
 Fireworks in 2013.
 
-**Double-clicking opens Sketchyworks**, while every other PNG on the machine still
+**Double-clicking opens Skechworks**, while every other PNG on the machine still
 belongs to Preview. LaunchServices resolves a file's type from the last extension
 component only, so a `.sw.png` is a `public.png` and a third-party type cannot
 outrank an Apple system type — the compound extension is registered but never wins.
 The lever that does work is the per-file binding Finder writes for *Get Info > Open
-With*: an extended attribute naming the handler. Sketchyworks stamps it on every file it
+With*: an extended attribute naming the handler. Skechworks stamps it on every file it
 writes, and `sw claim <file|dir>` re-applies it in bulk.
 
 **The binding requires a Developer ID signature.** With an ad-hoc signature the app is

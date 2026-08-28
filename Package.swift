@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "sketchyworks",
+    name: "skechworks",
     platforms: [.macOS(.v13)],   // .v13 is the floor: CGPath boolean ops land here
     products: [
-        .library(name: "SketchyworksCore", targets: ["SketchyworksCore"]),
+        .library(name: "SkechworksCore", targets: ["SkechworksCore"]),
         .executable(name: "sw", targets: ["sw"]),
     ],
     targets: [
@@ -27,8 +27,8 @@ let package = Package(
                 .define("ZSTD_LIB_DICTBUILDER", to: "0"),
             ]
         ),
-        .target(name: "SketchyworksCore", dependencies: ["CZstd"]),
-        .executableTarget(name: "sw", dependencies: ["SketchyworksCore"]),
-        .testTarget(name: "SketchyworksCoreTests", dependencies: ["SketchyworksCore"]),
+        .target(name: "SkechworksCore", dependencies: ["CZstd"]),
+        .executableTarget(name: "sw", dependencies: ["SkechworksCore"]),
+        .testTarget(name: "SkechworksCoreTests", dependencies: ["SkechworksCore"]),
     ]
 )

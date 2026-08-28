@@ -1,19 +1,19 @@
-name: Sketchyworks
+name: Skechworks
 options:
-  bundleIdPrefix: com.sketchyworks
+  bundleIdPrefix: com.skechworks
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
 
 targets:
   # Same sources SPM builds for the CLI, wrapped as a framework so the app can
-  # `import SketchyworksCore` exactly like the CLI does. One implementation, two
+  # `import SkechworksCore` exactly like the CLI does. One implementation, two
   # front ends — the renderer must never fork.
-  SketchyworksCore:
+  SkechworksCore:
     type: framework
     platform: macOS
     sources:
-      - path: Sources/SketchyworksCore
+      - path: Sources/SkechworksCore
       # zstd travels inside the framework rather than as a target of its own.
       # SwiftPM builds it as a separate C module; Xcode compiles the same C into
       # this framework and reaches it through the bridging header below, so both
@@ -23,7 +23,7 @@ targets:
           - "include/**"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sketchyworks.SketchyworksCore
+        PRODUCT_BUNDLE_IDENTIFIER: com.skechworks.SkechworksCore
         SWIFT_VERSION: "6.0"
         HEADER_SEARCH_PATHS: "$(SRCROOT)/Sources/CZstd/lib $(SRCROOT)/Sources/CZstd/lib/common $(SRCROOT)/Sources/CZstd/include"
         GCC_PREPROCESSOR_DEFINITIONS: "$(inherited) ZSTD_DISABLE_ASM=1"
@@ -32,27 +32,27 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         GENERATE_INFOPLIST_FILE: YES
 
-  Sketchyworks:
+  Skechworks:
     type: application
     platform: macOS
     sources:
-      - path: App/Sketchyworks
+      - path: App/Skechworks
         excludes:
           - "Icons/**"
       # Blue-folder-free: the colourways ship as flat resources so
       # Bundle.main.url(forResource:) finds them by name.
-      - path: App/Sketchyworks/Icons
+      - path: App/Skechworks/Icons
         buildPhase: resources
     dependencies:
-      - target: SketchyworksCore
+      - target: SkechworksCore
         embed: true
     info:
-      path: App/Sketchyworks/Info.plist
+      path: App/Skechworks/Info.plist
       properties:
-        CFBundleDisplayName: Sketchyworks
+        CFBundleDisplayName: Skechworks
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.1.39"
-        CFBundleVersion: "41"
+        CFBundleShortVersionString: "0.1.40"
+        CFBundleVersion: "42"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
@@ -62,8 +62,8 @@ targets:
         # `foo.png` still belongs to Preview. Conforming to public.png is what keeps
         # Finder thumbnails and Quick Look working for free.
         UTExportedTypeDeclarations:
-          - UTTypeIdentifier: com.sketchyworks.document
-            UTTypeDescription: Sketchyworks Document
+          - UTTypeIdentifier: com.skechworks.document
+            UTTypeDescription: Skechworks Document
             UTTypeConformsTo:
               - public.png
             UTTypeTagSpecification:
@@ -81,17 +81,17 @@ targets:
               public.filename-extension:
                 - acmplc
                 - acmplc.png
-        # One Sketchyworks, ever. Opening a picture from Finder started a second
+        # One Skechworks, ever. Opening a picture from Finder started a second
         # copy alongside the one already running, which then had its own
         # windows, its own recovery snapshots and its own idea of what was
         # unsaved.
         LSMultipleInstancesProhibited: true
         CFBundleDocumentTypes:
-          - CFBundleTypeName: Sketchyworks Document
+          - CFBundleTypeName: Skechworks Document
             CFBundleTypeRole: Editor
             LSHandlerRank: Owner
             LSItemContentTypes:
-              - com.sketchyworks.document
+              - com.skechworks.document
               - com.accomplice.document
           - CFBundleTypeName: SVG Image
             CFBundleTypeRole: Editor
@@ -122,8 +122,8 @@ targets:
               - fig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sketchyworks.Sketchyworks
-        MARKETING_VERSION: "0.1.39"
+        PRODUCT_BUNDLE_IDENTIFIER: com.skechworks.Skechworks
+        MARKETING_VERSION: "0.1.40"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps
@@ -139,13 +139,13 @@ targets:
   # The app layer had no tests at all — DocumentStore and the canvas between them are
   # 2,300 lines, and that is where nearly every bug found in use has lived. A unit-test
   # bundle hosted by the app can reach them with @testable import.
-  SketchyworksTests:
+  SkechworksTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Tests/SketchyworksAppTests
+      - path: Tests/SkechworksAppTests
     dependencies:
-      - target: Sketchyworks
+      - target: Skechworks
     settings:
       base:
         SWIFT_VERSION: "6.0"
@@ -156,31 +156,31 @@ targets:
   # Drives the real app through the accessibility tree. This is the only kind of test
   # that catches "clicking a layer row does nothing" — which is exactly what happened
   # when .onDrag was attached to a List row and silently ate the tap.
-  SketchyworksUITests:
+  SkechworksUITests:
     type: bundle.ui-testing
     platform: macOS
     sources:
-      - path: Tests/SketchyworksUITests
+      - path: Tests/SkechworksUITests
     dependencies:
-      - target: Sketchyworks
+      - target: Skechworks
     settings:
       base:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
-        TEST_TARGET_NAME: Sketchyworks
+        TEST_TARGET_NAME: Skechworks
 
 schemes:
-  Sketchyworks:
+  Skechworks:
     build:
       targets:
-        Sketchyworks: all
-        SketchyworksTests: [test]
-        SketchyworksUITests: [test]
+        Skechworks: all
+        SkechworksTests: [test]
+        SkechworksUITests: [test]
     test:
       targets:
-        - SketchyworksTests
-        - SketchyworksUITests
+        - SkechworksTests
+        - SkechworksUITests
     run:
       config: Debug

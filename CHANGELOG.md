@@ -1,7 +1,11 @@
 # Changelog
 
-Short notes on every release. Also published at [sketchy.works/whats-new](https://sketchy.works/whats-new),
+Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
+
+## 0.1.40 (August 27, 2026)
+
+- Sketchyworks is now Skechworks. Same app, same logo, same .sw.png files
 
 ## 0.1.39 (August 27, 2026)
 

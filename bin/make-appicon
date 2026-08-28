@@ -16,7 +16,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-ICONS=App/Sketchyworks/Icons
+ICONS=App/Skechworks/Icons
 RAW=${SW_ICON_MASTERS:-"$HOME/Downloads"}
 TILE=824
 RADIUS=185
@@ -64,12 +64,12 @@ fi
 
 SRC="$ICONS/${1:-white}.png"
 [ -f "$SRC" ] || SRC="$ICONS/white.png"
-OUT="App/Sketchyworks/AppIcon.iconset"
+OUT="App/Skechworks/AppIcon.iconset"
 rm -rf "$OUT"; mkdir -p "$OUT"
 for s in 16 32 128 256 512; do
   sips -z $s $s "$SRC" --out "$OUT/icon_${s}x${s}.png" >/dev/null
   sips -z $((s*2)) $((s*2)) "$SRC" --out "$OUT/icon_${s}x${s}@2x.png" >/dev/null
 done
-iconutil -c icns "$OUT" -o App/Sketchyworks/AppIcon.icns
+iconutil -c icns "$OUT" -o App/Skechworks/AppIcon.icns
 rm -rf "$OUT"
 echo "AppIcon.icns <- $(basename "$SRC")"

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Build Sketchyworks.app (Release) and leave it runnable.
+# Build Skechworks.app (Release) and leave it runnable.
 #
 # Signing matters more than it looks. Two things bite:
 #
-# 1. xcodebuild signs the app and the embedded SketchyworksCore.framework as separate
+# 1. xcodebuild signs the app and the embedded SkechworksCore.framework as separate
 #    identities, and dyld then refuses to load the framework ("different Team IDs").
 #    Signing the whole bundle in one pass, inside-out, gives it one identity.
 #
@@ -42,8 +42,8 @@ xcodegen generate
 # yesterday's code inside it.
 set -o pipefail
 xcodebuild \
-  -project Sketchyworks.xcodeproj \
-  -scheme Sketchyworks \
+  -project Skechworks.xcodeproj \
+  -scheme Skechworks \
   -configuration Release \
   -derivedDataPath build \
   "$@" | grep -E "error:|BUILD" || {
@@ -52,12 +52,12 @@ xcodebuild \
   }
 set +o pipefail
 
-APP="build/Build/Products/Release/Sketchyworks.app"
+APP="build/Build/Products/Release/Skechworks.app"
 [ -d "$APP" ] || { echo "build failed: no app bundle"; exit 1; }
 
 # Inside-out: framework first, then the app that embeds it.
 codesign --force --options runtime $TIMESTAMP --sign "$SIGN_ID" \
-  "$APP/Contents/Frameworks/SketchyworksCore.framework" >/dev/null 2>&1
+  "$APP/Contents/Frameworks/SkechworksCore.framework" >/dev/null 2>&1
 codesign --force --options runtime $TIMESTAMP --sign "$SIGN_ID" \
   "$APP" >/dev/null 2>&1
 
@@ -78,9 +78,9 @@ echo "built $APP"
 # Land it where double-click finds it. Every build replaces /Applications, so
 # "the latest" and "the one in Applications" are always the same app — a
 # running instance keeps its old copy alive until it relaunches.
-rm -rf /Applications/Sketchyworks.app
-ditto "$APP" /Applications/Sketchyworks.app
-echo "installed /Applications/Sketchyworks.app"
+rm -rf /Applications/Skechworks.app
+ditto "$APP" /Applications/Skechworks.app
+echo "installed /Applications/Skechworks.app"
 
 # Only the installed copy should be launchable — see bin/lsclean.
 bin/lsclean >/dev/null 2>&1 || true

@@ -1,4 +1,4 @@
-import SketchyworksCore
+import SkechworksCore
 import CoreGraphics
 import Foundation
 
@@ -27,7 +27,7 @@ func usage() -> Never {
       sw png     <file.sketch> [-o dir] [--page N] [--size 1024]
       sw convert <file.sketch> [-o out.sw.png] [--cover N]
       sw verify  <file.sw.png>
-      sw claim   <file|dir>...        bind files to Sketchyworks for double-click
+      sw claim   <file|dir>...        bind files to Skechworks for double-click
       sw unclaim <file|dir>...        undo that; files open in Preview again
       sw bench   <file.sw.png>
     """)
@@ -53,14 +53,14 @@ func load() -> (Document, [String: Data]) {
             fail("\(input.lastPathComponent): \(error)")
         }
     }
-    if let (doc, images) = try? SketchyworksFile.read(url: input), !doc.pages.isEmpty {
+    if let (doc, images) = try? SkechworksFile.read(url: input), !doc.pages.isEmpty {
         return (doc, images)
     }
     var reader = SketchReader()
     do {
         let doc = try reader.read(url: input)
         if doc.pages.isEmpty {
-            fail("\(input.lastPathComponent): no pages found — is this really a Sketch or Sketchyworks document?")
+            fail("\(input.lastPathComponent): no pages found — is this really a Sketch or Skechworks document?")
         }
         return (doc, reader.images)
     } catch {
@@ -151,12 +151,12 @@ case "png":
 
 case "convert":
     let (doc, images) = load()
-    var opts = SketchyworksFile.Options()
+    var opts = SkechworksFile.Options()
     if let c = value("--cover").flatMap(Int.init) { opts.coverPage = c }
     let out = URL(fileURLWithPath: value("-o")
         ?? input.deletingPathExtension().lastPathComponent + ".sw.png")
     do {
-        let data = try SketchyworksFile.write(document: doc, images: images, options: opts)
+        let data = try SkechworksFile.write(document: doc, images: images, options: opts)
         try data.write(to: out)
         LaunchBinding.claim(out)
         let kb = Double(data.count) / 1024
@@ -324,8 +324,8 @@ case "roundtrip":
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("sw-roundtrip.sw.png")
     do {
-        try SketchyworksFile.write(document: original, images: images).write(to: tmp)
-        let (reloaded, reImages) = try SketchyworksFile.read(url: tmp)
+        try SkechworksFile.write(document: original, images: images).write(to: tmp)
+        let (reloaded, reImages) = try SkechworksFile.read(url: tmp)
         print("pages   : \(original.pages.count) written -> \(reloaded.pages.count) read back")
         print("images  : \(images.count) written -> \(reImages.count) read back")
 
@@ -424,7 +424,7 @@ case "ask":
         // Lets the result be looked at, not just reported on.
         // Carry the images through: writing with an empty map silently strips every
         // embedded bitmap, which would make this harness destructive.
-        let data = try! SketchyworksFile.write(document: doc, images: askImages)
+        let data = try! SkechworksFile.write(document: doc, images: askImages)
         try! data.write(to: URL(fileURLWithPath: out))
         print("saved \(out)")
     }
@@ -457,7 +457,7 @@ case "claim", "unclaim":
     if claimed > 0 {
         print(removing
             ? "these now open in Preview again, as an ordinary PNG would"
-            : "double-clicking these now opens Sketchyworks; every other PNG still opens in Preview")
+            : "double-clicking these now opens Skechworks; every other PNG still opens in Preview")
     }
 
 case "verify":

@@ -4,7 +4,7 @@
 
 ```
 ./bin/build          # generate the Xcode project, build Release, re-sign
-open build/Build/Products/Release/Sketchyworks.app
+open build/Build/Products/Release/Skechworks.app
 ```
 
 A viewer, for now: open an `.sw.png` (or a `.sketch` directly), browse pages,
@@ -15,7 +15,7 @@ The canvas draws through the same `Renderer.draw(page:in:)` the exporter uses, s
 is on screen and what lands in the SVG cannot drift apart.
 
 Note `bin/build` re-signs the whole bundle in one pass at the end. Without that,
-xcodebuild gives the app and the embedded `SketchyworksCore.framework` separate ad-hoc
+xcodebuild gives the app and the embedded `SkechworksCore.framework` separate ad-hoc
 identities and dyld refuses to load the framework with "different Team IDs".
 
 ## Usage
