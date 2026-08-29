@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.43 (August 28, 2026)
+
+- Vectorize leaves the background out
+
 ## 0.1.42 (August 28, 2026)
 
 - The wand eraser can now pick a background out from around a shape

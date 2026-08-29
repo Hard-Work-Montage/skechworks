@@ -106,3 +106,26 @@ private func shapes(_ layers: [Layer]) -> [Layer] {
     #expect(box.minX < 0, "the turned corner hangs past the frame and must be in the box")
     #expect(box.maxX >= 250)
 }
+
+
+// The space a file draws in, kept apart from what it draws.
+
+@Test func theReaderReportsTheFilesOwnSpaceNotTheShapesBounds() throws {
+    // A coin traced without its backdrop: one shape in the middle of a
+    // 200-point square. The square is the space; the shape is not.
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">\
+    <path fill="#000" d="M50 50 L150 50 L150 150 L50 150 Z"/></svg>
+    """
+    let read = try SVGReader().read(data: Data(svg.utf8))
+    #expect(read.size == CGSize(width: 200, height: 200))
+    #expect(read.document.pages.first?.layers.first?.frame.width == 100)
+}
+
+@Test func aFileWithOnlyAWidthAndHeightStillHasASpace() throws {
+    let svg = """
+    <svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254">\
+    <path fill="#000" d="M0 0 L10 0 L10 10 Z"/></svg>
+    """
+    #expect(try SVGReader().read(data: Data(svg.utf8)).size == CGSize(width: 1254, height: 1254))
+}

@@ -1462,22 +1462,42 @@ final class DocumentStore: ObservableObject {
                     status = "Vectorize produced no shapes"
                     return
                 }
-                // The trace is in the flattened image's pixel space. Group it,
-                // then size the group to the bitmap's frame so it lands exactly
-                // on top of what it traced.
+                // The trace is in the flattened image's pixel space, and the
+                // whole of that space maps onto the bitmap's frame. Mapping the
+                // shapes' own bounds instead was right only while the backdrop
+                // was traced along with them; with the backdrop stripped, a
+                // coin traced on its own got stretched to fill the square it
+                // came out of.
                 let bounds = kids.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+                let space = read.size.map { CGRect(origin: .zero, size: $0) } ?? bounds
                 for i in kids.indices {
-                    kids[i].frame.origin.x -= bounds.minX
-                    kids[i].frame.origin.y -= bounds.minY
+                    kids[i].frame.origin.x -= space.minX
+                    kids[i].frame.origin.y -= space.minY
                 }
                 var group = Layer(kind: .group(kids))
                 group.name = l.name.isEmpty ? "Vectorized" : "\(l.name) vector"
-                group.frame = CGRect(origin: .zero, size: bounds.size)
+                group.frame = CGRect(origin: .zero, size: space.size)
                 group.resize(to: frame.size)
-
+                // Then hug the shapes. The group's box is the drawing, not the
+                // square it came out of; `offset` is where the drawing sits
+                // inside that square, so it lands exactly over what it traced.
+                var offset = CGPoint.zero
+                if case .group(var scaled) = group.kind {
+                    let hug = scaled.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+                    if !hug.isNull {
+                        for i in scaled.indices {
+                            scaled[i].frame.origin.x -= hug.minX
+                            scaled[i].frame.origin.y -= hug.minY
+                        }
+                        group.kind = .group(scaled)
+                        group.frame.size = hug.size
+                        offset = hug.origin
+                    }
+                }
                 // Beside the picture rather than over it, the same as AI Draw.
                 let placement = boardBeside(id, naming: "vector")
-                group.frame.origin = placement?.origin ?? frame.origin
+                let base = placement?.origin ?? frame.origin
+                group.frame.origin = CGPoint(x: base.x + offset.x, y: base.y + offset.y)
                 mutatePage("Vectorize") { p in
                     if let board = placement?.board {
                         p.insertLayer(group, parent: board, index: p.children(of: board).count)

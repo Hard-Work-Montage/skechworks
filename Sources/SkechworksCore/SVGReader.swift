@@ -20,6 +20,11 @@ public final class SVGReader: NSObject {
         public var images: [String: Data]
         /// Things the file contained that we chose not to convert.
         public var warnings: [String]
+        /// The file's own coordinate space: its viewBox, or its declared
+        /// width and height. Nil when it says neither. A trace comes back in
+        /// the pixel space of the picture it traced, and this is that space,
+        /// whether or not any shape reaches its edges.
+        public var size: CGSize?
     }
 
     public enum Failure: Error, CustomStringConvertible {
@@ -77,7 +82,9 @@ public final class SVGReader: NSObject {
         var doc = Document()
         doc.sourceApp = "SVG"
         doc.pages = [page]
-        return Result(document: doc, images: images, warnings: warnings)
+        let size = viewBox.map(\.size)
+            ?? declaredSize.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil }
+        return Result(document: doc, images: images, warnings: warnings, size: size)
     }
 
     public func read(url: URL) throws -> Result {
