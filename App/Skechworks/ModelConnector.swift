@@ -358,6 +358,10 @@ struct ModelConnector {
     /// typed into each menu and left behind when the price moves.
     static var paidLabel: String { "With AI (\(credits(removePrice)))" }
 
+    /// Vectorize costs the same as the others; both of its styles say so.
+    static let vectorizePrice = 0.40
+    static func vectorizeLabel(_ style: String) -> String { "\(style) (\(credits(vectorizePrice)))" }
+
     /// Money, said in credits.
     ///
     /// The service counts in dollars and the app used to show them, so a menu

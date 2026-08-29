@@ -241,7 +241,17 @@ struct SkechworksApp: App {
                         Button("Simple") { AppDelegate.shared?.active?.beginExtend() }
                         Button(ModelConnector.paidLabel) { AppDelegate.shared?.active?.beginExtend(usingModel: true) }
                     }
-                    Button("Vectorize Image") { AppDelegate.shared?.active?.vectorizeSelection() }
+                    // A two-color coin wants two colors and a painting wants
+                    // all of them, and no tracer can tell which it is looking
+                    // at. So the choice is up front, the same as the two above.
+                    Menu("Vectorize Image") {
+                        Button(ModelConnector.vectorizeLabel("Black and White")) {
+                            AppDelegate.shared?.active?.vectorizeSelection(style: "lineart")
+                        }
+                        Button(ModelConnector.vectorizeLabel("Full Color")) {
+                            AppDelegate.shared?.active?.vectorizeSelection(style: "color")
+                        }
+                    }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }
                 }
             }
