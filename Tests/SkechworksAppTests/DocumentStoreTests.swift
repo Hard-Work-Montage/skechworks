@@ -176,6 +176,50 @@ final class DocumentStoreTests: XCTestCase {
         XCTAssertEqual(again.last!.frame.size, CGSize(width: 80, height: 60))
     }
 
+    /// A box dragged past the picture's edge, and a cut that takes a strip
+    /// off the top so the picture's frame pulls in: the piece still comes
+    /// back exactly the width and height it had, exactly where it was.
+    func testPixelsCutAtTheEdgePasteBackTheirOwnSizeAndPlace() {
+        let ctx = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let png = Renderer.png(ctx.makeImage()!)!
+        var photo = Layer(kind: .bitmap(imageRef: "px.png"))
+        photo.name = "Photo"
+        photo.frame = CGRect(x: 40, y: 40, width: 200, height: 200)
+        var page = Page(name: "Page 1")
+        page.layers = [photo]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: ["px.png": png])
+
+        // Overhang: the box runs 30 units past the right and bottom edges.
+        store.enterPixelSelect(photo.id)
+        store.pixelSelectRect = CGRect(x: 150, y: 150, width: 80, height: 80)
+        store.copySelection()
+        let cg = BitmapImage.load(NSPasteboard.general.data(forType: .png)!)!.image
+        XCTAssertEqual(cg.width, 25, "only the pixels that exist are copied")
+        XCTAssertEqual(cg.height, 25)
+        store.pixelSelectRect = nil
+        store.paste()
+        var pasted = store.page!.layers.first { $0.name == "Pasted pixels" }!
+        XCTAssertEqual(pasted.frame, CGRect(x: 190, y: 190, width: 50, height: 50),
+                       "sized to the pixels it holds, not to the box that overhung the picture")
+
+        // A strip off the top: the picture's frame moves down, the paste must not.
+        store.pixelSelectRect = CGRect(x: 0, y: 0, width: 200, height: 60)
+        store.cutSelection()
+        let shrunk = store.page!.layers.first { $0.id == photo.id }!
+        XCTAssertGreaterThan(shrunk.frame.minY, 40, "the cut pulls the frame in from the top")
+        store.paste()
+        pasted = store.page!.layers.filter { $0.name == "Pasted pixels" }.last!
+        XCTAssertEqual(pasted.frame, CGRect(x: 40, y: 40, width: 200, height: 60),
+                       "back exactly where the strip was, at exactly its size")
+    }
+
     func testMarkingAMaskSticksEvenWhenNothingMoves() {
         let (store, _, photo) = loaded()
         store.selection = [photo]

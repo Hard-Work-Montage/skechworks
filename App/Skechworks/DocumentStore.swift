@@ -2339,8 +2339,12 @@ final class DocumentStore: ObservableObject {
     }
 
     /// The boxed region as pixels, cut from the bitmap as displayed — adjustments
-    /// and crop baked, so what copies is what the user sees.
-    private func pixelRegionImage() -> CGImage? {
+    /// and crop baked, so what copies is what the user sees. Comes with the
+    /// box those pixels actually cover, in the layer's own units: a box dragged
+    /// past the picture's edge only has pixels where the picture is, and a
+    /// paste sized to the whole box stretched the part that existed to fill
+    /// it, taller than it was cut.
+    private func pixelRegionImage() -> (image: CGImage, box: CGRect)? {
         guard let id = pixelSelectID, let rect = pixelSelectRect, let page,
               let l = page.layer(id), case .bitmap(let ref) = l.kind,
               let raw = images[ref],
@@ -2348,9 +2352,12 @@ final class DocumentStore: ObservableObject {
               l.frame.width > 0, l.frame.height > 0 else { return nil }
         let sx = CGFloat(baked.width) / l.frame.width
         let sy = CGFloat(baked.height) / l.frame.height
+        let whole = CGRect(x: 0, y: 0, width: baked.width, height: baked.height)
         let px = CGRect(x: rect.minX * sx, y: rect.minY * sy,
-                        width: rect.width * sx, height: rect.height * sy).integral
-        return baked.cropping(to: px)
+                        width: rect.width * sx, height: rect.height * sy).integral.intersection(whole)
+        guard !px.isNull, px.width >= 1, px.height >= 1, let image = baked.cropping(to: px) else { return nil }
+        let box = CGRect(x: px.minX / sx, y: px.minY / sy, width: px.width / sx, height: px.height / sy)
+        return (image, box)
     }
 
     /// Alongside the PNG: how big those pixels were on the canvas, where, and
@@ -2370,16 +2377,16 @@ final class DocumentStore: ObservableObject {
     /// paste back here or into any other app.
     func copyPixelSelection() -> Bool {
         guard let id = pixelSelectID else { return false }
-        guard let cg = pixelRegionImage(), let png = Renderer.png(cg) else {
+        guard let (cg, box) = pixelRegionImage(), let png = Renderer.png(cg) else {
             status = "Drag a box over the pixels first"
             return true
         }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setData(png, forType: .png)
-        if let rect = pixelSelectRect, let l = page?.layer(id) {
-            let hint = PixelHint(layer: id, x: rect.minX, y: rect.minY, w: rect.width, h: rect.height,
-                                 pageX: l.frame.minX + rect.minX, pageY: l.frame.minY + rect.minY,
+        if let l = page?.layer(id) {
+            let hint = PixelHint(layer: id, x: box.minX, y: box.minY, w: box.width, h: box.height,
+                                 pageX: l.frame.minX + box.minX, pageY: l.frame.minY + box.minY,
                                  crc: Zip.crc32(png))
             if let d = try? JSONEncoder().encode(hint) { pb.setData(d, forType: Self.pixelHintType) }
         }
@@ -2395,13 +2402,15 @@ final class DocumentStore: ObservableObject {
         guard let data = pb.data(forType: .png), let hd = pb.data(forType: Self.pixelHintType),
               let hint = try? JSONDecoder().decode(PixelHint.self, from: hd),
               hint.crc == Zip.crc32(data) else { return false }
-        let box = CGRect(x: hint.x, y: hint.y, width: hint.w, height: hint.h)
-        if page?.layer(hint.layer) != nil, placePixels(data, over: box, beside: hint.layer) {
+        // Where it was on the page, not where it was in the picture: cutting
+        // a strip off a picture's edge pulls the picture's frame in, and a box
+        // measured from the old frame would land the piece off by that much.
+        let spot = CGRect(x: hint.pageX, y: hint.pageY, width: hint.w, height: hint.h)
+        if page?.layer(hint.layer) != nil, placePixels(data, at: spot, beside: hint.layer) {
             return true
         }
-        // The picture it came from is gone; the size still holds.
-        return placeImage(data, name: "Pasted pixels", at: CGPoint(x: hint.pageX, y: hint.pageY),
-                          size: box.size)
+        // The picture it came from is gone; the size and place still hold.
+        return placeImage(data, name: "Pasted pixels", at: spot.origin, size: spot.size)
     }
 
     /// ⌘V in pixel-select mode: clipboard pixels land as a new bitmap layer sitting
@@ -2409,24 +2418,27 @@ final class DocumentStore: ObservableObject {
     func pastePixelSelection() -> Bool {
         guard let id = pixelSelectID, let rect = pixelSelectRect else { return false }
         let pb = NSPasteboard.general
-        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff) else { return false }
-        return placePixels(data, over: rect, beside: id)
+        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
+              let l = page?.layer(id) else { return false }
+        // Only the part of the box that is on the picture: pasting over the
+        // rest would stretch the pixels into the overhang.
+        let box = rect.intersection(CGRect(origin: .zero, size: l.frame.size))
+        guard !box.isNull, box.width >= 1, box.height >= 1 else { return false }
+        // The box is layer-local; the source's frame is parent-relative, so their
+        // sum places the new layer over the box whatever container they're in.
+        return placePixels(data, at: box.offsetBy(dx: l.frame.minX, dy: l.frame.minY), beside: id)
     }
 
-    /// Image bytes as a new bitmap layer sitting exactly on `box` (in the
-    /// layer's own coordinates), directly above that layer.
-    private func placePixels(_ data: Data, over box: CGRect, beside id: String) -> Bool {
+    /// Image bytes as a new bitmap layer sitting exactly on `spot` (in the
+    /// source layer's parent's coordinates), directly above that layer.
+    private func placePixels(_ data: Data, at spot: CGRect, beside id: String) -> Bool {
         guard BitmapImage.load(data) != nil,
-              let src = source, let page, let l = page.layer(id) else { return false }
+              let src = source, let page, page.layer(id) != nil else { return false }
         let key = "images/\(Zip.crc32(data))-\(data.count).png"
         source = src.adding(image: data, key: key)
         var pasted = Layer(kind: .bitmap(imageRef: key))
         pasted.name = "Pasted pixels"
-        // The box is layer-local; the source's frame is parent-relative, so their
-        // sum places the new layer over the box whatever container they're in.
-        pasted.frame = CGRect(x: l.frame.origin.x + box.minX,
-                              y: l.frame.origin.y + box.minY,
-                              width: box.width, height: box.height)
+        pasted.frame = spot
         mutatePage("Paste Pixels") { p in
             let parent = p.ancestors(of: id).last
             let index = p.children(of: parent).firstIndex { $0.id == id }
