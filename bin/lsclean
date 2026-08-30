@@ -22,9 +22,9 @@ LSR=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.
 "$LSR" -f /Applications/Skechworks.app >/dev/null 2>&1 || true
 
 "$LSR" -dump 2>/dev/null \
-  | grep -oE '/[^ ]*Skechworks[^ ]*\.app' \
+  | grep -oE '/[^ ]*(Skechworks|Sketchyworks|Accomplice)[^ ]*\.app' \
   | sort -u \
-  | grep -v '^/Applications/' \
+  | grep -v '^/Applications/Skechworks.app' \
   | while read -r stale; do
       "$LSR" -u "$stale" >/dev/null 2>&1 || true
     done
