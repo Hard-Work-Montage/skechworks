@@ -248,6 +248,12 @@ struct SkechworksApp: App {
                         Button(ModelConnector.vectorizeLabel("Black and White")) {
                             AppDelegate.shared?.active?.vectorizeSelection(style: "lineart")
                         }
+                        // Line art goes through as it is; Bold redraws it with
+                        // thick, even strokes. Which one a drawing wants is a
+                        // taste no measurement settles, so both are on the menu.
+                        Button(ModelConnector.vectorizeLabel("Bold Black and White")) {
+                            AppDelegate.shared?.active?.vectorizeSelection(style: "lineart_bold")
+                        }
                         Button(ModelConnector.vectorizeLabel("Full Color")) {
                             AppDelegate.shared?.active?.vectorizeSelection(style: "color")
                         }
