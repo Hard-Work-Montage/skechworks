@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.45 (August 29, 2026)
+
+- Pixels cut out of a resized picture paste back at the size they were
+
 ## 0.1.44 (August 28, 2026)
 
 - Vectorize Image now offers Black and White or Full Color

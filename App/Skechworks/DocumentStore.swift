@@ -2353,10 +2353,23 @@ final class DocumentStore: ObservableObject {
         return baked.cropping(to: px)
     }
 
+    /// Alongside the PNG: how big those pixels were on the canvas, where, and
+    /// which picture they came out of. A pasteboard image has no memory of the
+    /// layer it was cut from, so a piece cut out of a picture shown at half
+    /// size pasted back at the picture's full resolution — twice the size of
+    /// the hole it left. Other apps only see the PNG.
+    static let pixelHintType = NSPasteboard.PasteboardType("com.skechworks.pixel-hint")
+    private struct PixelHint: Codable {
+        var layer: String
+        var x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat   // the box, layer-local
+        var pageX: CGFloat, pageY: CGFloat                    // the box, on the page
+        var crc: UInt32                                       // of the PNG it belongs to
+    }
+
     /// ⌘C in pixel-select mode: the boxed pixels go out as a plain image, so they
     /// paste back here or into any other app.
     func copyPixelSelection() -> Bool {
-        guard pixelSelectID != nil else { return false }
+        guard let id = pixelSelectID else { return false }
         guard let cg = pixelRegionImage(), let png = Renderer.png(cg) else {
             status = "Drag a box over the pixels first"
             return true
@@ -2364,8 +2377,31 @@ final class DocumentStore: ObservableObject {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setData(png, forType: .png)
+        if let rect = pixelSelectRect, let l = page?.layer(id) {
+            let hint = PixelHint(layer: id, x: rect.minX, y: rect.minY, w: rect.width, h: rect.height,
+                                 pageX: l.frame.minX + rect.minX, pageY: l.frame.minY + rect.minY,
+                                 crc: Zip.crc32(png))
+            if let d = try? JSONEncoder().encode(hint) { pb.setData(d, forType: Self.pixelHintType) }
+        }
         status = "Copied \(cg.width)×\(cg.height) pixels"
         return true
+    }
+
+    /// Clipboard pixels that came out of a picture in this app, put back at
+    /// the size and place they were cut from. False when the clipboard holds
+    /// anything else, or a PNG the hint doesn't belong to.
+    private func pasteHintedPixels() -> Bool {
+        let pb = NSPasteboard.general
+        guard let data = pb.data(forType: .png), let hd = pb.data(forType: Self.pixelHintType),
+              let hint = try? JSONDecoder().decode(PixelHint.self, from: hd),
+              hint.crc == Zip.crc32(data) else { return false }
+        let box = CGRect(x: hint.x, y: hint.y, width: hint.w, height: hint.h)
+        if page?.layer(hint.layer) != nil, placePixels(data, over: box, beside: hint.layer) {
+            return true
+        }
+        // The picture it came from is gone; the size still holds.
+        return placeImage(data, name: "Pasted pixels", at: CGPoint(x: hint.pageX, y: hint.pageY),
+                          size: box.size)
     }
 
     /// ⌘V in pixel-select mode: clipboard pixels land as a new bitmap layer sitting
@@ -2373,8 +2409,14 @@ final class DocumentStore: ObservableObject {
     func pastePixelSelection() -> Bool {
         guard let id = pixelSelectID, let rect = pixelSelectRect else { return false }
         let pb = NSPasteboard.general
-        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
-              BitmapImage.load(data) != nil,
+        guard let data = pb.data(forType: .png) ?? pb.data(forType: .tiff) else { return false }
+        return placePixels(data, over: rect, beside: id)
+    }
+
+    /// Image bytes as a new bitmap layer sitting exactly on `box` (in the
+    /// layer's own coordinates), directly above that layer.
+    private func placePixels(_ data: Data, over box: CGRect, beside id: String) -> Bool {
+        guard BitmapImage.load(data) != nil,
               let src = source, let page, let l = page.layer(id) else { return false }
         let key = "images/\(Zip.crc32(data))-\(data.count).png"
         source = src.adding(image: data, key: key)
@@ -2382,9 +2424,9 @@ final class DocumentStore: ObservableObject {
         pasted.name = "Pasted pixels"
         // The box is layer-local; the source's frame is parent-relative, so their
         // sum places the new layer over the box whatever container they're in.
-        pasted.frame = CGRect(x: l.frame.origin.x + rect.minX,
-                              y: l.frame.origin.y + rect.minY,
-                              width: rect.width, height: rect.height)
+        pasted.frame = CGRect(x: l.frame.origin.x + box.minX,
+                              y: l.frame.origin.y + box.minY,
+                              width: box.width, height: box.height)
         mutatePage("Paste Pixels") { p in
             let parent = p.ancestors(of: id).last
             let index = p.children(of: parent).firstIndex { $0.id == id }
@@ -2813,6 +2855,8 @@ final class DocumentStore: ObservableObject {
         // picture instead gave you a flat bitmap of something that was always
         // shapes.
         if pasteSVGText() { return }
+        // Pixels cut out of a picture here come back the size they were.
+        if pasteHintedPixels() { return }
         if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL] {
             for u in urls where !Self.isDocument(u) {
                 if let d = try? Data(contentsOf: u),
@@ -3107,7 +3151,7 @@ final class DocumentStore: ObservableObject {
     /// Places image bytes as a bitmap layer. Shared by the insert menu, drag-and-drop
     /// and paste, so all three behave identically.
     @discardableResult
-    func placeImage(_ data: Data, name: String, at origin: CGPoint? = nil) -> Bool {
+    func placeImage(_ data: Data, name: String, at origin: CGPoint? = nil, size given: CGSize? = nil) -> Bool {
         guard let src = source, BitmapImage.load(data) != nil else { return false }
 
         // Content-addressed, matching how the format stores assets, so placing the same
@@ -3115,7 +3159,7 @@ final class DocumentStore: ObservableObject {
         let key = "images/\(Zip.crc32(data))-\(data.count).png"
         let display = BitmapImage.load(data)?.displaySize ?? CGSize(width: 400, height: 400)
         let scale = min(1, 800 / max(display.width, display.height))
-        let size = CGSize(width: display.width * scale, height: display.height * scale)
+        let size = given ?? CGSize(width: display.width * scale, height: display.height * scale)
 
         source = src.adding(image: data, key: key)
         var l = Layer(kind: .bitmap(imageRef: key))

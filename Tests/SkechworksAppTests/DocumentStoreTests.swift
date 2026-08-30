@@ -137,6 +137,45 @@ final class DocumentStoreTests: XCTestCase {
                        "the paste lands exactly on the box")
     }
 
+    /// Cut a piece out of a picture shown at half size and paste it after the
+    /// box is gone: it has to come back the size the hole is, not the size of
+    /// the pixels. It pasted at the picture's full resolution, twice as big.
+    func testPixelsCutFromAResizedPicturePasteBackAtTheSizeTheyWere() {
+        let ctx = CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let png = Renderer.png(ctx.makeImage()!)!
+        var photo = Layer(kind: .bitmap(imageRef: "px.png"))
+        photo.name = "Photo"
+        photo.frame = CGRect(x: 40, y: 40, width: 200, height: 200)   // shown at 2× its pixels
+        var page = Page(name: "Page 1")
+        page.layers = [photo]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: ["px.png": png])
+
+        store.enterPixelSelect(photo.id)
+        store.pixelSelectRect = CGRect(x: 20, y: 20, width: 80, height: 60)
+        store.cutSelection()
+        XCTAssertNil(store.pixelSelectRect, "cut uses the box up")
+
+        store.paste()
+        let pasted = store.page!.layers.first { $0.name == "Pasted pixels" }
+        XCTAssertNotNil(pasted, "the cut pixels should paste back as a layer")
+        XCTAssertEqual(pasted!.frame, CGRect(x: 60, y: 60, width: 80, height: 60),
+                       "back at the size and place of the hole, not at 40×30 pixels")
+
+        // Leaving pixel mode changes nothing about that.
+        store.exitPixelSelect()
+        store.paste()
+        let again = store.page!.layers.filter { $0.name == "Pasted pixels" }
+        XCTAssertEqual(again.count, 2)
+        XCTAssertEqual(again.last!.frame.size, CGSize(width: 80, height: 60))
+    }
+
     func testMarkingAMaskSticksEvenWhenNothingMoves() {
         let (store, _, photo) = loaded()
         store.selection = [photo]
