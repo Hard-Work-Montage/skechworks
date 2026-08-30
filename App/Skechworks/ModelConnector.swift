@@ -301,11 +301,17 @@ struct ModelConnector {
     /// arrived as "The model's reply couldn't be read: Vectorizing costs 40
     /// credits" — a sentence that sends you to look for a bug instead of to the
     /// one button that fixes it.
+    /// The most a picture may weigh on its way to the service. The service
+    /// stops at 15 MB; this leaves room so the app never finds that out the
+    /// slow way. Pictures over it are shrunk before they go.
+    static let maxUploadBytes = 12 * 1024 * 1024
+
     private static func failure(status: Int, json: [String: Any]) -> Failure {
         let said = (json["error"] as? [String: Any])?["message"] as? String
         switch status {
         case 401, 403: return .notSignedIn
         case 402: return .outOfCredits(said ?? "You're out of credits.")
+        case 413: return .refused(said ?? "That picture is too big to send.")
         default: return .badResponse(said ?? "HTTP \(status)")
         }
     }

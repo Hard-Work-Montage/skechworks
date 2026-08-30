@@ -483,6 +483,10 @@ extension Page {
             run.fontSize = spec.fontSize.map { CGFloat($0) } ?? 48
             run.alignment = .center
             l = Layer(kind: .text(run))
+            // A fill from the start. Text without one paints in the run's own
+            // color, which works and shows as "No fill" in the inspector, so
+            // the color couldn't be changed where every other color is.
+            l.style.fills = [Fill(paint: .color(.black))]
         case "path", "curve", "outline":
             // Nothing sensible to draw without the data, and a silent fallback to a
             // 200×200 rectangle would look like the curve landed and went wrong.

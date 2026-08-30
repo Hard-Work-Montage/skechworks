@@ -377,6 +377,40 @@ public struct Renderer {
         return out as Data
     }
 
+    /// The image as a PNG no bigger than `limit` bytes, shrunk as little as
+    /// it takes. The services take 15 MB; a big photo on a grown canvas can
+    /// pass that and the request came back "Image too large" after the wait.
+    /// Nil only if even a thumbnail won't fit, which is not a real picture.
+    public static func png(_ image: CGImage, under limit: Int) -> (data: Data, scale: CGFloat)? {
+        var current = image
+        var scale: CGFloat = 1
+        for _ in 0..<8 {
+            guard let data = png(current) else { return nil }
+            if data.count <= limit { return (data, scale) }
+            // Bytes go roughly with area, so aim a little under the limit and
+            // let the next pass correct if the picture compresses worse.
+            let by = (CGFloat(limit) / CGFloat(data.count)).squareRoot() * 0.9
+            let next = CGSize(width: max(1, (CGFloat(current.width) * by).rounded()),
+                              height: max(1, (CGFloat(current.height) * by).rounded()))
+            guard let smaller = scaled(current, to: next) else { return nil }
+            scale *= CGFloat(smaller.width) / CGFloat(current.width)
+            current = smaller
+        }
+        return nil
+    }
+
+    /// The image resampled to `size`.
+    public static func scaled(_ image: CGImage, to size: CGSize) -> CGImage? {
+        let w = Int(size.width), h = Int(size.height)
+        guard w > 0, h > 0, let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                                bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
+    }
+
     public static func png(_ image: CGImage) -> Data? {
         let out = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil) else { return nil }

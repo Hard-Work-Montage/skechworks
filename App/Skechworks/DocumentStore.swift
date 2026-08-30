@@ -1408,13 +1408,20 @@ final class DocumentStore: ObservableObject {
         // Vectorize what the user SEES. A cropped or adjusted bitmap must go out
         // as its baked display rendition — sending the original bytes traced the
         // uncropped photo and handed back shapes for parts that aren't on canvas.
-        let data: Data
+        var data: Data
         if l.hasBitmapAdjustments,
            let baked = BitmapAdjust.displayImage(data: raw, ref: ref, layer: l),
            let png = Renderer.png(baked) {
             data = png
         } else {
             data = raw
+        }
+        // A trace does not need the pixels a photo has; one that is too big
+        // to send goes out smaller rather than not at all.
+        if data.count > ModelConnector.maxUploadBytes,
+           let big = BitmapImage.load(data)?.image,
+           let (fit, _) = Renderer.png(big, under: ModelConnector.maxUploadBytes) {
+            data = fit
         }
         guard !(Credentials.get(.skechworksToken) ?? "").isEmpty else {
             needsAccount("Vectorize")
@@ -2061,7 +2068,7 @@ final class DocumentStore: ObservableObject {
                 original: original,
                 size: CGSize(width: baked.width, height: baked.height),
                 offset: offset),
-              let data = Renderer.png(outgoing) else { return }
+              let (data, sentAt) = Renderer.png(outgoing, under: ModelConnector.maxUploadBytes) else { return }
         guard !(Credentials.get(.skechworksToken) ?? "").isEmpty else {
             needsAccount("Extend")
             return
@@ -2090,6 +2097,9 @@ final class DocumentStore: ObservableObject {
             self?.removeTask?.cancel()
         }
         chat.note(entry, "Asking the model to finish the new part — a minute or two")
+        if sentAt < 1 {
+            chat.note(entry, String(format: "Sent at %.0f%% size so it fits; the answer is scaled back up", sentAt * 100))
+        }
         status = "Extending… this takes a minute or two"
         removeTask = Task { @MainActor in
             do {
@@ -2168,7 +2178,7 @@ final class DocumentStore: ObservableObject {
         // orientation, adjustments and crop the way the canvas draws them. This
         // also guarantees PNG going out; the stored bytes may be JPEG or HEIC.
         guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l),
-              let data = Renderer.png(baked) else {
+              let (data, sentAt) = Renderer.png(baked, under: ModelConnector.maxUploadBytes) else {
             refuse(saying: "Remove can't read that picture.")
             return
         }
@@ -2222,19 +2232,36 @@ final class DocumentStore: ObservableObject {
             self?.removeTask?.cancel()
         }
         chat.note(entry, "Taking a piece out of \(l.name.isEmpty ? "the picture" : l.name) — a minute or two")
+        if sentAt < 1 {
+            chat.note(entry, String(format: "Sent at %.0f%% size so it fits; only the box changes, the rest keeps its pixels", sentAt * 100))
+        }
         chat.note(entry, String(format: "The box covers %.0f%% of it", Double(unit.width * unit.height) * 100))
         status = "Removing… this takes a minute or two"
         removeTask = Task { @MainActor in
             do {
                 let result = try await ModelConnector.remove(png: data, rect: unit)
                 chat.note(entry, "Filled in. Putting it back on the canvas…")
-                guard let src = source, BitmapImage.load(result.png) != nil else {
+                guard source != nil, let reply = BitmapImage.load(result.png)?.image else {
                     chat.endActivity(entry, text: "Remove failed: unreadable image", failed: true)
                     status = "Remove failed: unreadable image"
                     return
                 }
-                _ = src
-                swapPixels(id, png: result.png, actionName: "Remove")
+                var png = result.png
+                if reply.width != baked.width || reply.height != baked.height {
+                    // The picture went out smaller than it is. Take only the
+                    // box from the answer, scaled back up, and keep every
+                    // other pixel as it was.
+                    let region = CGRect(x: unit.minX * CGFloat(baked.width), y: unit.minY * CGFloat(baked.height),
+                                        width: unit.width * CGFloat(baked.width), height: unit.height * CGFloat(baked.height))
+                    guard let merged = Extend.merge(model: reply, into: baked, region: region),
+                          let full = Renderer.png(merged) else {
+                        chat.endActivity(entry, text: "Remove failed: couldn't put the answer back", failed: true)
+                        status = "Remove failed"
+                        return
+                    }
+                    png = full
+                }
+                swapPixels(id, png: png, actionName: "Remove")
                 let left = result.remaining.map { " · \(ModelConnector.credits($0)) left" } ?? ""
                 chat.endActivity(entry, text: "Removed it" + left)
                 status = "Removed" + left
