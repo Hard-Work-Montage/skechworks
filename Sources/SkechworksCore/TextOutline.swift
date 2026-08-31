@@ -22,6 +22,19 @@ public enum TextOutline {
     }
 
     /// Outlines the run inside `frame`, in the layer's local coordinate space (y-down).
+    /// The height the text actually needs at this width — where the frame
+    /// belongs after the type gets bigger or smaller. Nil for curved or
+    /// on-path text, whose frames answer to the curve instead.
+    public static func naturalHeight(_ run: TextRun, width: CGFloat) -> CGFloat? {
+        guard run.arc == nil, run.onPath == nil, width > 1 else { return nil }
+        let probe = CGRect(x: 0, y: 0, width: width, height: 100_000)
+        guard let p = path(run, in: probe) else { return nil }
+        let box = p.boundingBoxOfPath
+        guard box.maxY.isFinite, box.maxY > 0 else { return nil }
+        // A hair of air under the last baseline, so descenders never kiss the box.
+        return (box.maxY + CTFontGetDescent(font(run)) * 0.3).rounded(.up)
+    }
+
     public static func path(_ run: TextRun, in frame: CGRect) -> CGPath? {
         if let path = run.onPath { return alongPath(run, path: path) }
         if let arc = run.arc { return arcPath(run, arc: arc, in: frame) }

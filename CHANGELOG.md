@@ -3,6 +3,12 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.49 (August 31, 2026)
+
+- The rotate cursor only appears outside the selection, so edge handles are easy to grab
+- The selection box follows the text when the font size changes
+- Dragging a text box's edge re-wraps the copy, a corner scales the type
+
 ## 0.1.48 (August 30, 2026)
 
 - Vectorize Image adds Bold Black and White, which redraws line art with thick, even strokes

@@ -129,3 +129,32 @@ private func shapes(_ layers: [Layer]) -> [Layer] {
     """
     #expect(try SVGReader().read(data: Data(svg.utf8)).size == CGSize(width: 1254, height: 1254))
 }
+
+
+// The frame has to follow the type.
+
+@Test func biggerTypeNeedsATallerFrame() throws {
+    var run = TextRun()
+    run.string = "CUSTOMIZE BOTH"
+    run.fontSize = 24
+    let small = try #require(TextOutline.naturalHeight(run, width: 800))
+    run.fontSize = 96
+    let big = try #require(TextOutline.naturalHeight(run, width: 800))
+    #expect(big > small * 3, "quadrupled type should need roughly four times the height")
+}
+
+@Test func aNarrowBoxWrapsAndSoNeedsMoreHeight() throws {
+    var run = TextRun()
+    run.string = "CUSTOMIZE BOTH THE FRONT AND THE BACK"
+    run.fontSize = 24
+    let wide = try #require(TextOutline.naturalHeight(run, width: 2000))
+    let narrow = try #require(TextOutline.naturalHeight(run, width: 200))
+    #expect(narrow > wide * 2, "the wrapped copy needs several lines")
+}
+
+@Test func curvedTextKeepsItsFrameRules() {
+    var run = TextRun()
+    run.string = "AROUND"
+    run.arc = TextArc(radius: 50)
+    #expect(TextOutline.naturalHeight(run, width: 300) == nil)
+}

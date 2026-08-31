@@ -558,6 +558,12 @@ final class PageCanvas: NSView {
     private func rotateCornerUnder(_ p: CGPoint) -> Handle? {
         guard let r = selectionBounds, editPath == nil, tool == .select else { return nil }
         let grab = 7 / max(0.01, currentScale)
+        // A real handle always wins, and the rotate ring lives strictly OUTSIDE
+        // the selection. On a short box the old ring reached the edge handles'
+        // midpoints, and the side drag could not be picked up without zooming
+        // way in — the rotate cursor swallowed it.
+        guard handleUnder(p) == nil,
+              !r.insetBy(dx: -grab, dy: -grab).contains(p) else { return nil }
         for h in [Handle.nw, .ne, .se, .sw] {
             let c = handlePoint(h, in: r)
             let d = hypot(p.x - c.x, p.y - c.y)
@@ -2535,7 +2541,17 @@ final class PageCanvas: NSView {
             // The padlock decides: locked layers resize proportionally, and shift
             // inverts whichever mode the selection is in — so an unlocked layer
             // constrains while shift is down, a locked one stretches free.
-            let locked = selected.allSatisfy { page?.layer($0)?.constrainProportions ?? true }
+            //
+            // Text has no padlock, so the lock cannot be the decider there: an
+            // edge drag re-wraps the box and leaves the type alone, a corner
+            // drag scales the type. It used to take shift to widen a text box
+            // without also making it taller.
+            let isEdge = [Handle.n, .s, .e, .w].contains(h)
+            let locked = selected.allSatisfy { id in
+                guard let l = page?.layer(id) else { return true }
+                if case .text = l.kind { return !isEdge }
+                return l.constrainProportions
+            }
             if locked != event.modifierFlags.contains(.shift) {
                 if abs(startW) > 0.001, abs(startH) > 0.001 {
                     let s = max(abs(sx), abs(sy))

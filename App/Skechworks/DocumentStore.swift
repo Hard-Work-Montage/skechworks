@@ -1389,6 +1389,11 @@ final class DocumentStore: ObservableObject {
             guard case .text(var t) = l.kind else { return }
             body(&t)
             l.kind = .text(t)
+            // The frame follows the type. Growing the size used to leave the
+            // box at its old height with the glyphs hanging out of it.
+            if let h = TextOutline.naturalHeight(t, width: l.frame.width), h > 1 {
+                l.frame.size.height = h
+            }
         }
     }
 
