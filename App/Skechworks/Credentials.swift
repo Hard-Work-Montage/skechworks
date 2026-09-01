@@ -32,7 +32,9 @@ enum Credentials {
     /// keychain password — and probing them on every lookup asked over and
     /// over while you worked. A value found there is copied forward and the
     /// old items deleted, so the question can never come back.
-    private static var probedLegacy: Set<String> = []
+    // Only ever touched from the main thread — every caller is UI or a
+    // MainActor task — but the compiler can't see that from here.
+    nonisolated(unsafe) private static var probedLegacy: Set<String> = []
 
     static func get(_ slot: Slot) -> String? {
         if let s = read(service: service, account: slot.rawValue) { return s }
