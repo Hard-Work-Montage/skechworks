@@ -2985,8 +2985,13 @@ final class DocumentStore: ObservableObject {
         }
         var final = placed
         final.frame = CGRect(origin: .zero, size: bounds.size)
-        final.resize(to: size)
-        final.frame.origin = insertionPoint(size)
+        if let spot = selectedBoardPlacement(size) {
+            final.resize(to: spot.size)
+            final.frame.origin = spot.origin
+        } else {
+            final.resize(to: size)
+            final.frame.origin = insertionPoint(size)
+        }
         addLayer(final, actionName: "Paste SVG")
         status = "Pasted \(kids.count) shape\(kids.count == 1 ? "" : "s")"
         return true
@@ -3049,6 +3054,21 @@ final class DocumentStore: ObservableObject {
 
     /// Where a newly inserted layer lands: the middle of the current content, or the
     /// origin on an empty page.
+    /// Where outside content lands when one artboard is selected: centered in
+    /// that board, shrunk to fit inside it. Selecting a board and pasting is
+    /// the "put it there" gesture — the native paste has honored it all along,
+    /// while a pasted image went to the middle of the document and was adopted
+    /// by whatever board happened to sit there, usually the top one.
+    private func selectedBoardPlacement(_ size: CGSize) -> (origin: CGPoint, size: CGSize)? {
+        guard selection.count == 1, let sel = selection.first,
+              let board = page?.layer(sel), board.isArtboard,
+              board.frame.width > 1, board.frame.height > 1 else { return nil }
+        let fit = min(1, min(board.frame.width / size.width, board.frame.height / size.height))
+        let fitted = CGSize(width: size.width * fit, height: size.height * fit)
+        return (CGPoint(x: board.frame.midX - fitted.width / 2,
+                        y: board.frame.midY - fitted.height / 2), fitted)
+    }
+
     private func insertionPoint(_ size: CGSize) -> CGPoint {
         let b = page?.contentBounds() ?? CGRect(x: 0, y: 0, width: 1000, height: 1000)
         let hasContent = !(page?.layers.isEmpty ?? true)
@@ -3208,7 +3228,13 @@ final class DocumentStore: ObservableObject {
         source = src.adding(image: data, key: key)
         var l = Layer(kind: .bitmap(imageRef: key))
         l.name = name.isEmpty ? "Image" : name
-        l.frame = CGRect(origin: origin ?? insertionPoint(size), size: size)
+        if let origin {
+            l.frame = CGRect(origin: origin, size: size)
+        } else if let spot = selectedBoardPlacement(size) {
+            l.frame = CGRect(origin: spot.origin, size: spot.size)
+        } else {
+            l.frame = CGRect(origin: insertionPoint(size), size: size)
+        }
         addLayer(l, actionName: "Place Image")
         return true
     }

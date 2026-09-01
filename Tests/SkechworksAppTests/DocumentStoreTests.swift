@@ -220,6 +220,41 @@ final class DocumentStoreTests: XCTestCase {
                        "back exactly where the strip was, at exactly its size")
     }
 
+    /// Select an artboard, paste a picture: it lands in THAT board, fitted.
+    /// It used to go to the middle of the document and get adopted by
+    /// whatever board sat there — pasting into board 01 filed the image
+    /// under the board at the top.
+    func testAPastedImageLandsInTheSelectedArtboard() throws {
+        var top = Layer(kind: .group([]))
+        top.isArtboard = true
+        top.name = "amazon_01"
+        top.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        var mine = Layer(kind: .group([]))
+        mine.isArtboard = true
+        mine.name = "01"
+        mine.frame = CGRect(x: 0, y: 600, width: 200, height: 200)
+        var page = Page(name: "P")
+        page.layers = [top, mine]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        store.adopt(doc, images: [:])
+        store.selection = [mine.id]
+
+        let ctx = CGContext(data: nil, width: 600, height: 300, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(srgbRed: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 600, height: 300))
+        XCTAssertTrue(store.placeImage(Renderer.png(ctx.makeImage()!)!, name: "photo"))
+
+        let p = store.page!
+        let placed = try XCTUnwrap(p.children(of: mine.id).first, "the image should be a child of the SELECTED board")
+        XCTAssertTrue(p.children(of: top.id).isEmpty, "and not of the board at the top")
+        XCTAssertEqual(placed.frame.width, 200, accuracy: 0.5, "fitted to the board's width")
+        XCTAssertEqual(placed.frame.height, 100, accuracy: 0.5)
+    }
+
     func testMarkingAMaskSticksEvenWhenNothingMoves() {
         let (store, _, photo) = loaded()
         store.selection = [photo]
