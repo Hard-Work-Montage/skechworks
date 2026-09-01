@@ -1,15 +1,42 @@
 #!/bin/bash
 # Put a built Skechworks.app in /Applications, where every document's
-# LaunchServices binding points. Refuses while the app is running: swapping
-# the bundle under a live process breaks its keychain access until relaunch.
+# LaunchServices binding points. Never while the app is running: swapping the
+# bundle under a live process breaks its keychain access until relaunch.
+#
+# Running is no longer a refusal, though. A waiter parks in the background and
+# does the install the moment the app quits, so releasing during a work session
+# needs no second command later. One waiter at a time: a newer release replaces
+# an older one's pending install.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="${1:-build/Build/Products/Release/Skechworks.app}"
 [ -d "$APP" ] || { echo "no app at $APP — run bin/build or bin/notarize first"; exit 1; }
+
+install_now() {
+  rm -rf /Applications/Skechworks.app
+  ditto "$1" /Applications/Skechworks.app
+}
+
 if pgrep -xq Skechworks; then
-  echo "Skechworks is running. Quit it first, then run bin/install again."
-  exit 1
+  MARKER="$PWD/build/.install-waiter"
+  if [ -f "$MARKER" ] && kill -0 "$(cat "$MARKER")" 2>/dev/null; then
+    kill "$(cat "$MARKER")" 2>/dev/null || true
+  fi
+  nohup bash -c '
+    while :; do
+      pgrep -xq Skechworks || { sleep 1; pgrep -xq Skechworks || break; }
+      sleep 5
+    done
+    [ "$(cat "$0" 2>/dev/null)" = "$$" ] || exit 0   # a newer release took over
+    rm -rf /Applications/Skechworks.app
+    ditto "$1" /Applications/Skechworks.app
+    rm -f "$0"
+  ' "$MARKER" "$PWD/$APP" >/dev/null 2>&1 &
+  echo $! > "$MARKER"
+  disown
+  echo "Skechworks is running — this build installs itself the moment it quits."
+  exit 0
 fi
-rm -rf /Applications/Skechworks.app
-ditto "$APP" /Applications/Skechworks.app
+
+install_now "$APP"
 echo "installed /Applications/Skechworks.app"

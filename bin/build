@@ -84,11 +84,7 @@ echo "built $APP"
 # or store a token ("signed in, but the token couldn't be stored in the
 # keychain", 2026-08-28). The build still lands in build/; install it after
 # the app quits with bin/install.
-if pgrep -xq Skechworks; then
-  echo "Skechworks is running — NOT touching /Applications. Quit it, then: bin/install"
-else
-  bin/install "$APP"
-fi
+bin/install "$APP"
 
 # Only the installed copy should be launchable — see bin/lsclean.
 bin/lsclean >/dev/null 2>&1 || true
