@@ -27,12 +27,28 @@ enum Credentials {
         ("com.accomplice.Accomplice", "accomplice.token"),
     ]
 
+    /// Old-name items get looked at ONCE per launch. Their permission lists
+    /// name the old apps, so every read of one makes macOS ask for the login
+    /// keychain password — and probing them on every lookup asked over and
+    /// over while you worked. A value found there is copied forward and the
+    /// old items deleted, so the question can never come back.
+    private static var probedLegacy: Set<String> = []
+
     static func get(_ slot: Slot) -> String? {
         if let s = read(service: service, account: slot.rawValue) { return s }
+        guard !probedLegacy.contains(slot.rawValue) else { return nil }
+        probedLegacy.insert(slot.rawValue)
         for legacy in legacyServices {
             let account = slot == .skechworksToken ? legacy.token : slot.rawValue
             if let old = read(service: legacy.service, account: account) {
-                set(slot, old)
+                if set(slot, old) {
+                    for l in legacyServices {
+                        let a = slot == .skechworksToken ? l.token : slot.rawValue
+                        SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                                       kSecAttrService as String: l.service,
+                                       kSecAttrAccount as String: a] as CFDictionary)
+                    }
+                }
                 return old
             }
         }

@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.51 (September 1, 2026)
+
+- No more repeated keychain password prompts from sign-ins made under the app's old names
+
 ## 0.1.50 (August 31, 2026)
 
 - Pasting an image with an artboard selected puts it in that artboard, fitted
