@@ -634,5 +634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    /// Closing the last window leaves the app running, like every other Mac
+    /// document app. Clicking the Dock icon opens a fresh one (see reopen above).
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
 }

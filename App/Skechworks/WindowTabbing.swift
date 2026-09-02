@@ -80,16 +80,11 @@ final class CloseGuard: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // Closing the last tab in a group would otherwise close the window itself —
-        // and if it's the only window left, that quits the app. Resetting to a fresh
-        // document in place keeps a window around the way ⌘N would, instead of
-        // dropping you with nothing (or nothing at all).
-        let isLastTab = (sender.tabGroup?.windows.count ?? 1) <= 1
-
-        guard let store, store.isDirty else {
-            if isLastTab { store?.newDocument(); return false }
-            return true
-        }
+        // The last window closes like any other. The app keeps running with no
+        // windows, the way every Mac document app does, and the Dock icon brings
+        // a fresh one back. (It used to swap in a new document instead, because
+        // closing the last window quit the app — that's no longer the case.)
+        guard let store, store.isDirty else { return true }
 
         let alert = NSAlert()
         alert.messageText = "Do you want to save the changes made to “\(store.displayName)”?"
@@ -106,11 +101,11 @@ final class CloseGuard: NSObject, NSWindowDelegate {
                     // goes through Save As, and cancelling that must not lose the work.
                     store.save { saved in
                         guard saved else { return }
-                        if isLastTab { store.newDocument() } else { sender.close() }
+                        sender.close()
                     }
                 case .alertSecondButtonReturn:
                     store.discardChanges()
-                    if isLastTab { store.newDocument() } else { sender.close() }
+                    sender.close()
                 default:
                     break   // Cancel: stay open
                 }
