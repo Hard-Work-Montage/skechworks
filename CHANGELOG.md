@@ -3,6 +3,11 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.52 (September 1, 2026)
+
+- Vectorized white shapes, like the lettering on a dark coin, are now their own shapes and can be selected on their own
+- Vectorize Image is down to Black and White and Full Color
+
 ## 0.1.51 (September 1, 2026)
 
 - No more repeated keychain password prompts from sign-ins made under the app's old names

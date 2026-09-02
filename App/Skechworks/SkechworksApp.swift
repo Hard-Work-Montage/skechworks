@@ -245,13 +245,10 @@ struct SkechworksApp: App {
                     // all of them, and no tracer can tell which it is looking
                     // at. So the choice is up front, the same as the two above.
                     Menu("Vectorize Image") {
+                        // The bold redraw is the one black and white. A plain
+                        // one that traced line art as it was sat beside it for
+                        // a while, and the bold one was always the one picked.
                         Button(ModelConnector.vectorizeLabel("Black and White")) {
-                            AppDelegate.shared?.active?.vectorizeSelection(style: "lineart")
-                        }
-                        // Line art goes through as it is; Bold redraws it with
-                        // thick, even strokes. Which one a drawing wants is a
-                        // taste no measurement settles, so both are on the menu.
-                        Button(ModelConnector.vectorizeLabel("Bold Black and White")) {
                             AppDelegate.shared?.active?.vectorizeSelection(style: "lineart_bold")
                         }
                         Button(ModelConnector.vectorizeLabel("Full Color")) {
