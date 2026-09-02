@@ -199,16 +199,14 @@ extension Page {
                     case .shapeGroup(let k, _): kids = k; wasBoolean = true
                     default: return true
                     }
-                    let origin = ls[i].frame.origin
+                    let shell = ls[i]
                     // A boolean group paints the combined shape, so its members
                     // often carry no fill of their own. Released as they stand
                     // they'd come back invisible, which looks like Ungroup having
                     // deleted them.
-                    let style = ls[i].style
+                    let style = shell.style
                     let promoted = kids.map { child -> Layer in
-                        var c = child
-                        c.frame.origin = CGPoint(x: c.frame.minX + origin.x,
-                                                 y: c.frame.minY + origin.y)
+                        var c = Page.released(child, from: shell)
                         if wasBoolean, c.style.fills.isEmpty, c.style.borders.isEmpty {
                             c.style.fills = style.fills
                             c.style.borders = style.borders
@@ -231,6 +229,62 @@ extension Page {
         }
         _ = walk(&layers)
         return freed
+    }
+
+    /// A member of `shell`, re-expressed in the shell's parent space so it
+    /// looks exactly as it did inside.
+    ///
+    /// The shell's origin used to be all that was added, so a union you had
+    /// turned came apart at the angle it had before the turn — every member
+    /// swung back to where it was, and the turn was simply gone. The shell's
+    /// rotation and flips now go with each member: its centre is carried
+    /// through the shell's transform, and its own turn is composed with the
+    /// shell's.
+    ///
+    /// A member with no turn of its own takes the shell's rotation, flips and
+    /// skew as they are, so a flipped group releases flipped members rather
+    /// than the same reflection spelled as a flip and a half-turn. A member
+    /// that is turned itself gets the composed rotation and, if the two
+    /// reflections don't cancel, a horizontal flip; it keeps its own skew,
+    /// and the shell's skew is the one thing that can't be carried onto a
+    /// turned member, because a shear and a turn don't commute.
+    static func released(_ child: Layer, from shell: Layer) -> Layer {
+        var c = child
+        let t = Compose.transform(shell)
+        let centre = CGPoint(x: child.frame.midX, y: child.frame.midY).applying(t)
+        c.frame.origin = CGPoint(x: centre.x - child.frame.width / 2,
+                                 y: centre.y - child.frame.height / 2)
+        let turned = shell.rotation != 0 || shell.flipH || shell.flipV || shell.skewX != 0 || shell.skewY != 0
+        guard turned else { return c }
+        let plain = child.rotation == 0 && !child.flipH && !child.flipV && child.skewX == 0 && child.skewY == 0
+        if plain {
+            c.rotation = shell.rotation
+            c.flipH = shell.flipH
+            c.flipV = shell.flipV
+            c.skewX = shell.skewX
+            c.skewY = shell.skewY
+            return c
+        }
+        // The linear parts only, the member's without its shear: the shear is
+        // applied innermost, so it stays the member's own and the turn and
+        // flip compose around it.
+        func linear(_ l: Layer, skewed: Bool) -> CGAffineTransform {
+            var bare = l
+            if !skewed { bare.skewX = 0; bare.skewY = 0 }
+            let m = Compose.transform(bare)
+            return CGAffineTransform(a: m.a, b: m.b, c: m.c, d: m.d, tx: 0, ty: 0)
+        }
+        var m = linear(child, skewed: false).concatenating(linear(shell, skewed: false))
+        let mirrored = m.a * m.d - m.b * m.c < 0
+        // A flip is applied before the rotation, so taking it back out means
+        // applying it first — which is what scaledBy does.
+        if mirrored { m = m.scaledBy(x: -1, y: 1) }
+        c.flipH = mirrored
+        c.flipV = false
+        // rotated(by:) writes cos into a and sin into b; the canvas negates the
+        // angle because the page is y-down, so this un-negates it.
+        c.rotation = (-atan2(m.b, m.a) * 180 / .pi).truncatingRemainder(dividingBy: 360)
+        return c
     }
 
     // MARK: - Sibling bucketing

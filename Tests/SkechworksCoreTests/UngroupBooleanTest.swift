@@ -88,3 +88,71 @@ private func boolean(_ rule: WindingRule = .nonZero, at origin: CGPoint = .zero,
     #expect(p.layers.count == 1)
     #expect(p.layers[0].frame.origin == CGPoint(x: 101, y: 102))
 }
+
+// A turned union comes apart turned.
+//
+// Ungroup added the shell's origin and nothing else, so a union you had
+// rotated released its members at the angle they had before the turn — they
+// swung back to where they were and the turn was gone.
+
+private func turned(_ kids: [Layer], rotation: CGFloat = 0, flipH: Bool = false, flipV: Bool = false) -> Page {
+    var g = Layer(kind: .shapeGroup(kids, .nonZero))
+    g.frame = CGRect(x: 100, y: 100, width: 200, height: 200)
+    g.rotation = rotation
+    g.flipH = flipH
+    g.flipV = flipV
+    var p = Page(name: "t")
+    p.layers = [g]
+    return p
+}
+
+private func close(_ a: CGPoint, _ b: CGPoint) -> Bool { abs(a.x - b.x) < 0.001 && abs(a.y - b.y) < 0.001 }
+
+@Test func aTurnedUnionComesApartTurned() {
+    var p = turned([ shape(CGRect(x: 0, y: 0, width: 100, height: 50), "Bar") ], rotation: 90)
+    let shell = p.layers[0]
+    let expected = CGPoint(x: 50, y: 25).applying(Compose.transform(shell))
+    _ = p.ungroup(shell.id)
+    let freed = p.layers[0]
+    #expect(freed.rotation == 90, "the turn was dropped")
+    #expect(close(CGPoint(x: freed.frame.midX, y: freed.frame.midY), expected), "the member swung back: \(freed.frame)")
+    #expect(freed.frame.size == CGSize(width: 100, height: 50))
+}
+
+@Test func aMembersOwnTurnAddsToTheShells() {
+    var kid = shape(CGRect(x: 20, y: 20, width: 60, height: 20), "Slant")
+    kid.rotation = 30
+    var p = turned([ kid ], rotation: 45)
+    let shell = p.layers[0]
+    let expected = CGPoint(x: 50, y: 30).applying(Compose.transform(shell))
+    _ = p.ungroup(shell.id)
+    let freed = p.layers[0]
+    #expect(abs(freed.rotation - 75) < 0.001, "got \(freed.rotation)")
+    #expect(!freed.flipH && !freed.flipV)
+    #expect(close(CGPoint(x: freed.frame.midX, y: freed.frame.midY), expected))
+}
+
+@Test func aFlippedShellReleasesFlippedMembers() {
+    var p = turned([ shape(CGRect(x: 0, y: 0, width: 100, height: 50), "Bar") ], flipV: true)
+    let shell = p.layers[0]
+    let expected = CGPoint(x: 50, y: 25).applying(Compose.transform(shell))
+    _ = p.ungroup(shell.id)
+    let freed = p.layers[0]
+    #expect(freed.flipV && !freed.flipH && freed.rotation == 0, "a plain member takes the flip as it is")
+    #expect(close(CGPoint(x: freed.frame.midX, y: freed.frame.midY), expected))
+}
+
+@Test func aTurnedMemberOfAFlippedShellDrawsTheSame() {
+    // The composed transform is what matters: whatever spelling the member
+    // ends up with, it has to map its corners to the same places.
+    var kid = shape(CGRect(x: 10, y: 10, width: 80, height: 40), "Slant")
+    kid.rotation = 20
+    var p = turned([ kid ], rotation: 30, flipH: true)
+    let shell = p.layers[0]
+    let before = Compose.transform(kid).concatenating(Compose.transform(shell))
+    _ = p.ungroup(shell.id)
+    let after = Compose.transform(p.layers[0])
+    for corner in [CGPoint(x: 0, y: 0), CGPoint(x: 80, y: 0), CGPoint(x: 80, y: 40), CGPoint(x: 0, y: 40)] {
+        #expect(close(corner.applying(before), corner.applying(after)), "corner \(corner) moved")
+    }
+}
