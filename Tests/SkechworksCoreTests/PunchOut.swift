@@ -38,11 +38,10 @@ private func box(_ rect: CGRect, hex: String, name: String = "") -> Layer {
     #expect(page.layers.count == 1)
 
     let made = try #require(page.layer(id))
-    guard case .shapeGroup(let kids, _) = made.kind else { Issue.record("not a combined shape"); return }
-    #expect(kids.map { $0.booleanOp } == [BooleanOp.none, .subtract, .union])
-    #expect(kids.map { $0.name } == ["disc", "O", "counter"])
+    #expect(made.name == "Punch Out")
+    guard case .path = made.kind else { Issue.record("not one plain path"); return }
 
-    let p = try #require(Compose.resolvedPath(made))
+    let p = try #require(Compose.resolvedPath(made)).transformed(by: Compose.transform(made))
     #expect(p.contains(CGPoint(x: 100, y: 10)))     // on the disc
     #expect(!p.contains(CGPoint(x: 60, y: 60)))     // inside the letter: a hole
     #expect(p.contains(CGPoint(x: 100, y: 100)))    // the counter is ink again
@@ -66,10 +65,12 @@ private func box(_ rect: CGRect, hex: String, name: String = "") -> Layer {
     #expect(inks == 1)
     #expect(holes == 1)
     let made = try #require(page.layer(id))
-    // The combined shape sits where the disc was, in page space.
+    // The shape sits where the disc was, in page space, and the group is gone.
     #expect(made.frame.integral == CGRect(x: 70, y: 80, width: 200, height: 200))
-    guard case .shapeGroup(let kids, _) = made.kind else { Issue.record("not a combined shape"); return }
-    #expect(kids.map { $0.name } == ["disc", "O"])
+    #expect(page.layers.count == 1)
+    let p = try #require(Compose.resolvedPath(made)).transformed(by: Compose.transform(made))
+    #expect(p.contains(CGPoint(x: 80, y: 180)))      // on the disc
+    #expect(!p.contains(CGPoint(x: 170, y: 180)))    // the letter is a hole
 }
 
 @Test func punchOutOutlinesTextAndRefusesWithNothingDark() throws {
@@ -94,7 +95,9 @@ private func box(_ rect: CGRect, hex: String, name: String = "") -> Layer {
     }
     #expect(holes == 1)
     let made = try #require(page2.layer(id))
-    guard case .shapeGroup(let kids, _) = made.kind else { Issue.record("not a combined shape"); return }
-    if case .path = kids[1].kind {} else { Issue.record("the text was not outlined") }
-    #expect(kids[1].booleanOp == .subtract)
+    let p = try #require(Compose.resolvedPath(made)).transformed(by: Compose.transform(made))
+    #expect(p.contains(CGPoint(x: 100, y: 10)))
+    // Somewhere inside the O's stroke there is a hole; the disc is solid otherwise.
+    let holed = (0..<80).contains { i in !p.contains(CGPoint(x: 60 + CGFloat(i), y: 100)) }
+    #expect(holed, "the outlined text cut nothing")
 }

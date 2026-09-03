@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.56 (September 2, 2026)
+
+- Punch Out runs in the background and puts down one finished path, so a detailed trace no longer locks the app
+
 ## 0.1.55 (September 2, 2026)
 
 - Path ▸ Punch Out folds a stack of black and white shapes into one shape, with holes where the white was

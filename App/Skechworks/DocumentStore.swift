@@ -1292,23 +1292,58 @@ final class DocumentStore: ObservableObject {
     }
 
     /// Path ▸ Punch Out: a stack of dark and light shapes becomes one shape
-    /// with holes where the light ones were. See `Page.punchOut`.
+    /// with holes where the light ones were. See `PunchOut`.
+    ///
+    /// The geometry runs off the main thread. A detailed trace takes twenty
+    /// seconds to fold, and the first version did it on the main thread and
+    /// then again on every mouse move; the app beachballed for minutes.
+    /// Reported into the chat like Vectorize, with a Stop.
     func punchOutSelection() {
-        guard !selection.isEmpty else {
+        guard let page, !selection.isEmpty else {
             refuse(saying: "Select the shapes to punch out, or the group they are in")
             return
         }
-        let ids = Array(selection)
-        var outcome: PunchOut.Outcome?
-        mutatePage("Punch Out") { outcome = $0.punchOut(ids) }
-        switch outcome {
-        case .made(let id, let inks, let holes):
-            selection = [id]
-            status = "Punched out: \(inks) dark \(inks == 1 ? "shape" : "shapes"), \(holes) \(holes == 1 ? "hole" : "holes")"
-        case .refused(let why):
-            refuse(saying: why)
-        case nil:
-            break
+        let prepared: PunchOut.Prepared
+        switch PunchOut.prepare(page, Array(selection)) {
+        case .failure(let r):
+            refuse(saying: r.why)
+            return
+        case .success(let p):
+            prepared = p
+        }
+
+        let count = prepared.pieces.count
+        let entry = chat.beginActivity("Punch Out") { [weak self] in
+            self?.punchOutTask?.cancel()
+        }
+        chat.note(entry, "Folding \(count) \(count == 1 ? "shape" : "shapes") into one" +
+                  (count > 100 ? " — a detailed trace can take a minute" : ""))
+        status = "Punching out \(count) shapes…"
+        punchOutTask = Task { @MainActor [weak self] in
+            do {
+                let folded = try await Task.detached(priority: .userInitiated) { try prepared.fold() }.value
+                guard let self else { return }
+                var outcome: PunchOut.Outcome?
+                mutatePage("Punch Out") { outcome = $0.apply(prepared, folded: folded) }
+                switch outcome {
+                case .made(let id, let inks, let holes):
+                    selection = [id]
+                    let said = "Punched out: \(inks) dark \(inks == 1 ? "shape" : "shapes"), \(holes) \(holes == 1 ? "hole" : "holes")"
+                    chat.endActivity(entry, text: said)
+                    status = said
+                case .refused(let why):
+                    chat.endActivity(entry, text: why, failed: true)
+                    status = why
+                case nil:
+                    break
+                }
+            } catch is CancellationError {
+                self?.chat.endActivity(entry, text: "Stopped.")
+                self?.status = "Punch Out stopped"
+            } catch {
+                self?.chat.endActivity(entry, text: "Punch Out failed: \(error.localizedDescription)", failed: true)
+                self?.status = "Punch Out failed"
+            }
         }
     }
 
@@ -1424,6 +1459,8 @@ final class DocumentStore: ObservableObject {
 
     /// Tools ▸ Vectorize: the selected bitmap goes out as pixels and comes back
     /// as editable paths, grouped, sitting exactly where the bitmap sits.
+    private var punchOutTask: Task<Void, Never>?
+
     func vectorizeSelection(style: String = "color") {
         guard let id = selectedLayerID, let page,
               let l = page.layer(id), case .bitmap(let ref) = l.kind,
