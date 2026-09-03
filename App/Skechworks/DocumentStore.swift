@@ -466,7 +466,9 @@ final class DocumentStore: ObservableObject {
                 self.source = src
                 self.coverPage = src.coverPage
                 self.url = url
-                RecentDocuments.shared.note(url)
+                // A picture dropped in to trace is not a project. Ten screenshots
+                // in a row were pushing every real document out of Open Recent.
+                if !importedImage { RecentDocuments.shared.note(url) }
                 self.undoManager.removeAllActions()
                 self.isDirty = false
                 self.canUndo = false
@@ -531,7 +533,12 @@ final class DocumentStore: ObservableObject {
     /// Finder path checked it, Open Recent checked something looser, and File ▸
     /// Open didn't check at all — which is how opening comic 02 threw away the
     /// window showing comic 01.
-    var isVacant: Bool { url == nil && !isDirty }
+    /// A blank slate that can take a file. A window that has been HANDED a file
+    /// and is still reading it counts as taken: open() sets url only once the
+    /// bytes are parsed, so during launch every queued document landed in the
+    /// same still-empty window and the last one to finish loading won — one
+    /// populated tab, and an untitled tab for each of the others.
+    var isVacant: Bool { url == nil && !isDirty && !isLoading }
 
     @Published var isDirty = false {
         // The whole autosave contract in one place: dirty work schedules a recovery

@@ -18,7 +18,9 @@ final class RecentDocuments: ObservableObject {
     static let shared = RecentDocuments()
 
     static let key = "recentDocuments"
-    static let limit = 10
+    // Ten was the menu's whole width for a shop that opens several one-off
+    // coins a day; a file from last week was already gone.
+    static let limit = 20
 
     @Published private(set) var urls: [URL] = []
 
@@ -44,10 +46,22 @@ final class RecentDocuments: ObservableObject {
 
     func refresh() {
         // Drop anything that's been moved or deleted; offering a dead path is worse
-        // than a shorter menu.
+        // than a shorter menu. A document iCloud has evicted is not gone, though:
+        // the path is absent and a ".name.icloud" placeholder stands in for it,
+        // and opening it pulls the file back down. Filtering those out is how
+        // projects kept vanishing from the menu.
         urls = (defaults.stringArray(forKey: Self.key) ?? [])
-            .filter { FileManager.default.fileExists(atPath: $0) }
+            .filter { Self.present($0) }
             .map { URL(fileURLWithPath: $0) }
+    }
+
+    static func present(_ path: String) -> Bool {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: path) { return true }
+        let url = URL(fileURLWithPath: path)
+        let placeholder = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).icloud")
+        return fm.fileExists(atPath: placeholder.path)
     }
 
     /// Most recent first, no duplicates, capped. Pure, so the ordering is testable

@@ -365,6 +365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stores.removeAll { $0 === s }
         stores.append(s)
         anyWindowRegistered = true
+        windowsOnTheWay = max(0, windowsOnTheWay - 1)
         flushPending()
     }
 
@@ -434,10 +435,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             let restored = self.restoreRecoveredDocuments()
             self.reopenLastSession(skipping: restored)
+            // The initial SwiftUI window always comes; count it as on its way
+            // so nobody asks for a window to stand in for it.
+            if !self.anyWindowRegistered { self.windowsOnTheWay = max(self.windowsOnTheWay, 1) }
             let jobs = self.pendingURLs.count + self.pendingRecoveries.count
-            let empties = self.stores.filter { $0.url == nil && !$0.isDirty }.count
-            let inevitable = self.anyWindowRegistered ? 0 : 1
-            let needed = max(0, jobs - empties - inevitable)
+            let empties = self.stores.filter(\.isVacant).count
+            let needed = max(0, jobs - empties - self.windowsOnTheWay)
             for _ in 0..<needed { self.newDocumentWindow() }
             self.flushPending()
             DispatchQueue.main.async { self.openWindowIfNoneRestored() }
@@ -578,6 +581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func newDocumentWindow() {
         guard let item = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?
             .submenu?.items.first(where: { $0.title == "New" }), let action = item.action else { return }
+        windowsOnTheWay += 1
         NSApp.sendAction(action, to: item.target, from: item)
     }
 
@@ -595,9 +599,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Hands queued work to empty windows only. A window showing a document keeps
     /// it — pending files never overwrite the tab you're looking at.
-    /// A window has been asked for and hasn't appeared yet, so the next thing
-    /// that can't be placed waits for it rather than asking again.
-    private var awaitingWindow = false
+    /// Windows asked for that haven't registered yet. Anything that can't be
+    /// placed waits for one of these rather than asking again: every extra ask
+    /// was another untitled tab after a relaunch.
+    private var windowsOnTheWay = 0
 
     private func flushPending() {
         while !pendingURLs.isEmpty {
@@ -616,13 +621,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // registers, rather than leaving the file queued forever — a
                 // document that never appears is indistinguishable from the app
                 // ignoring you, which is exactly what it looked like.
-                if !awaitingWindow {
-                    awaitingWindow = true
-                    newDocumentWindow()
-                }
+                if windowsOnTheWay == 0 { newDocumentWindow() }
                 return
             }
-            awaitingWindow = false
             empty.open(pendingURLs.removeFirst())
             // Opening a file from Finder should put you in front of it. Without
             // this the document loaded into a tab behind whatever you were
