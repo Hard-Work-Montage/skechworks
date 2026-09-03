@@ -1321,7 +1321,12 @@ final class DocumentStore: ObservableObject {
         status = "Punching out \(count) shapes…"
         punchOutTask = Task { @MainActor [weak self] in
             do {
-                let folded = try await Task.detached(priority: .userInitiated) { try prepared.fold() }.value
+                // CGPath is not Sendable as far as the compiler knows; it is
+                // immutable, and this one is only ever read after the task ends.
+                struct Folded: @unchecked Sendable { let path: CGPath? }
+                let folded = try await Task.detached(priority: .userInitiated) {
+                    Folded(path: try prepared.fold())
+                }.value.path
                 guard let self else { return }
                 var outcome: PunchOut.Outcome?
                 mutatePage("Punch Out") { outcome = $0.apply(prepared, folded: folded) }
