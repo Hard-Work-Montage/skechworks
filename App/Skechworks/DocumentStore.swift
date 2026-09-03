@@ -1291,6 +1291,27 @@ final class DocumentStore: ObservableObject {
         if let made { selection = [made] }
     }
 
+    /// Path ▸ Punch Out: a stack of dark and light shapes becomes one shape
+    /// with holes where the light ones were. See `Page.punchOut`.
+    func punchOutSelection() {
+        guard !selection.isEmpty else {
+            refuse(saying: "Select the shapes to punch out, or the group they are in")
+            return
+        }
+        let ids = Array(selection)
+        var outcome: PunchOut.Outcome?
+        mutatePage("Punch Out") { outcome = $0.punchOut(ids) }
+        switch outcome {
+        case .made(let id, let inks, let holes):
+            selection = [id]
+            status = "Punched out: \(inks) dark \(inks == 1 ? "shape" : "shapes"), \(holes) \(holes == 1 ? "hole" : "holes")"
+        case .refused(let why):
+            refuse(saying: why)
+        case nil:
+            break
+        }
+    }
+
     /// Replaces a combined shape with the single path it draws.
     /// Path ▸ Convert to Outlines: a stroke becomes a shape.
     ///

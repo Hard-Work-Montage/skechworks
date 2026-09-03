@@ -142,6 +142,10 @@ struct SkechworksApp: App {
                     .shortcut("intersect")
                 Button("Difference") { AppDelegate.shared?.active?.combineSelection(.difference) }
                     .shortcut("difference")
+                // The four above take a base and one operation. This one reads
+                // the operation off each shape's fill, dark adds and light cuts,
+                // so a traced drawing folds into one outline in a single step.
+                Button("Punch Out") { AppDelegate.shared?.active?.punchOutSelection() }
                 Divider()
                 // The way in that does not need the shape to be clickable. A
                 // path behind a photograph cannot be double-clicked, and until

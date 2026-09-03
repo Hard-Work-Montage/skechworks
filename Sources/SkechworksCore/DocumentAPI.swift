@@ -509,7 +509,7 @@ extension DocumentCommand {
         case "duplicate", "copy", "clone":
             return .duplicate(q, dx: n("dx", "offsetX") ?? 20, dy: n("dy", "offsetY") ?? 20,
                               times: Int(n("times", "count", "copies") ?? 1))
-        case "combine", "union", "subtract", "intersect", "difference", "flatten":
+        case "combine", "union", "subtract", "intersect", "difference", "flatten", "punch", "punchout":
             // The operation can be the op name itself or an argument.
             let named = op.lowercased()
             let which = named == "combine"
@@ -704,10 +704,13 @@ extension DocumentCommand {
                        sensible defaults are used. This is how you CREATE layers;
                        every other operation only changes ones that already exist.
           duplicate    dx, dy, times
-          combine      op: union|subtract|intersect|difference|flatten — makes one
-                       shape from the matched layers. The BOTTOM layer is the base and
-                       the ones above it are applied to it, so subtract depends on
+          combine      op: union|subtract|intersect|difference|flatten|punch — makes
+                       one shape from the matched layers. The BOTTOM layer is the base
+                       and the ones above it are applied to it, so subtract depends on
                        layer order. Or use the operation as the op name directly.
+                       punch folds a stack of dark and light shapes (or one group of
+                       them) into a single shape: dark fills add, light fills cut
+                       holes, in painting order. Text is outlined on the way in.
           simplify     tolerance (page units — how far the path may move) or
                        detail (0-1, where 1 keeps almost everything and 0.2 is
                        aggressive). Refits paths with fewer points. Layers report

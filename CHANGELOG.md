@@ -3,6 +3,14 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.55 (September 2, 2026)
+
+- Path ▸ Punch Out folds a stack of black and white shapes into one shape, with holes where the white was
+
+## 0.1.54 (September 2, 2026)
+
+- Closing the last window closes it, Skechworks stays open
+
 ## 0.1.53 (September 1, 2026)
 
 - Ungroup keeps the rotation of a turned group or combined shape

@@ -240,6 +240,14 @@ extension Page {
             }
 
         case .combine(_, let op):
+            if op.lowercased() == "punch" || op.lowercased() == "punchout" {
+                switch p.punchOut(ids) {
+                case .made(_, let inks, let holes):
+                    return "\(inks) dark shape\(inks == 1 ? "" : "s") with \(holes) hole\(holes == 1 ? "" : "s") punched out"
+                case .refused(let why):
+                    return why
+                }
+            }
             if op.lowercased() == "flatten" {
                 var done = 0
                 for id in ids where p.flattenShape(id) { done += 1 }

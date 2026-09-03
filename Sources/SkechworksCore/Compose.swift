@@ -128,12 +128,27 @@ public enum Compose {
         // pairwise fold — minus the n-1 full-document sweeps that made a vectorized
         // trace (hundreds of union'd glyph paths) unusable to recompose per frame.
         var pending: [CGPath] = []
-        func flush() {
-            guard !pending.isEmpty else { return }
+        // Likewise a run of subtracts: A − B − C is A − (B ∪ C), so the cuts
+        // are stacked the same way and taken out in one pass. Punch Out on a
+        // traced coin is a disc, then every letter as a cut, then every
+        // counter as a union — three passes rather than one per glyph.
+        var cuts: [CGPath] = []
+        func stacked(_ paths: [CGPath]) -> CGPath {
             let stack = CGMutablePath()
-            for p in pending { stack.addPath(p.normalized(using: rule)) }
+            for p in paths { stack.addPath(p.normalized(using: rule)) }
+            return stack.normalized(using: .winding)
+        }
+        func flushCuts() {
+            guard !cuts.isEmpty else { return }
+            let merged = stacked(cuts)
+            cuts = []
+            acc = acc?.subtracting(merged, using: rule)
+        }
+        func flush() {
+            flushCuts()
+            guard !pending.isEmpty else { return }
+            let merged = stacked(pending)
             pending = []
-            let merged = stack.normalized(using: .winding)
             acc = acc.map { $0.union(merged, using: rule) } ?? merged
         }
         for c in children where c.isVisible {
@@ -149,8 +164,12 @@ public enum Compose {
                 if let a = acc { m.addPath(a) }
                 m.addPath(p)
                 acc = m.copy()
-            case .union:      pending.append(p)
-            case .subtract:   flush(); acc = acc?.subtracting(p, using: rule)
+            case .union:      flushCuts(); pending.append(p)
+            case .subtract:
+                // Unions waiting ahead of this cut land first; the cut waits
+                // for the next union or the end.
+                if !pending.isEmpty { flush() }
+                cuts.append(p)
             case .intersect:  flush(); acc = acc?.intersection(p, using: rule)
             case .difference: flush(); acc = acc?.symmetricDifference(p, using: rule)
             }
