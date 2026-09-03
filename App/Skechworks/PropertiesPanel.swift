@@ -1199,7 +1199,14 @@ private struct NumberField: View {
                     if isFocused { startStepping() } else { stopStepping(); commit() }
                 }
                 .onDisappear { stopStepping() }
-                .onChange(of: value) { _, _ in if !focused { text = format(value) } }
+                // A focused field keeps what you are typing. But Tab lands here
+                // with the old number selected and nothing typed yet, and if a
+                // locked W just moved this H, the stale text would be committed
+                // straight back on blur and drag W with it. Untouched text
+                // follows the value; edited text is yours.
+                .onChange(of: value) { old, new in
+                    if !focused || text == format(old) { text = format(new) }
+                }
                 .onAppear { text = format(value) }
                 // Arrow keys nudge the number the way they nudge a layer: 1 at a
                 // time, 10 with shift, committed immediately so the canvas moves

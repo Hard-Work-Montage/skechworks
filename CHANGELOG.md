@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.58 (September 3, 2026)
+
+- With the ratio locked, typing a width and tabbing to the height keeps the height that followed
+
 ## 0.1.57 (September 2, 2026)
 
 - The layer list shows each shape as a small silhouette of itself instead of a generic icon
