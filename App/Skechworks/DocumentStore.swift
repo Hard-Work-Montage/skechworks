@@ -3973,6 +3973,61 @@ final class DocumentStore: ObservableObject {
 
 // MARK: - Layer tree for display
 
+/// A layer's own outline, for its row in the layer list. Sketch draws each
+/// shape as a little silhouette of itself, and a column of six hundred
+/// identical scribbles says nothing about which path is the moon and which is
+/// the boat.
+///
+/// Combined shapes draw their pieces stacked even-odd rather than resolving the
+/// booleans: a ring still reads as a ring, and the real composition is the
+/// twenty-second fold that hung the app when the canvas asked for it per
+/// mouse move. Text and pictures keep their glyphs.
+struct LayerGlyph {
+    let path: CGPath
+    /// A path with a border and no fill is drawn as its outline.
+    let stroked: Bool
+    let evenOdd: Bool
+    /// Cheap identity, so a row's icon is drawn once and reused until the shape
+    /// itself changes.
+    let key: String
+
+    init?(_ l: Layer) {
+        let path: CGPath
+        var evenOdd = false
+        switch l.kind {
+        case .path:
+            guard let p = Compose.resolvedPath(l) else { return nil }
+            path = p
+        case .shapeGroup(let kids, _):
+            let stack = CGMutablePath()
+            func add(_ ls: [Layer], _ base: CGAffineTransform) {
+                for c in ls where c.isVisible {
+                    let t = Compose.transform(c).concatenating(base)
+                    switch c.kind {
+                    case .path: if let p = Compose.resolvedPath(c) { stack.addPath(p, transform: t) }
+                    case .group(let k), .shapeGroup(let k, _): add(k, t)
+                    default: break
+                    }
+                }
+            }
+            add(kids, .identity)
+            guard !stack.isEmpty else { return nil }
+            path = stack
+            evenOdd = true
+        default:
+            return nil
+        }
+        let box = path.boundingBoxOfPath
+        guard box.width > 0 || box.height > 0 else { return nil }
+        var elements = 0
+        path.applyWithBlock { _ in elements += 1 }
+        self.path = path
+        self.evenOdd = evenOdd
+        stroked = l.style.fills.isEmpty && !l.style.borders.isEmpty
+        key = "\(l.id)|\(elements)|\(Int(box.minX))|\(Int(box.minY))|\(Int(box.width))|\(Int(box.height))|\(stroked)|\(evenOdd)"
+    }
+}
+
 struct LayerNode: Identifiable {
     let id: String
     let name: String
@@ -3981,6 +4036,8 @@ struct LayerNode: Identifiable {
     let isVisible: Bool
     let isLocked: Bool
     let children: [LayerNode]?
+    /// The shape itself, where the row has one to show.
+    let glyph: LayerGlyph?
 
     init(_ l: Layer) {
         id = l.id
@@ -4007,5 +4064,6 @@ struct LayerNode: Identifiable {
             kindLabel = "Image"; systemImage = "photo"; children = nil
         }
         name = l.name.isEmpty ? kindLabel : l.name
+        glyph = LayerGlyph(l)
     }
 }

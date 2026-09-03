@@ -68,6 +68,9 @@ final class LayerItem: NSObject {
     var isLocked: Bool
     var isContainer: Bool
     var children: [LayerItem]
+    var glyph: LayerGlyph?
+    private var drawnKey: String?
+    private var drawn: NSImage?
 
     init(_ node: LayerNode) {
         id = node.id
@@ -75,8 +78,40 @@ final class LayerItem: NSObject {
         symbol = node.systemImage
         isVisible = node.isVisible
         isLocked = node.isLocked
+        glyph = node.glyph
         children = (node.children ?? []).map(LayerItem.init)
         isContainer = node.children != nil
+    }
+
+    /// The row's icon: the shape itself when it has one, drawn once per shape
+    /// and kept until the shape changes. A template image, so it takes the
+    /// row's tint like the symbols do and dims with a hidden layer.
+    func icon(side: CGFloat) -> NSImage? {
+        guard let glyph else { return nil }
+        if let drawn, drawnKey == glyph.key { return drawn }
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: true) { _ in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            let box = glyph.path.boundingBoxOfPath
+            let pad: CGFloat = 1
+            let s = min((side - 2 * pad) / max(box.width, 0.5), (side - 2 * pad) / max(box.height, 0.5))
+            let w = box.width * s, h = box.height * s
+            ctx.translateBy(x: (side - w) / 2 - box.minX * s, y: (side - h) / 2 - box.minY * s)
+            ctx.scaleBy(x: s, y: s)
+            ctx.addPath(glyph.path)
+            if glyph.stroked {
+                ctx.setStrokeColor(NSColor.black.cgColor)
+                ctx.setLineWidth(1 / s)
+                ctx.strokePath()
+            } else {
+                ctx.setFillColor(NSColor.black.cgColor)
+                ctx.fillPath(using: glyph.evenOdd ? .evenOdd : .winding)
+            }
+            return true
+        }
+        image.isTemplate = true
+        drawn = image
+        drawnKey = glyph.key
+        return image
     }
 
     /// Copies new content onto the existing objects where the ids still match, so
@@ -87,6 +122,7 @@ final class LayerItem: NSObject {
         isVisible = other.isVisible
         isLocked = other.isLocked
         isContainer = other.isContainer
+        glyph = other.glyph
         var byID = [String: LayerItem](uniqueKeysWithValues: children.map { ($0.id, $0) })
         children = other.children.map { incoming in
             if let existing = byID.removeValue(forKey: incoming.id) {
@@ -231,8 +267,10 @@ struct LayerOutline: NSViewRepresentable {
             let id = NSUserInterfaceItemIdentifier("row")
             let cell = (v.makeView(withIdentifier: id, owner: self) as? NSTableCellView)
                 ?? Self.makeCell(id)
-            cell.imageView?.image = NSImage(systemSymbolName: node.isLocked ? "lock.fill" : node.symbol,
-                                            accessibilityDescription: nil)
+            cell.imageView?.image = node.isLocked
+                ? NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil)
+                : node.icon(side: Self.iconSide)
+                    ?? NSImage(systemSymbolName: node.symbol, accessibilityDescription: nil)
             cell.textField?.stringValue = node.name
             // An empty container reads dimmer than a full one — the triangle stays
             // (it's the drop affordance), but the grey says there's nothing inside.
@@ -249,11 +287,15 @@ struct LayerOutline: NSViewRepresentable {
             return cell
         }
 
+        /// Symbols and silhouettes share one box, so a column of mixed rows lines up.
+        static let iconSide: CGFloat = 14
+
         private static func makeCell(_ id: NSUserInterfaceItemIdentifier) -> NSTableCellView {
             let cell = NSTableCellView()
             cell.identifier = id
             let image = NSImageView()
             image.translatesAutoresizingMaskIntoConstraints = false
+            image.imageScaling = .scaleProportionallyDown
             let text = NSTextField(labelWithString: "")
             text.translatesAutoresizingMaskIntoConstraints = false
             text.lineBreakMode = .byTruncatingTail
@@ -265,7 +307,8 @@ struct LayerOutline: NSViewRepresentable {
             NSLayoutConstraint.activate([
                 image.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
                 image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                image.widthAnchor.constraint(equalToConstant: 14),
+                image.widthAnchor.constraint(equalToConstant: iconSide),
+                image.heightAnchor.constraint(equalToConstant: iconSide),
                 text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6),
                 text.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
                 text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
