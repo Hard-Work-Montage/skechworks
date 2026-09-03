@@ -598,6 +598,10 @@ final class DocumentStore: ObservableObject {
             guard let b = page.layer(id) else { continue }
             before[id] = b
             page.updateLayer(id) { body(&$0) }
+            // A frame this edit moved or sized lands on whole numbers.
+            if let a = page.layer(id), a.frame != b.frame {
+                page.updateLayer(id) { $0.snapFrameToWholeNumbers() }
+            }
             if let a = page.layer(id) { after[id] = a }
         }
         guard !before.isEmpty else { return }
@@ -931,8 +935,11 @@ final class DocumentStore: ObservableObject {
         guard let src = source, var p = page else { return }
         let before = p.layers
         let signatureBefore = p.contentSignature
+        let untouched = p
         body(&p)
         guard p.contentSignature != signatureBefore else { return }
+        // Whatever this edit moved, sized, pasted or traced lands on whole numbers.
+        p.snapChangedFrames(since: untouched)
         apply(p, at: pageIndex, src: src)
         revision += 1
         isDirty = true
