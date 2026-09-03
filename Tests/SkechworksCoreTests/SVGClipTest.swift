@@ -139,3 +139,15 @@ private func shape(_ rect: CGRect, stroke: CGFloat = 0) -> Layer {
     let svg = SVGWriter().svg(page: p)
     #expect(!svg.contains("clipPath"))
 }
+
+@Test func aTraceAHairPastTheEdgeExportsWithNoClip() {
+    // A pasted picture traced a pixel or so off the board is not overflow. The
+    // clip it earned went into the file as a full-board rectangle and TAM cut it.
+    let svg = SVGWriter().svg(page: board(containing: [ shape(CGRect(x: 1.25, y: 0.66, width: 400, height: 400)) ]))
+    #expect(!svg.contains("clip-path"), "a hair of overflow must not earn a clip")
+}
+
+@Test func aShapeClearlyPastTheEdgeStillKeepsItsClip() {
+    let svg = SVGWriter().svg(page: board(containing: [ shape(CGRect(x: 5, y: 0, width: 400, height: 400)) ]))
+    #expect(svg.contains("clip-path"))
+}

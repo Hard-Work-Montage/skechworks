@@ -294,7 +294,13 @@ public struct SVGWriter {
             slack = max(slack, shadow.blur + shadow.spread
                         + max(abs(shadow.offset.width), abs(shadow.offset.height)))
         }
-        return box.insetBy(dx: -0.01, dy: -0.01).contains(ink.insetBy(dx: -slack, dy: -slack))
+        // A shape a pixel or two past the edge is a traced picture that landed a
+        // hair off, not a design decision. Clipping it wrote a full-board clip
+        // rectangle into the file, and TAM read that rectangle as a shape: a
+        // black square behind the coin and a crop box to delete on the laser
+        // (2026-09-03, a disc whose centre sat at 251.25 on a 500 board).
+        let slop: CGFloat = 2
+        return box.insetBy(dx: -slop, dy: -slop).contains(ink.insetBy(dx: -slack, dy: -slack))
     }
 
     public func pathData(_ p: CGPath, dropSlivers: Bool = true) -> String {
