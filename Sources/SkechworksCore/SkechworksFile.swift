@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-// Writes .sw.png — a PNG with a ZIP appended.
+// Writes .sw — a PNG with a ZIP appended.
 //
 // PNG readers stop at IEND; ZIP readers scan backwards for the end-of-central-directory
 // record. So the same bytes are simultaneously a valid image (Finder thumbnails it,
@@ -139,12 +139,17 @@ public struct SkechworksFile {
         }
     }
 
-    /// The extension every Skechworks document ends with.
-    public static let suffix = "sw.png"
+    /// The extension every Skechworks document ends with. The bytes are still a
+    /// PNG with the document riding behind it; ending in .sw rather than .sw.png
+    /// is what makes Skechworks the default app for the file, with no per-file
+    /// binding and none of the Gatekeeper trouble that came with one (see
+    /// LaunchBinding.swift). Rename one to .png and it is an ordinary picture.
+    public static let suffix = "sw"
 
-    /// The extension documents wore while the app was called Accomplice. Still
-    /// opens; a Save As moves the file onto the new one.
-    public static let legacySuffix = "acmplc.png"
+    /// Extensions documents wore before: .sw.png until 0.1.61, and .acmplc.png
+    /// while the app was called Accomplice. Both still open; a save moves the
+    /// file onto the new one.
+    public static let legacySuffixes = ["sw.png", "acmplc.png"]
 
     /// Every ending that marks a file as ours, longest first.
     static let ownTails = [".sw.png", ".acmplc.png", ".acmplc", ".sw"]
@@ -175,7 +180,7 @@ public struct SkechworksFile {
         return base.isEmpty ? "Untitled" : base
     }
 
-    /// Takes off .sw.png, .acmplc.png, or any partial of either, in any order.
+    /// Takes off .sw, .sw.png, .acmplc.png, or any partial of those, in any order.
     private static func stripOwnExtension(_ name: String) -> String {
         var base = name
         var stripped = true
@@ -189,13 +194,12 @@ public struct SkechworksFile {
         return base
     }
 
-    /// Forces a filename back to `<name>.sw.png`.
+    /// Forces a filename back to `<name>.sw`.
     ///
-    /// The save panel highlights "Untitled.sw" and leaves ".png" outside the
-    /// selection, so typing a new name naturally produces "Coin.png". The bytes would
-    /// still be a complete document — the payload is found by scanning, not by name —
-    /// but the compound extension is what makes the file open in Skechworks rather than
-    /// Preview, so it's put back.
+    /// A typed name may arrive as "Coin.png" or "Coin.sw.png". The bytes would still
+    /// be a complete document — the payload is found by scanning, not by name — but
+    /// the extension is what makes the file open in Skechworks rather than Preview,
+    /// so it's put back.
     public static func normalisedName(_ name: String) -> String {
         if name.lowercased().hasSuffix("." + suffix) {
             return name
@@ -587,7 +591,7 @@ public struct SkechworksFile {
 
     private static func readme(_ d: Document, _ cover: Int) -> String {
         """
-        This file is a Skechworks document (.sw.png).
+        This file is a Skechworks document (.sw).
 
         It is two things at once, on purpose:
 

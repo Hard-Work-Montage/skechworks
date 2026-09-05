@@ -7,8 +7,8 @@ import Foundation
 //   sw info     <file.sketch>              what's in it
 //   sw svg      <file.sketch> -o <dir>     every page as SVG
 //   sw png      <file.sketch> -o <dir>     every page as PNG
-//   sw convert  <file.sketch> -o <out>     -> .sw.png
-//   sw verify   <file.sw.png>          prove the polyglot holds
+//   sw convert  <file.sketch> -o <out>     -> .sw
+//   sw verify   <file.sw>              prove the polyglot holds
 
 let args = CommandLine.arguments
 func fail(_ m: String) -> Never { FileHandle.standardError.write(Data("error: \(m)\n".utf8)); exit(1) }
@@ -25,11 +25,12 @@ func usage() -> Never {
       sw info    <file.sketch>
       sw svg     <file.sketch> [-o dir] [--page N]
       sw png     <file.sketch> [-o dir] [--page N] [--size 1024]
-      sw convert <file.sketch> [-o out.sw.png] [--cover N]
-      sw verify  <file.sw.png>
-      sw claim   <file|dir>...        bind files to Skechworks for double-click
+      sw convert <file.sketch> [-o out.sw] [--cover N]
+      sw verify  <file.sw>
+      sw rename  <file|dir>...        move .sw.png files onto .sw (recurses)
+      sw claim   <file|dir>...        bind .sw.png files to Skechworks for double-click
       sw unclaim <file|dir>...        undo that; files open in Preview again
-      sw bench   <file.sw.png>
+      sw bench   <file.sw>
     """)
     exit(0)
 }
@@ -40,7 +41,7 @@ let input = URL(fileURLWithPath: args[2])
 
 /// Accepts either input format.
 ///
-/// Both are ZIPs containing a `document.json`, so handing an .sw.png to the Sketch
+/// Both are ZIPs containing a `document.json`, so handing an .sw to the Sketch
 /// reader used to "succeed" and yield an empty document — a blank render with no error.
 /// Try our own format first and only fall back to Sketch.
 func load() -> (Document, [String: Data]) {
@@ -154,11 +155,11 @@ case "convert":
     var opts = SkechworksFile.Options()
     if let c = value("--cover").flatMap(Int.init) { opts.coverPage = c }
     let out = URL(fileURLWithPath: value("-o")
-        ?? input.deletingPathExtension().lastPathComponent + ".sw.png")
+        ?? input.deletingPathExtension().lastPathComponent + ".sw")
     do {
         let data = try SkechworksFile.write(document: doc, images: images, options: opts)
         try data.write(to: out)
-        LaunchBinding.claim(out)
+        LaunchBinding.claimIfNeeded(out)
         let kb = Double(data.count) / 1024
         print(String(format: "wrote %@  (%.0f KB, %d pages)", out.lastPathComponent, kb, doc.pages.count))
         // Immediately re-open it both ways. A format that claims to be two things
@@ -291,7 +292,7 @@ case "bench":
 
     // What the app pays before it can show you anything.
     let t0 = Date()
-    guard let src = try? DocumentSource.sw(url: input) else { fail("not an .sw.png") }
+    guard let src = try? DocumentSource.sw(url: input) else { fail("not an .sw") }
     let indexed = Date().timeIntervalSince(t0)
     let t1 = Date()
     _ = src.page(at: 0)
@@ -322,7 +323,7 @@ case "roundtrip":
     // it, and diff against a render straight from the .sketch original.
     let (original, images) = load()
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-        .appendingPathComponent("sw-roundtrip.sw.png")
+        .appendingPathComponent("sw-roundtrip.sw")
     do {
         try SkechworksFile.write(document: original, images: images).write(to: tmp)
         let (reloaded, reImages) = try SkechworksFile.read(url: tmp)
@@ -459,6 +460,43 @@ case "claim", "unclaim":
             ? "these now open in Preview again, as an ordinary PNG would"
             : "double-clicking these now opens Skechworks; every other PNG still opens in Preview")
     }
+
+case "rename":
+    // Moves a library from the old compound extension onto .sw. The bytes are
+    // untouched; the per-file binding and any quarantine flag go with the old
+    // name, since neither has a job once the extension says whose file it is.
+    var renamed = 0, skipped = 0
+    func visit(_ u: URL) {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir) else { return }
+        if isDir.boolValue {
+            let kids = (try? FileManager.default.contentsOfDirectory(
+                at: u, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            kids.forEach(visit)
+            return
+        }
+        guard u.lastPathComponent.lowercased().hasSuffix(".sw.png") else { return }
+        let dest = u.deletingLastPathComponent()
+            .appendingPathComponent(SkechworksFile.normalisedName(u.lastPathComponent))
+        if FileManager.default.fileExists(atPath: dest.path) {
+            print("skipped \(u.path): \(dest.lastPathComponent) already exists")
+            skipped += 1
+            return
+        }
+        do {
+            try FileManager.default.moveItem(at: u, to: dest)
+            LaunchBinding.unclaim(dest)
+            _ = dest.withUnsafeFileSystemRepresentation { p in
+                p.map { removexattr($0, "com.apple.quarantine", 0) }
+            }
+            renamed += 1
+        } catch {
+            print("skipped \(u.path): \(error.localizedDescription)")
+            skipped += 1
+        }
+    }
+    args.dropFirst(2).filter { !$0.hasPrefix("-") }.forEach { visit(URL(fileURLWithPath: $0)) }
+    print("renamed \(renamed) file\(renamed == 1 ? "" : "s")\(skipped > 0 ? " (\(skipped) skipped)" : "")")
 
 case "verify":
     let data: Data

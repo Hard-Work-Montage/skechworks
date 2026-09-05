@@ -83,10 +83,10 @@ step, and your files are never used to train anything.
 
 ## The format
 
-An `.sw.png` is a PNG **and** a ZIP at the same time. This is the Fireworks
-`.fw.png` trick, which nobody has shipped since 2013. Finder thumbnails it, Preview
-opens it, and `unzip` produces every page as SVG, the document as readable JSON, and
-the placed images. There is no step where you need this program to get your artwork
+An `.sw` is a PNG **and** a ZIP at the same time. This is the Fireworks
+`.fw.png` trick, which nobody has shipped since 2013. Finder thumbnails it, renaming
+it to `.png` makes it a picture anything can open, and `unzip` produces every page as
+SVG, the document as readable JSON, and the placed images. There is no step where you need this program to get your artwork
 back. Details in [docs/format.md](docs/format.md).
 
 ## Design notes

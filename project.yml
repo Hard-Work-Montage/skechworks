@@ -51,16 +51,18 @@ targets:
       properties:
         CFBundleDisplayName: Skechworks
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.1.60"
-        CFBundleVersion: "51"
+        CFBundleShortVersionString: "0.1.61"
+        CFBundleVersion: "52"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
         NSHumanReadableCopyright: ""
-        # Our own type, declared as a *compound* extension. LaunchServices matches the
-        # longest extension it knows, so `foo.sw.png` resolves to us while a plain
-        # `foo.png` still belongs to Preview. Conforming to public.png is what keeps
-        # Finder thumbnails and Quick Look working for free.
+        # Our own type. Documents are `.sw` since 0.1.61, an extension nothing else
+        # claims, so Skechworks is their default app with no per-file binding. The
+        # compound `sw.png` tag stays for files saved before then; LaunchServices
+        # never let it outrank public.png, which is why those needed the binding
+        # (see LaunchBinding.swift). Conforming to public.png is what keeps Finder
+        # thumbnails and Quick Look working for free.
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: com.skechworks.document
             UTTypeDescription: Skechworks Document
@@ -123,7 +125,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skechworks.Skechworks
-        MARKETING_VERSION: "0.1.60"
+        MARKETING_VERSION: "0.1.61"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps

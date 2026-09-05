@@ -2,7 +2,9 @@ import Darwin
 import Foundation
 
 // Makes a .sw.png open in Skechworks on double-click without stealing every PNG
-// on the machine.
+// on the machine. LEGACY since 0.1.61: documents save as .sw, an extension the
+// app owns outright, so a new document never needs this. It stays for the
+// .sw.png files already out there, which keep opening until they are saved.
 //
 // LaunchServices resolves a file's type from the LAST extension component only. Our
 // UTI declares the compound tag `.sw.png` and LaunchServices does record it —
@@ -33,6 +35,14 @@ public enum LaunchBinding {
 
     public static let defaultBundleID = "com.skechworks.Skechworks"
     static let attribute = "com.apple.LaunchServices.OpenWith"
+
+    /// Binds a file only if its name needs it: a .sw.png still ends in png and
+    /// would go to Preview, a .sw is ours already and is left untouched.
+    @discardableResult
+    public static func claimIfNeeded(_ url: URL, bundleID: String = defaultBundleID) -> Bool {
+        guard url.pathExtension.lowercased() == "png" else { return true }
+        return claim(url, bundleID: bundleID)
+    }
 
     /// Binds this one file to Skechworks. Naming only the bundle identifier — not a
     /// path — keeps documents portable when the app moves or is installed elsewhere.

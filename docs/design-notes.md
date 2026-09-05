@@ -7,7 +7,7 @@
 open build/Build/Products/Release/Skechworks.app
 ```
 
-A viewer, for now: open an `.sw.png` (or a `.sketch` directly), browse pages,
+A viewer, for now: open an `.sw` (or a `.sketch` directly), browse pages,
 inspect the layer tree, click the canvas to select a layer, export one page or all
 pages as SVG. Zoom and pan with the trackpad.
 
@@ -25,7 +25,7 @@ sw info    <file.sketch>                    # what's in it
 sw svg     <file.sketch> [-o dir]           # every page as SVG
 sw png     <file.sketch> [-o dir] [--size]  # every page as PNG
 sw convert <file.sketch> [-o out] [--cover N]
-sw verify  <file.sw.png>                # prove both halves are intact
+sw verify  <file.sw>                    # prove both halves are intact
 ```
 
 ## Status

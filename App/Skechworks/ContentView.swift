@@ -370,7 +370,7 @@ struct ContentView: View {
         VStack(spacing: 14) {
             Image(systemName: "square.on.circle").font(.system(size: 40)).foregroundStyle(.tertiary)
             Text("Drop a document here").font(.headline)
-            Text(".sw.png or .sketch").font(.caption).foregroundStyle(.secondary)
+            Text(".sw or .sketch").font(.caption).foregroundStyle(.secondary)
             Button("Open…") { store.openPanel() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

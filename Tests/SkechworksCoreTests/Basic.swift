@@ -2410,16 +2410,16 @@ private func shadowedGroup() -> Layer {
 
 // MARK: - Saving
 
-@Test func theCompoundExtensionIsPutBackWhateverGetsTyped() {
-    // The save panel highlights "Untitled.sw" and leaves ".png" outside the
-    // selection, so typing over it produces "Coin.png".
-    #expect(SkechworksFile.normalisedName("Coin.png") == "Coin.sw.png")
-    #expect(SkechworksFile.normalisedName("Coin") == "Coin.sw.png")
-    #expect(SkechworksFile.normalisedName("Coin.sw") == "Coin.sw.png")
-    #expect(SkechworksFile.normalisedName("Coin.sw.png") == "Coin.sw.png")
+@Test func theExtensionIsPutBackWhateverGetsTyped() {
+    #expect(SkechworksFile.normalisedName("Coin.png") == "Coin.sw")
+    #expect(SkechworksFile.normalisedName("Coin") == "Coin.sw")
+    #expect(SkechworksFile.normalisedName("Coin.sw") == "Coin.sw")
+    // The names documents used to have land on the new one.
+    #expect(SkechworksFile.normalisedName("Coin.sw.png") == "Coin.sw")
+    #expect(SkechworksFile.normalisedName("Coin.acmplc.png") == "Coin.sw")
     // Dots in the name itself are not an extension.
-    #expect(SkechworksFile.normalisedName("1 Year v2.png") == "1 Year v2.sw.png")
-    #expect(SkechworksFile.normalisedName(".png") == "Untitled.sw.png")
+    #expect(SkechworksFile.normalisedName("1 Year v2.png") == "1 Year v2.sw")
+    #expect(SkechworksFile.normalisedName(".png") == "Untitled.sw")
 }
 
 @Test func aRenamedDocumentStillHoldsEveryLayer() throws {

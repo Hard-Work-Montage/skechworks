@@ -1,10 +1,10 @@
-# The `.sw.png` format
+# The `.sw` format
 
-An Skechworks document is a PNG **and** a ZIP, at the same time. PNG readers stop at
+A Skechworks document is a PNG **and** a ZIP, at the same time. PNG readers stop at
 `IEND`; ZIP readers scan backward for the central directory. Neither notices the other.
 
-- **Double-click it** — Finder thumbnails it, Preview opens it, any image viewer on
-  any OS shows you the cover page.
+- **Double-click it** — Finder thumbnails it and Skechworks opens it. Rename it to
+  `.png` and any image viewer on any OS shows you the cover page.
 - **`unzip` it** — every page as SVG in `exports/`, the editable document as JSON in
   `pages/`, placed images in `assets/`.
 
@@ -20,8 +20,13 @@ belongs to Preview. LaunchServices resolves a file's type from the last extensio
 component only, so a `.sw.png` is a `public.png` and a third-party type cannot
 outrank an Apple system type — the compound extension is registered but never wins.
 The lever that does work is the per-file binding Finder writes for *Get Info > Open
-With*: an extended attribute naming the handler. Skechworks stamps it on every file it
-writes, and `sw claim <file|dir>` re-applies it in bulk.
+With*: an extended attribute naming the handler. Skechworks stamped it on every file it
+wrote, and `sw claim <file|dir>` re-applies it in bulk.
+
+**Since 0.1.61 documents save as `.sw`**, an extension the app owns outright, so a new
+document needs no binding at all. `.sw.png` files still open, a save moves one onto
+`.sw`, and `sw rename <file|dir>` moves a whole library. Everything below is about
+the `.sw.png` files that remain.
 
 **A bound file must not carry `com.apple.quarantine`.** Gatekeeper assesses a
 quarantined document that has a per-file handler, and a PNG cannot pass that — the

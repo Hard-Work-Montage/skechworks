@@ -354,7 +354,7 @@ final class DocumentStoreTests: XCTestCase {
 
     func testSavingToAPlainNameStillProducesAnSkechworksDocument() throws {
         // The save panel now offers just the base name, so the URL that comes back has
-        // no extension at all. What lands on disk still has to be a .sw.png that
+        // no extension at all. What lands on disk still has to be a .sw that
         // opens with every layer.
         let (store, _, photo) = loaded()
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -365,7 +365,7 @@ final class DocumentStoreTests: XCTestCase {
         let typed = dir.appendingPathComponent("Coin")           // exactly what's typed
         let final = typed.deletingLastPathComponent()
             .appendingPathComponent(SkechworksFile.normalisedName(typed.lastPathComponent))
-        XCTAssertEqual(final.lastPathComponent, "Coin.sw.png")
+        XCTAssertEqual(final.lastPathComponent, "Coin.sw")
 
         store.url = final
         let done = expectation(description: "written")
@@ -772,18 +772,22 @@ extension DocumentStoreTests {
             .appendingPathComponent("legacy-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let old = dir.appendingPathComponent("Coin.acmplc.png")
-        try Data("stale".utf8).write(to: old)
+        // Both names documents used to have: the Accomplice one and .sw.png.
+        for legacy in ["Coin.acmplc.png", "Coin.sw.png"] {
+            let old = dir.appendingPathComponent(legacy)
+            try Data("stale".utf8).write(to: old)
 
-        let (store, _, _) = loaded()
-        store.url = old
-        let done = expectation(description: "written")
-        store.save { ok in XCTAssertTrue(ok); done.fulfill() }
-        wait(for: [done], timeout: 10)
+            let (store, _, _) = loaded()
+            store.url = old
+            let done = expectation(description: "written \(legacy)")
+            store.save { ok in XCTAssertTrue(ok); done.fulfill() }
+            wait(for: [done], timeout: 10)
 
-        XCTAssertEqual(store.url?.lastPathComponent, "Coin.sw.png")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Coin.sw.png").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path), "the old name does not linger beside the new one")
+            XCTAssertEqual(store.url?.lastPathComponent, "Coin.sw")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Coin.sw").path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: old.path), "the old name does not linger beside the new one")
+            try FileManager.default.removeItem(at: dir.appendingPathComponent("Coin.sw"))
+        }
     }
 
     func testUnsavedWorkSurvivesThroughARecoverySnapshot() throws {

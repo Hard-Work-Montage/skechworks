@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// Holds the open document. Deliberately not an NSDocument yet — this is a viewer, and
 /// there is nothing to save. The moment editing lands this should become one, because
 /// NSDocument is where autosave and version browsing come from for free, and those are
-/// the mitigation for a stripped .sw.png.
+/// the mitigation for a stripped .sw.
 @MainActor
 final class DocumentStore: ObservableObject {
 
@@ -314,7 +314,7 @@ final class DocumentStore: ObservableObject {
             selection = [id]
         }
     }
-    @Published var status: String = "Open an .sw.png or a .sketch file"
+    @Published var status: String = "Open an .sw or a .sketch file"
     @Published var isLoading = false
     @Published var isPageLoading = false
     @Published var fontWarnings: [(String, String)] = []
@@ -393,7 +393,7 @@ final class DocumentStore: ObservableObject {
             var notes: [String] = []
             var importedImage = false
 
-            // .sw.png first — it's the native format, and it only parses
+            // .sw first — it's the native format, and it only parses
             // document.json here, so this is fast regardless of document size. A
             // .sketch fails that and falls through; so does a PNG whose payload was
             // stripped, which is why the error has to distinguish them.
@@ -409,11 +409,11 @@ final class DocumentStore: ObservableObject {
             } else {
                 do {
                     made = try DocumentSource.sw(url: url)
-                    // A document we could read is ours. Drop the quarantine flag
+                    // An .sw.png we could read is ours. Drop the quarantine flag
                     // Preview leaves on files it touches, or the next double-click
                     // gets Gatekeeper's "could not verify ... free of malware" —
-                    // see LaunchBinding.swift. Reaching the file some other way
-                    // (Open, drag, Recent) is how a challenged file heals itself.
+                    // see LaunchBinding.swift. A .sw never carries the binding, so
+                    // this is a no-op for it.
                     LaunchBinding.releaseQuarantine(url)
                 } catch {
                     if ext == "sketch" {
@@ -437,7 +437,7 @@ final class DocumentStore: ObservableObject {
                               let bitmap = BitmapImage.load(data) {
                         // A plain image: open it as a picture on the canvas, at its
                         // own size, in a fresh untitled document. This is also the
-                        // soft landing for a stripped .sw.png — the document is
+                        // soft landing for a stripped .sw — the document is
                         // gone but the picture survives, so show the picture rather
                         // than an empty window.
                         let key = "images/\(Zip.crc32(data))-\(data.count).png"
@@ -487,7 +487,7 @@ final class DocumentStore: ObservableObject {
                 // than letting it look like a faithful import.
                 if !notes.isEmpty { self.fontWarnings = notes.map { ("Import", $0) } }
                 // Anything that wasn't already a Skechworks document has no
-                // .sw.png behind it, so saving must ask where rather than
+                // .sw behind it, so saving must ask where rather than
                 // write back over what was opened.
                 //
                 // A .sketch especially. Saving Skechworks's model into a file
@@ -3417,7 +3417,7 @@ final class DocumentStore: ObservableObject {
     /// ⌘V, and what you meant was "put these shapes here", the same as an
     /// icon site's Copy SVG. It used to open the file instead, in this window,
     /// which closed whatever you were working on to do it. Anything else that
-    /// really is a document (.sketch, .sw.png) still opens, but the way Open
+    /// really is a document (.sketch, .sw) still opens, but the way Open
     /// does: in this window only if it is empty, otherwise in its own tab.
     private func placeOrOpen(_ url: URL) {
         if url.pathExtension.lowercased() == "svg",
@@ -3715,7 +3715,7 @@ final class DocumentStore: ObservableObject {
                 // Full document, same as a real save — untouched lazy pages included.
                 let doc = src.fullDocument()
                 let data = try SkechworksFile.write(document: doc, images: src.images, options: options)
-                try data.write(to: dir.appendingPathComponent("\(id).sw.png"), options: .atomic)
+                try data.write(to: dir.appendingPathComponent("\(id).\(SkechworksFile.suffix)"), options: .atomic)
                 let side = try JSONSerialization.data(withJSONObject: ["original": original?.path as Any])
                 try side.write(to: dir.appendingPathComponent("\(id).json"), options: .atomic)
             } catch {
@@ -3731,7 +3731,7 @@ final class DocumentStore: ObservableObject {
         let id = autosaveID
         Self.recoveryQueue.async {
             let dir = Self.recoveryDir
-            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).sw.png"))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).\(SkechworksFile.suffix)"))
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("\(id).json"))
         }
     }
@@ -3741,7 +3741,7 @@ final class DocumentStore: ObservableObject {
 
     // MARK: - Save
 
-    /// Rewrites the whole .sw.png. Every page is parsed first — including ones
+    /// Rewrites the whole .sw. Every page is parsed first — including ones
     /// never opened — so untouched pages survive a save unchanged.
     /// `completion(true)` only when bytes actually reached disk — the close prompt
     /// needs to know, since a cancelled Save As must leave the window open.
@@ -3755,23 +3755,16 @@ final class DocumentStore: ObservableObject {
     func saveAs(completion: ((Bool) -> Void)? = nil) {
         guard source != nil else { completion?(false); return }
         let panel = NSSavePanel()
-        // Offer the base name only, and let the panel own the extension. macOS
-        // otherwise treats ".png" as the whole extension and highlights
-        // "Untitled.sw" — so typing a name naturally throws away the ".sw"
-        // that decides which app opens the file.
+        // Offer the base name only; normalisedName puts the extension on
+        // afterwards, whatever was typed.
         panel.nameFieldStringValue = SkechworksFile.baseName(url?.lastPathComponent ?? "Untitled")
-        // Deliberately NO allowedContentTypes. Declaring our type makes macOS resolve
-        // the compound extension as plain "png" and push ".sw" back into the name
-        // field — so it highlights "Untitled.sw" again, which is the thing being
-        // fixed. Left alone, the field holds just the name, and normalisedName puts the
-        // whole extension on afterwards.
         panel.nameFieldLabel = "Save As:"
-        panel.message = "Saved as a Skechworks document (.sw.png)"
+        panel.message = "Saved as a Skechworks document (.sw)"
         panel.allowsOtherFileTypes = true
         guard panel.runModal() == .OK, var out = panel.url else { completion?(false); return }
-        // Keep the compound extension whatever was typed. The rule lives in Core so
-        // it can be tested; getting it wrong doesn't lose data, but it does lose the
-        // file to Preview.
+        // Keep the extension whatever was typed. The rule lives in Core so it can
+        // be tested; getting it wrong doesn't lose data, but it does lose the file
+        // to Preview.
         out = out.deletingLastPathComponent()
             .appendingPathComponent(SkechworksFile.normalisedName(out.lastPathComponent))
         url = out
@@ -3783,10 +3776,10 @@ final class DocumentStore: ObservableObject {
     /// to cross an isolation boundary.
     private func writeToDisk(completion: ((Bool) -> Void)? = nil) {
         guard let src = source, var url else { completion?(false); return }
-        // A document still named the Accomplice way moves onto .sw.png as it is
-        // saved, and the old file goes. Plain Save keeps a document's name, so
-        // without this a file opened under the old extension, or brought back
-        // from a recovery snapshot that remembered it, stayed .acmplc.png for good.
+        // A document still named .sw.png or the Accomplice way moves onto .sw as
+        // it is saved, and the old file goes. Plain Save keeps a document's name,
+        // so without this a file opened under an old extension, or brought back
+        // from a recovery snapshot that remembered it, kept that name for good.
         var legacy: URL?
         if SkechworksFile.isOwnDocumentName(url.lastPathComponent),
            !url.lastPathComponent.lowercased().hasSuffix("." + SkechworksFile.suffix) {
@@ -3811,7 +3804,7 @@ final class DocumentStore: ObservableObject {
                     let doc = src.fullDocument()
                     let data = try SkechworksFile.write(document: doc, images: src.images, options: options)
                     try data.write(to: out)
-                    LaunchBinding.claim(out)
+                    LaunchBinding.claimIfNeeded(out)
                     if let retire { try? FileManager.default.removeItem(at: retire) }
                     return (true, "Saved \(out.lastPathComponent)")
                 } catch {
@@ -3837,7 +3830,7 @@ final class DocumentStore: ObservableObject {
         p.allowsOtherFileTypes = true
         p.canChooseDirectories = false
         p.allowsMultipleSelection = false
-        p.message = "Open a Skechworks document (.sw.png) or a Sketch file"
+        p.message = "Open a Skechworks document (.sw) or a Sketch file"
         guard p.runModal() == .OK, let u = p.url else { return }
         // Open opens a document. It has no business closing one, and replacing
         // what this window is showing is closing one.
