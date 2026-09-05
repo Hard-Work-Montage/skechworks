@@ -6,7 +6,8 @@
 # verified, macOS challenges the DOCUMENT on open and offers to trash it. A
 # Developer ID signature is enough for local opens; notarization is what makes that
 # hold on a machine where the app arrived with a quarantine flag — i.e. anywhere it
-# gets distributed.
+# gets distributed. (A quarantine flag on the DOCUMENT is a separate matter that
+# notarization does not fix; the app strips it — LaunchBinding.releaseQuarantine.)
 #
 # ONE-TIME SETUP (already done on this machine as "pelocan-notary"):
 #   xcrun notarytool store-credentials "skechworks-notary" \

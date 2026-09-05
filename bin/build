@@ -10,8 +10,10 @@
 # 2. An ad-hoc signature is rejected by Gatekeeper (`spctl -a` says so). The app still
 #    launches when you point at it directly, but a *document* bound to it via the
 #    per-file LaunchServices binding gets challenged — macOS shows "could not verify
-#    ... free of malware" naming the DOCUMENT, and strips the binding. So the launch
-#    binding is only safe once the app carries a real Developer ID signature.
+#    ... free of malware" naming the DOCUMENT. So the launch binding needs a real
+#    Developer ID signature. (Not sufficient on its own: a bound document that
+#    carries com.apple.quarantine is challenged under a notarized app too. The app
+#    strips that flag itself — see LaunchBinding.swift.)
 #
 # Override the identity with SW_SIGN_ID; falls back to ad-hoc if no Developer ID
 # is installed, in which case bin/build warns and the binding should stay off.

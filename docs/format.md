@@ -23,11 +23,17 @@ The lever that does work is the per-file binding Finder writes for *Get Info > O
 With*: an extended attribute naming the handler. Skechworks stamps it on every file it
 writes, and `sw claim <file|dir>` re-applies it in bulk.
 
-**The binding requires a Developer ID signature.** With an ad-hoc signature the app is
-Gatekeeper-rejected, and macOS then challenges any *document* bound to it — the warning
-names the document, not the app, and offers to move it to the Trash. `bin/build` picks
-up a Developer ID automatically and warns loudly if it can't find one. `sw unclaim`
-removes the binding if you ever need to.
+**A bound file must not carry `com.apple.quarantine`.** Gatekeeper assesses a
+quarantined document that has a per-file handler, and a PNG cannot pass that — the
+warning names the document, not the app, says Apple "could not verify ... is free of
+malware", and offers to move it to the Trash. Signing and notarizing the app does not
+change this; syspolicyd only looks at the document (confirmed 2026-09-05, macOS 26,
+0.1.59 stapled in /Applications). Preview stamps quarantine on files it touches, so
+this happens to real documents. Skechworks strips the flag from any file it binds or
+opens as its own format, which means a challenged file is healed by opening it once
+through File > Open, a drag onto the icon, or Open Recent. `xattr -d
+com.apple.quarantine <file>` does the same by hand. `sw unclaim` removes the binding
+if you ever need to.
 
 Otherwise the binding degrades gracefully: extended attributes don't survive zipping,
 email, or most upload round trips, and when it's lost the file just opens in Preview

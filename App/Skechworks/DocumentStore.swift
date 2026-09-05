@@ -409,6 +409,12 @@ final class DocumentStore: ObservableObject {
             } else {
                 do {
                     made = try DocumentSource.sw(url: url)
+                    // A document we could read is ours. Drop the quarantine flag
+                    // Preview leaves on files it touches, or the next double-click
+                    // gets Gatekeeper's "could not verify ... free of malware" —
+                    // see LaunchBinding.swift. Reaching the file some other way
+                    // (Open, drag, Recent) is how a challenged file heals itself.
+                    LaunchBinding.releaseQuarantine(url)
                 } catch {
                     if ext == "sketch" {
                         var reader = SketchReader()

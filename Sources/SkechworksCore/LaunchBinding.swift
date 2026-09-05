@@ -18,6 +18,16 @@ import Foundation
 // zip, email, and most upload/download round trips drop them. When that happens the
 // file simply opens in Preview again, which is exactly what it did before. Nothing
 // breaks, and the artwork is still there either way.
+//
+// The one way it bites: a bound file that ALSO carries com.apple.quarantine.
+// Gatekeeper treats "quarantined document with a per-file handler" as something to
+// assess, tries to verify the PNG as if it were code, and shows "Apple could not
+// verify ... is free of malware" naming the document — with a Move to Trash button.
+// A notarized, stapled app in /Applications does not prevent this (seen 2026-09-05
+// on macOS 26 with 0.1.59): syspolicyd only ever looks at the document. Preview
+// stamps quarantine on any file it touches, so a .sw.png someone glanced at in
+// Preview is challenged on its next double-click. Hence `releaseQuarantine`: a
+// file we bind, or successfully open as our own format, gets the flag taken off.
 
 public enum LaunchBinding {
 
@@ -35,7 +45,19 @@ public enum LaunchBinding {
             guard let path else { return false }
             return data.withUnsafeBytes { buf -> Bool in
                 setxattr(path, attribute, buf.baseAddress, data.count, 0, 0) == 0
-            }
+            } && releaseQuarantine(url)
+        }
+    }
+
+    /// Takes com.apple.quarantine off a file. Only meaningful for a bound file —
+    /// an unbound PNG is never challenged — so this is a no-op for anything else.
+    /// Returns true when the file ends up unflagged, whether or not it was flagged.
+    @discardableResult
+    public static func releaseQuarantine(_ url: URL) -> Bool {
+        guard isClaimed(url) else { return true }
+        return url.withUnsafeFileSystemRepresentation { path -> Bool in
+            guard let path else { return false }
+            return removexattr(path, "com.apple.quarantine", 0) == 0 || errno == ENOATTR
         }
     }
 
