@@ -790,6 +790,41 @@ extension DocumentStoreTests {
         }
     }
 
+    func testSavingFollowsADocumentFinderMovedWhileItWasOpen() throws {
+        // Three documents were open in a folder Adam moved in Finder. Every ⌘S
+        // then wrote to the old path, failed, and beeped.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("moved-\(UUID().uuidString)", isDirectory: true)
+        let before = root.appendingPathComponent("was", isDirectory: true)
+        let after = root.appendingPathComponent("is", isDirectory: true)
+        try FileManager.default.createDirectory(at: before, withIntermediateDirectories: true)
+        // Marking the store dirty snapshots it; keep that out of the real net.
+        DocumentStore.recoveryDirOverride = root.appendingPathComponent("recovery", isDirectory: true)
+        defer {
+            DocumentStore.recoveryDirOverride = nil
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let (store, _, _) = loaded()
+        let first = before.appendingPathComponent("Coin.sw")
+        store.url = first
+        let written = expectation(description: "first save")
+        store.save { ok in XCTAssertTrue(ok); written.fulfill() }
+        wait(for: [written], timeout: 10)
+
+        // The folder moves out from under the open document.
+        try FileManager.default.moveItem(at: before, to: after)
+        store.isDirty = true
+        let again = expectation(description: "save after the move")
+        store.save { ok in XCTAssertTrue(ok, "a moved file is still the same file"); again.fulfill() }
+        wait(for: [again], timeout: 10)
+
+        XCTAssertEqual(store.url?.resolvingSymlinksInPath(),
+                       after.appendingPathComponent("Coin.sw").resolvingSymlinksInPath())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: before.path),
+                       "nothing is written back at the old place")
+    }
+
     func testUnsavedWorkSurvivesThroughARecoverySnapshot() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("recovery-\(UUID().uuidString)", isDirectory: true)

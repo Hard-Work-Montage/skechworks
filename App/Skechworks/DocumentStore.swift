@@ -18,7 +18,28 @@ final class DocumentStore: ObservableObject {
             // The conversation is filed under the document's name, so it arrives
             // when a file is opened and follows it through a Save As.
             chat.documentURL = url
+            // A path stops being true the moment the file is moved or renamed
+            // in Finder; a bookmark follows it. Kept from whenever the file
+            // was last seen on disk, so a Save after a move lands on the file
+            // where it is now rather than failing at where it was.
+            if let url, FileManager.default.fileExists(atPath: url.path) {
+                urlBookmark = try? url.bookmarkData()
+            } else if url == nil {
+                urlBookmark = nil
+            }
         }
+    }
+    private var urlBookmark: Data?
+
+    /// Where the document is on disk right now, if Finder has moved it since it
+    /// was opened. Nil when it is where `url` says, or when nothing can be found.
+    func movedLocation() -> URL? {
+        guard let url, let data = urlBookmark else { return nil }
+        var stale = false
+        guard let now = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale),
+              now.standardizedFileURL != url.standardizedFileURL,
+              FileManager.default.fileExists(atPath: now.path) else { return nil }
+        return now
     }
     /// The window this document lives in, set by WindowTabbing. How menu commands
     /// find the document the user is actually looking at.
@@ -3649,9 +3670,21 @@ final class DocumentStore: ObservableObject {
                 SkechworksFile.baseName(snap.lastPathComponent) + ".json")
             var original: URL?
             if let d = try? Data(contentsOf: sidecar),
-               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-               let p = j["original"] as? String {
-                original = URL(fileURLWithPath: p)
+               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                if let p = j["original"] as? String { original = URL(fileURLWithPath: p) }
+                // The file may have moved since the snapshot: the bookmark knows
+                // where, and a file saved under an old extension has since been
+                // renamed onto .sw beside where it was.
+                var stale = false
+                if let b64 = j["bookmark"] as? String, let b = Data(base64Encoded: b64),
+                   let now = try? URL(resolvingBookmarkData: b, bookmarkDataIsStale: &stale),
+                   FileManager.default.fileExists(atPath: now.path) {
+                    original = now
+                } else if let o = original, !FileManager.default.fileExists(atPath: o.path) {
+                    let renamed = o.deletingLastPathComponent()
+                        .appendingPathComponent(SkechworksFile.normalisedName(o.lastPathComponent))
+                    if FileManager.default.fileExists(atPath: renamed.path) { original = renamed }
+                }
             }
             return Recovery(snapshot: snap, sidecar: sidecar, original: original)
         }
@@ -3705,6 +3738,7 @@ final class DocumentStore: ObservableObject {
         guard isDirty, let src = source else { return }
         let id = autosaveID
         let original = url
+        let bookmark = urlBookmark
         var opts = SkechworksFile.Options()
         opts.coverPage = coverPage
         let options = opts
@@ -3716,7 +3750,9 @@ final class DocumentStore: ObservableObject {
                 let doc = src.fullDocument()
                 let data = try SkechworksFile.write(document: doc, images: src.images, options: options)
                 try data.write(to: dir.appendingPathComponent("\(id).\(SkechworksFile.suffix)"), options: .atomic)
-                let side = try JSONSerialization.data(withJSONObject: ["original": original?.path as Any])
+                var note: [String: Any] = ["original": original?.path as Any]
+                if let b = bookmark { note["bookmark"] = b.base64EncodedString() }
+                let side = try JSONSerialization.data(withJSONObject: note)
                 try side.write(to: dir.appendingPathComponent("\(id).json"), options: .atomic)
             } catch {
                 // Best-effort: a failed snapshot must never interrupt the edit that
@@ -3776,6 +3812,18 @@ final class DocumentStore: ObservableObject {
     /// to cross an isolation boundary.
     private func writeToDisk(completion: ((Bool) -> Void)? = nil) {
         guard let src = source, var url else { completion?(false); return }
+        // Follow the file if Finder moved or renamed it while it was open.
+        if let now = movedLocation() {
+            url = now
+            self.url = now
+        }
+        // A folder that is gone is a Save As, not a failed write and a beep. The
+        // originals of recovered work can be like this: the snapshot remembered
+        // a path, and the folder was moved in the meantime.
+        if !FileManager.default.fileExists(atPath: url.deletingLastPathComponent().path) {
+            saveAs(completion: completion)
+            return
+        }
         // A document still named .sw.png or the Accomplice way moves onto .sw as
         // it is saved, and the old file goes. Plain Save keeps a document's name,
         // so without this a file opened under an old extension, or brought back
@@ -3816,6 +3864,8 @@ final class DocumentStore: ObservableObject {
             self.status = outcome.message
             if outcome.ok {
                 self.isDirty = false
+                // The file exists now, so the bookmark that follows it can be made.
+                self.urlBookmark = try? url.bookmarkData()
                 RecentDocuments.shared.note(url)
             } else {
                 NSSound.beep()
