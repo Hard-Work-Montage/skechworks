@@ -201,6 +201,7 @@ struct SkechworksApp: App {
                 Divider()
                 Button("Flip Horizontal") { AppDelegate.shared?.active?.flipSelection(horizontal: true) }
                 Button("Flip Vertical") { AppDelegate.shared?.active?.flipSelection(horizontal: false) }
+                Button("Round to Pixel") { AppDelegate.shared?.active?.roundSelectionToPixels() }
                 Divider()
                 Button("Group") { AppDelegate.shared?.active?.groupSelection() }
                     .shortcut("group")

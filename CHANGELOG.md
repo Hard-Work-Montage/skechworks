@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.63 (September 6, 2026)
+
+- Edits no longer round frames to whole numbers on their own; Arrange ▸ Round to Pixel does it when you ask
+
 ## 0.1.62 (September 5, 2026)
 
 - Save follows a document you moved or renamed in Finder while it was open, instead of failing with a beep
