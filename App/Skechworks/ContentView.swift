@@ -126,6 +126,18 @@ struct ContentView: View {
                     .help("\(store.tool.title) mode — press Esc to go back to the cursor")
                 }
             }
+            // Into the points of the selected path. Double-click gets there
+            // when the path is under the pointer, but a Subtract member is
+            // mostly punched away, so the double-click lands on whatever shows
+            // through. Picking it in the layer list and pressing this does it.
+            ToolbarItem {
+                if store.canEditPath {
+                    Button { store.editSelectedPath() } label: {
+                        Label("Edit Points", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                    }
+                    .help("Edit the points of the selected path (Return)")
+                }
+            }
             // Sketch keeps the scissors in the toolbar while a path is open for
             // editing. Shown whenever one path is selected, which is the same
             // moment the tool has anything to cut.
