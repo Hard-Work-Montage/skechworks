@@ -531,14 +531,14 @@ final class DocumentStore: ObservableObject {
         guard let src = source else { page = nil; return }
         let i = pageIndex
         if src.isLoaded(i) {
-            page = src.page(at: i)
+            page = src.page(at: i)?.huggingGroups()
             pageToken += 1
             isPageLoading = false
             return
         }
         isPageLoading = true
         Task.detached(priority: .userInitiated) {
-            let p = src.page(at: i)
+            let p = src.page(at: i)?.huggingGroups()
             let warnings = MissingFonts.all
             await MainActor.run {
                 guard self.pageIndex == i, self.source === src else { return }
@@ -3613,8 +3613,9 @@ final class DocumentStore: ObservableObject {
     /// Every page write goes through here, which makes it the one place worth
     /// checking that what's being written can actually be drawn.
     private func apply(_ p: Page, at idx: Int, src: DocumentSource) {
-        var page = p
-        let (repaired, broken) = p.repairingGeometry()
+        // A group's box follows its children. See GroupHug.swift.
+        var page = p.huggingGroups()
+        let (repaired, broken) = page.repairingGeometry()
         if !broken.isEmpty {
             // Loudly. A shape that quietly stops drawing itself is worse than a
             // crash — the thing that broke it is finished and gone by the time
