@@ -100,10 +100,17 @@ public struct Renderer {
                 // leaves the artwork on top. Stacked passes redraw the content, which
                 // is invisible for opaque art and would deepen translucent art — the
                 // trade for supporting more than one shadow at all.
+                // The layer is bounded to the group plus the shadow's reach. Left
+                // unbounded it is the size of the whole clip, which on a canvas is
+                // the whole window: six shadowed coins on a listing page were six
+                // full-window offscreens blurred and composited on every frame,
+                // three quarters of what the frame cost.
+                var box = CGRect.null
+                for c in inner where !c.isMarker { box = box.union(Self.roughBounds(of: c)) }
                 for s in shadows {
                     ctx.saveGState()
                     Self.setShadow(s, in: ctx)
-                    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                    ctx.beginTransparencyLayer(in: Self.shadowBox(box, s), auxiliaryInfo: nil)
                     for c in inner where !c.isMarker { draw(c, in: ctx) }
                     ctx.endTransparencyLayer()
                     ctx.restoreGState()
@@ -133,6 +140,14 @@ public struct Renderer {
         }
         if d.text != nil { grow = max(grow, 100) }
         return b.insetBy(dx: -grow, dy: -grow)
+    }
+
+    /// `box` grown by everything a shadow can paint outside it: the offset, and
+    /// three blur radii of Gaussian tail. Where the shadow's own layer stops.
+    static func shadowBox(_ box: CGRect, _ s: Shadow) -> CGRect {
+        guard !box.isNull else { return CGRect(infinite: true) }
+        let reach = s.blur * 3 + abs(s.spread) + max(abs(s.offset.width), abs(s.offset.height)) + 2
+        return box.insetBy(dx: -reach, dy: -reach)
     }
 
     /// Index of the marker closing the group opened at `start`, allowing for nesting.
@@ -186,6 +201,11 @@ public struct Renderer {
         defer { ctx.restoreGState() }
         ctx.concatenate(d.transform)
         let r = CGRect(origin: .zero, size: d.layer.frame.size)
+        // Device pixels per layer unit, the larger axis. Every picture below is
+        // drawn through BitmapMips at about the size it lands on screen, so a
+        // photo shrunk into a thumbnail costs a thumbnail to draw.
+        let m = ctx.ctm
+        let dev = max(hypot(m.a, m.b), hypot(m.c, m.d))
 
         // Perspective warp: bake the display image (orientation, adjustments,
         // crop) and project it onto the corner quad. The warped picture can
@@ -199,7 +219,10 @@ public struct Renderer {
                         y: box.height / max(1, CGFloat(warped.height)))
             ctx.translateBy(x: 0, y: CGFloat(warped.height))
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(warped, in: CGRect(x: 0, y: 0, width: warped.width, height: warped.height))
+            let s = dev * max(box.width / max(1, CGFloat(warped.width)),
+                              box.height / max(1, CGFloat(warped.height)))
+            ctx.draw(BitmapMips.image(warped, scale: s),
+                     in: CGRect(x: 0, y: 0, width: warped.width, height: warped.height))
             return
         }
 
@@ -228,7 +251,10 @@ public struct Renderer {
                         y: r.height / max(1, CGFloat(baked.height)))
             ctx.translateBy(x: 0, y: CGFloat(baked.height))
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(baked, in: CGRect(x: 0, y: 0, width: baked.width, height: baked.height))
+            let s = dev * max(r.width / max(1, CGFloat(baked.width)),
+                              r.height / max(1, CGFloat(baked.height)))
+            ctx.draw(BitmapMips.image(baked, scale: s),
+                     in: CGRect(x: 0, y: 0, width: baked.width, height: baked.height))
             return
         }
 
@@ -241,7 +267,9 @@ public struct Renderer {
         ctx.concatenate(o.transform)
         ctx.translateBy(x: 0, y: o.nativeSize.height)
         ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(img: o.image, size: o.nativeSize)
+        let s = dev * max(r.width / max(1, o.displaySize.width),
+                          r.height / max(1, o.displaySize.height))
+        ctx.draw(img: BitmapMips.image(o.image, scale: s), size: o.nativeSize)
     }
 
     /// `setShadow` takes its offset and blur in the context's base space, the one
@@ -266,7 +294,7 @@ public struct Renderer {
         }
         if d.opacity != 1 { ctx.setAlpha(d.opacity) }
 
-        if let ref = d.imageRef, let data = images[ref], let o = BitmapImage.load(data) {
+        if let ref = d.imageRef, let data = images[ref], let o = BitmapImage.load(data, ref: ref) {
             // A picture's shadow is cast from its own alpha, so it is drawn with the
             // shadow set rather than filling a silhouette first. The transparency
             // layer matters: erase strokes and crops clip the picture from inside
@@ -280,7 +308,8 @@ public struct Renderer {
                 for s in d.style.shadows {
                     ctx.saveGState()
                     Self.setShadow(s, in: ctx)
-                    ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+                    ctx.beginTransparencyLayer(in: Self.shadowBox(Self.roughBounds(of: d), s),
+                                               auxiliaryInfo: nil)
                     drawBitmap(d, data: data, loaded: o, ref: ref, in: ctx)
                     ctx.endTransparencyLayer()
                     ctx.restoreGState()

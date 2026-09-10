@@ -24,7 +24,7 @@ public enum Flatten {
         var best: CGFloat = 1
         for l in layers {
             guard case .bitmap(let ref) = l.kind, let data = images[ref],
-                  let o = BitmapImage.load(data), l.frame.width > 0 else { continue }
+                  let o = BitmapImage.load(data, ref: ref), l.frame.width > 0 else { continue }
             best = max(best, o.displaySize.width / l.frame.width)
         }
         // Four is the renderer's own ceiling, and the long edge is capped so a

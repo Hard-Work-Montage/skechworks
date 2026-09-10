@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.65 (September 9, 2026)
+
+- Pages with a lot of photos now pan and zoom smoothly
+
 ## 0.1.64 (September 6, 2026)
 
 - An Edit Points button in the toolbar, for a path you can select but not double-click

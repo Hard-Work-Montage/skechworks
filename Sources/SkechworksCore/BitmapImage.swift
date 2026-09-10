@@ -29,9 +29,15 @@ public enum BitmapImage {
         public var isRotated: Bool { !transform.isIdentity }
     }
 
-    public static func load(_ data: Data) -> Oriented? {
+    /// `decodeNow` pays for the pixels here rather than at the first draw. The
+    /// frame cache wants that: a decode deferred to draw time lands on the
+    /// canvas's first paint of every picture, and CoreGraphics may let it go
+    /// again under pressure.
+    public static func load(_ data: Data, decodeNow: Bool = false) -> Oriented? {
+        let opts: CFDictionary? = decodeNow
+            ? [kCGImageSourceShouldCacheImmediately: true] as CFDictionary : nil
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+              let img = CGImageSourceCreateImageAtIndex(src, 0, opts) else { return nil }
 
         let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
         let raw = (props?[kCGImagePropertyOrientation] as? UInt32) ?? 1

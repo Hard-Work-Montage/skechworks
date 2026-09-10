@@ -102,6 +102,38 @@ public enum EraseMask {
     /// blur it stands for.
     public static func image(strokes: [EraseStroke], size: CGSize, scale: CGFloat = 2) -> CGImage? {
         guard !strokes.isEmpty, size.width > 0, size.height > 0 else { return nil }
+        // The canvas asks for this on every frame a picture with erasing on it
+        // is in view. The strokes only change while the brush is down.
+        let k = key(strokes: strokes, size: size, scale: scale)
+        if let hit = cache.object(forKey: k) { return hit }
+        let built = build(strokes: strokes, size: size, scale: scale)
+        if let built { cache.setObject(built, forKey: k, cost: built.width * built.height) }
+        return built
+    }
+
+    // NSCache is documented thread-safe; the checker can't see that.
+    nonisolated(unsafe) private static let cache: NSCache<NSString, CGImage> = {
+        let c = NSCache<NSString, CGImage>()
+        c.totalCostLimit = 128 << 20
+        return c
+    }()
+
+    private static func key(strokes: [EraseStroke], size: CGSize, scale: CGFloat) -> NSString {
+        var h = Hasher()
+        h.combine(size.width); h.combine(size.height); h.combine(scale)
+        h.combine(strokes.count)
+        for s in strokes {
+            h.combine(s.radius); h.combine(s.softness)
+            h.combine(s.points.count)
+            for p in s.points { h.combine(p.x); h.combine(p.y) }
+            if let r = s.rect { h.combine(r.minX); h.combine(r.minY); h.combine(r.width); h.combine(r.height) }
+            if let poly = s.polygon { for p in poly { h.combine(p.x); h.combine(p.y) } }
+            for hole in s.holes { h.combine(hole.count); for p in hole { h.combine(p.x); h.combine(p.y) } }
+        }
+        return "\(h.finalize())" as NSString
+    }
+
+    private static func build(strokes: [EraseStroke], size: CGSize, scale: CGFloat) -> CGImage? {
         let w = max(1, Int((size.width * scale).rounded()))
         let h = max(1, Int((size.height * scale).rounded()))
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,

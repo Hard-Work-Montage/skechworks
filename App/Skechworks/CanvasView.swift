@@ -871,17 +871,31 @@ final class PageCanvas: NSView {
     /// The artwork, in page coordinates. What zoom-to-fit aims at.
     var contentRectInView: CGRect { page?.contentBounds() ?? bounds }
 
-    /// The rasterized artwork at the current viewport, reused until content, zoom,
-    /// or scroll changes. Fireworks' trick: on a 5,000-path page, a selection tick
-    /// or marquee frame costs a bitmap blit instead of re-rasterizing every path.
+    /// The rasterized artwork around the current viewport, reused until content or
+    /// zoom changes or a scroll leaves it. Fireworks' trick: on a 5,000-path page,
+    /// a selection tick or marquee frame costs a bitmap blit instead of
+    /// re-rasterizing every path.
+    ///
+    /// It covers more than the window: `backdropMargin` of the view's own size
+    /// past every edge. A pan inside that is a blit at an offset and rasterizes
+    /// nothing, which is what makes a page of coin photos scroll like a picture
+    /// rather than like a render. Scroll past the edge and it is built again
+    /// around wherever you are now.
     private var backdrop: CGImage?
     private var backdropKey = ""
+    /// The page-space rect the backdrop paints, and the zoom it was painted at.
+    private var backdropRect = CGRect.zero
+    private var backdropScale: CGFloat = 1
+    private let backdropMargin: CGFloat = 0.25
 
     /// Canvas fill, artwork (culled to the viewport) and artboard hairlines — the
     /// pixels that are identical from frame to frame while nothing is being edited.
     /// Draws in view coordinates; shared by the live path and the backdrop cache.
-    private func drawContent(_ ctx: CGContext, viewSize: CGSize,
+    /// `at` is the page point at the view's top-left, the live `origin` unless a
+    /// backdrop is being painted wider than the window.
+    private func drawContent(_ ctx: CGContext, viewSize: CGSize, at origin: CGPoint? = nil,
                              drawables: [Drawable]? = nil) {
+        let origin = origin ?? self.origin
         // Nothing behind the canvas any more, so it paints the surround itself.
         ctx.setFillColor(Palette.canvas.cgColor)
         ctx.fill(CGRect(origin: .zero, size: viewSize))
@@ -911,6 +925,18 @@ final class PageCanvas: NSView {
         ctx.setLineWidth(1 / max(0.01, currentScale))
         for ab in artboards { ctx.stroke(ab.frame) }
         ctx.restoreGState()
+    }
+
+    /// Asks for a crisp backdrop shortly after the last zoom tick. Each tick
+    /// pushes the request back, so a gesture in flight never pays for one.
+    private func settleBackdropSoon() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(settleBackdrop), object: nil)
+        perform(#selector(settleBackdrop), with: nil, afterDelay: 0.1, inModes: [.common])
+    }
+
+    @objc private func settleBackdrop() {
+        backdrop = nil
+        needsDisplay = true
     }
 
     /// The composition with the in-flight erase applied, so the brush removes
@@ -948,9 +974,24 @@ final class PageCanvas: NSView {
             // be part of the cache's identity too — otherwise the backdrop keeps
             // painting the old words underneath the editor and you see both.
             let hidden = labelEditIsText ? (labelEditingID ?? "") : ""
-            let key = "\(composedGen)|\(scale)|\(origin.x),\(origin.y)|\(bounds.size)|\(bs)|\(images.count)|\(appearance)|\(hidden)"
-            if backdrop == nil || backdropKey != key {
-                let w = max(1, Int(bounds.width * bs)), h = max(1, Int(bounds.height * bs))
+            let key = "\(composedGen)|\(bounds.size)|\(bs)|\(images.count)|\(appearance)|\(hidden)"
+            let viewport = CGRect(x: origin.x, y: origin.y,
+                                  width: bounds.width / scale, height: bounds.height / scale)
+            let sameContent = backdrop != nil && backdropKey == key
+            let fresh = sameContent && backdropScale == scale && backdropRect.contains(viewport)
+
+            if !fresh, sameContent, backdropScale != scale, !backdropRect.intersection(viewport).isNull {
+                // Mid-zoom. Stretch what we have and paint the real thing once
+                // the wheel or the pinch pauses; a crisp render on every tick
+                // of a magnify gesture is the render being the gesture's speed.
+                settleBackdropSoon()
+            } else if !fresh {
+                NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(settleBackdrop), object: nil)
+                let padded = viewport.insetBy(dx: -viewport.width * backdropMargin,
+                                              dy: -viewport.height * backdropMargin)
+                let size = CGSize(width: bounds.width * (1 + 2 * backdropMargin),
+                                  height: bounds.height * (1 + 2 * backdropMargin))
+                let w = max(1, Int((size.width * bs).rounded())), h = max(1, Int((size.height * bs).rounded()))
                 if let bctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
                                         bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
@@ -958,17 +999,33 @@ final class PageCanvas: NSView {
                     // here so the cached pixels match the view exactly.
                     bctx.translateBy(x: 0, y: CGFloat(h))
                     bctx.scaleBy(x: bs, y: -bs)
-                    drawContent(bctx, viewSize: bounds.size)
+                    drawContent(bctx, viewSize: size, at: padded.origin)
                     backdrop = bctx.makeImage()
                     backdropKey = key
+                    backdropRect = padded
+                    backdropScale = scale
                 }
             }
             if let backdrop {
                 ctx.saveGState()
                 // Un-flip to blit, then the chrome below draws flipped as before.
+                // The backdrop lands wherever its page rect sits under the live
+                // viewport: offset for a pan, stretched for a zoom in progress.
+                ctx.setFillColor(Palette.canvas.cgColor)
+                ctx.fill(bounds)
                 ctx.translateBy(x: 0, y: bounds.height)
                 ctx.scaleBy(x: 1, y: -1)
-                ctx.draw(backdrop, in: CGRect(origin: .zero, size: bounds.size))
+                // A pan lands the backdrop at whatever fraction of a pixel the
+                // trackpad left the origin on. Snap it, so the pixels copy across
+                // whole instead of being smeared into their neighbours.
+                let place = CGRect(x: ((backdropRect.minX - origin.x) * scale * bs).rounded() / bs,
+                                   y: ((backdropRect.minY - origin.y) * scale * bs).rounded() / bs,
+                                   width: backdropRect.width * scale,
+                                   height: backdropRect.height * scale)
+                let flipped = CGRect(x: place.minX, y: bounds.height - place.maxY,
+                                     width: place.width, height: place.height)
+                ctx.interpolationQuality = backdropScale == scale ? .none : .low
+                ctx.draw(backdrop, in: flipped)
                 ctx.restoreGState()
             } else {
                 drawContent(ctx, viewSize: bounds.size)

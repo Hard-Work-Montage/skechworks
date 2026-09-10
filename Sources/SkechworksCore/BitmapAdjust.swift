@@ -31,7 +31,7 @@ public enum BitmapAdjust {
     public static func displayImage(data: Data, ref: String, layer l: Layer) -> CGImage? {
         let k = key(ref: ref, l)
         if let hit = cache.object(forKey: k) { return hit }
-        guard let o = BitmapImage.load(data) else { return nil }
+        guard let o = BitmapImage.load(data, ref: ref) else { return nil }
 
         // Into display orientation first.
         var image = o.image
