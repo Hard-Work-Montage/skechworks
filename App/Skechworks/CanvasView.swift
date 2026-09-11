@@ -749,8 +749,8 @@ final class PageCanvas: NSView {
     /// moves the origin and nothing clamps it. It also removes a class of problems
     /// that came with the old model — the clip view re-centring anything smaller than
     /// the window, and fitting against a frame that hadn't been resized yet.
-    private(set) var origin: CGPoint = .zero { didSet { publishViewport() } }
-    private(set) var scale: CGFloat = 1 { didSet { publishViewport() } }
+    private(set) var origin: CGPoint = .zero { didSet { publishViewport(); followViewportWithEditor() } }
+    private(set) var scale: CGFloat = 1 { didSet { publishViewport(); followViewportWithEditor() } }
 
     /// Reports where the canvas is looking, for tests.
     ///
@@ -1368,8 +1368,7 @@ final class PageCanvas: NSView {
         // and no background. With the layer's own text hidden while editing, what
         // you type is what you see, in place, instead of white words laid over the
         // old ones.
-        tf.font = NSFont(name: run.fontName, size: max(4, run.fontSize * scale))
-            ?? .systemFont(ofSize: max(4, run.fontSize * scale))
+        tf.font = Self.editorFont(run, scale: scale)
         tf.textColor = NSColor(cgColor: textColor(of: l, run: run).cg) ?? .labelColor
         tf.alignment = switch run.alignment {
         case .center: .center
@@ -1427,6 +1426,44 @@ final class PageCanvas: NSView {
         labelNameBeforeEdit = run.string
         labelEditIsText = true
         needsDisplay = true
+    }
+
+    private static func editorFont(_ run: TextRun, scale: CGFloat) -> NSFont {
+        NSFont(name: run.fontName, size: max(4, run.fontSize * scale))
+            ?? .systemFont(ofSize: max(4, run.fontSize * scale))
+    }
+
+    /// Keeps an open editor on its layer through a zoom or a pan. It is
+    /// dressed at the zoom it opened at, and the view moves under it; without
+    /// this, zooming out left the words you were typing at full size over a
+    /// drawing that had shrunk, and zooming in the other way round.
+    private func followViewportWithEditor() {
+        guard let tf = labelEditor, let id = labelEditingID else { return }
+        if labelEditIsText {
+            guard let page, let l = page.layer(id), case .text(let run) = l.kind,
+                  let t = transformOf(id, in: page.layers, base: .identity) else { return }
+            let f = CGRect(origin: .zero, size: l.frame.size).applying(t)
+            let v = viewPoint(f.origin)
+            tf.frame = CGRect(x: v.x, y: v.y, width: f.width * scale, height: f.height * scale)
+            let font = Self.editorFont(run, scale: scale)
+            tf.font = font
+            if let editor = tf.currentEditor() as? NSTextView {
+                editor.textContainer?.size = NSSize(width: tf.frame.width, height: .greatestFiniteMagnitude)
+                let kern = run.kerning * scale
+                editor.typingAttributes[.font] = font
+                editor.typingAttributes[.kern] = kern
+                if let storage = editor.textStorage {
+                    let all = NSRange(location: 0, length: storage.length)
+                    storage.addAttribute(.font, value: font, range: all)
+                    storage.addAttribute(.kern, value: kern, range: all)
+                }
+            }
+        } else if let ab = artboards.first(where: { $0.id == id }) {
+            let v = viewPoint(ab.hit.origin)
+            tf.frame = CGRect(x: v.x - 2, y: v.y - 2,
+                              width: max(160, ab.hit.width * scale + 24),
+                              height: max(20, ab.hit.height * scale + 4))
+        }
     }
 
     private func beginLabelEdit(_ ab: ArtboardLabel) {
