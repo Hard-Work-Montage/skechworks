@@ -2817,6 +2817,8 @@ final class DocumentStore: ObservableObject {
     // MARK: - Clipboard
 
     static let pasteboardType = NSPasteboard.PasteboardType("com.skechworks.layers")
+    /// The SVG under its own name (public.svg-image), for the programs that ask for one.
+    static let svgType = NSPasteboard.PasteboardType("public.svg-image")
 
     var canCopy: Bool { !selection.isEmpty }
     var canPaste: Bool {
@@ -2846,17 +2848,27 @@ final class DocumentStore: ObservableObject {
         var scratch = Page(name: "clip")
         scratch.layers = layers
 
-        // Four ways of saying the same thing, best first, because a pasteboard is
-        // a negotiation: whoever receives it takes the first type it understands.
+        // Several ways of saying the same thing, best first, because a pasteboard
+        // is a negotiation: whoever receives it takes the first type it understands.
         //
         // Skechworks takes the native one and gets everything back. A vector
         // program takes the SVG. Everything ELSE on the machine — a browser, Mail,
         // Preview, a chat window — wants a bitmap, and without one it sees a
         // string of SVG markup and reports that you pasted something that wasn't
         // an image. That is the whole reason a copy out of here landed nowhere.
+        //
+        // The SVG goes out as plain text only when the selection is all vector.
+        // Chat windows (ChatGPT, for one) take text over a picture whenever both
+        // are offered, so a photo copied off an artboard arrived there as
+        // "<?xml version=1.0 ..." and never as the photo. A selection with a
+        // bitmap in it is a picture; the SVG still rides along under its own
+        // type for anything that asks for one by name.
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.declareTypes([Self.pasteboardType, .png, .tiff, .string], owner: nil)
+        let vectorOnly = layers.allSatisfy { $0.imageRefs.isEmpty }
+        var types: [NSPasteboard.PasteboardType] = [Self.pasteboardType, .png, .tiff, Self.svgType]
+        if vectorOnly { types.append(.string) }
+        pb.declareTypes(types, owner: nil)
 
         if let d = try? SkechworksFile.encodeClipboard(layers: layers, images: images) {
             pb.setData(d, forType: Self.pasteboardType)
@@ -2870,7 +2882,9 @@ final class DocumentStore: ObservableObject {
                 pb.setData(tiff, forType: .tiff)
             }
         }
-        pb.setString(SVGWriter(images: images).svg(page: scratch), forType: .string)
+        let svg = SVGWriter(images: images).svg(page: scratch)
+        pb.setString(svg, forType: Self.svgType)
+        if vectorOnly { pb.setString(svg, forType: .string) }
     }
 
     func cutSelection() {

@@ -1142,4 +1142,37 @@ extension DocumentStoreTests {
         XCTAssertEqual(store.page?.layers.count, 1, "one click, one undo")
         XCTAssertEqual(store.page?.layer(id)?.frame.width, 150)
     }
+
+    /// A photo copied off an artboard is a picture to whoever receives it. Chat
+    /// windows take plain text over a picture when both are offered, so the SVG
+    /// markup is plain text only when there is nothing but vector in the selection.
+    func testCopyingABitmapOffersNoPlainText() throws {
+        var photo = Layer(kind: .bitmap(imageRef: "a.png"))
+        photo.frame = CGRect(x: 0, y: 0, width: 8, height: 8)
+        var rect = Layer(kind: .path(CGPath(rect: CGRect(x: 0, y: 0, width: 8, height: 8), transform: nil), closed: true))
+        rect.frame = CGRect(x: 20, y: 0, width: 8, height: 8)
+        var page = Page(name: "P")
+        page.layers = [photo, rect]
+        var doc = Document()
+        doc.pages = [page]
+        let store = DocumentStore()
+        let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let png = try XCTUnwrap(Renderer.png(ctx.makeImage()!))
+        store.adopt(doc, images: ["a.png": png])
+
+        store.selection = [photo.id]
+        store.copySelection()
+        let pb = NSPasteboard.general
+        XCTAssertNotNil(pb.data(forType: .png), "the photo goes out as a picture")
+        XCTAssertNil(pb.string(forType: .string), "and not as SVG markup in plain text")
+        XCTAssertNotNil(pb.string(forType: DocumentStore.svgType), "the SVG is still there under its own name")
+
+        store.selection = [rect.id]
+        store.copySelection()
+        XCTAssertNotNil(pb.string(forType: .string), "a vector-only copy still pastes as SVG into a vector program")
+    }
 }

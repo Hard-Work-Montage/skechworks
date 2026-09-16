@@ -312,6 +312,10 @@ struct ModelConnector {
         case 401, 403: return .notSignedIn
         case 402: return .outOfCredits(said ?? "You're out of credits.")
         case 413: return .refused(said ?? "That picture is too big to send.")
+        // A 502 with words in it is the service saying no in a sentence worth
+        // showing as is: "That picture is too detailed to trace here." Only a
+        // bare one is a reply that couldn't be read.
+        case 502 where said != nil: return .refused(said!)
         default: return .badResponse(said ?? "HTTP \(status)")
         }
     }
