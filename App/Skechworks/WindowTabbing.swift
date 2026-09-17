@@ -58,8 +58,22 @@ struct WindowTabbing: NSViewRepresentable {
                 && !other.isMiniaturized
         }
         guard let host else { return }   // first document window; nothing to join yet
+
+        // SwiftUI puts a new window in the middle of the main screen, which on a
+        // desk with three monitors is the leftmost one, and the tab group went
+        // there with it: ⌘N on the middle monitor landed the whole window a
+        // screen to the left. The newcomer takes the host's frame before they
+        // join, and keeps it for the beat in which SwiftUI places it again.
+        let home = host.frame
+        window.setFrame(home, display: false)
         host.addTabbedWindow(window, ordered: .above)
         window.makeKeyAndOrderFront(nil)
+        let stayHome = { [weak window] in
+            guard let window, window.frame != home else { return }
+            window.setFrame(home, display: true)
+        }
+        DispatchQueue.main.async(execute: stayHome)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: stayHome)
     }
 }
 
