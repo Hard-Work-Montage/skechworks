@@ -3951,6 +3951,10 @@ final class DocumentStore: ObservableObject {
 
     private func exportIsolated(_ targets: [(page: Page, bounds: CGRect, rotatedAncestor: Bool)],
                                 format: ExportFormat, scale: CGFloat, what: String) {
+        // The scale menu keeps whatever it last said when the format flips to
+        // SVG, and a vector has no pixels to scale. Without this the file still
+        // went out as front@2x.svg.
+        let scale = format == .svg ? 1 : scale
         let suffix = scale == 1 ? "" : "@\(Int(scale))x"
 
         // One thing gets a SAVE panel: you can name it before it lands, and
