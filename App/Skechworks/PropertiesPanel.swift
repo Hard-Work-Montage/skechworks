@@ -446,13 +446,15 @@ struct PropertiesPanel: View {
                     }
                 }
                 .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 150)
-                Picker("", selection: $exportScale) {
-                    ForEach([1, 2, 3], id: \.self) { s in
-                        Text("\(s)x").tag(CGFloat(s))
+                // A vector has no pixels to scale, so SVG gets no scale menu.
+                if exportFormat != .svg {
+                    Picker("", selection: $exportScale) {
+                        ForEach([1, 2, 3], id: \.self) { s in
+                            Text("\(s)x").tag(CGFloat(s))
+                        }
                     }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
                 }
-                .labelsHidden().pickerStyle(.menu).fixedSize()
-                .disabled(exportFormat == .svg)
                 Spacer()
             }
             Button {
@@ -461,10 +463,10 @@ struct PropertiesPanel: View {
                 Text("Export \(l.isArtboard ? "Artboard" : kind(l))…")
                     .frame(maxWidth: .infinity)
             }
-            Text(exportFormat == .svg
-                 ? "Vectors have no pixels — scale doesn't apply."
-                 : "Sized to this \(l.isArtboard ? "artboard" : "layer"), at \(Int(exportScale))x.")
-                .font(.caption).foregroundStyle(.secondary)
+            if exportFormat != .svg {
+                Text("Sized to this \(l.isArtboard ? "artboard" : "layer"), at \(Int(exportScale))x.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

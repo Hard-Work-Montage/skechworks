@@ -290,10 +290,16 @@ struct SkechworksApp: App {
                 Divider()
                 Menu("Export Selected") {
                     ForEach(DocumentStore.ExportFormat.allCases) { f in
-                        Menu(f.title) {
-                            ForEach([1, 2, 3], id: \.self) { s in
-                                Button("\(s)x") {
-                                    AppDelegate.shared?.active?.exportSelected(format: f, scale: CGFloat(s))
+                        if f == .svg {
+                            Button(f.title) {
+                                AppDelegate.shared?.active?.exportSelected(format: f)
+                            }
+                        } else {
+                            Menu(f.title) {
+                                ForEach([1, 2, 3], id: \.self) { s in
+                                    Button("\(s)x") {
+                                        AppDelegate.shared?.active?.exportSelected(format: f, scale: CGFloat(s))
+                                    }
                                 }
                             }
                         }
@@ -301,10 +307,16 @@ struct SkechworksApp: App {
                 }
                 Menu("Export Artboards") {
                     ForEach(DocumentStore.ExportFormat.allCases) { f in
-                        Menu(f.title) {
-                            ForEach([1, 2, 3], id: \.self) { s in
-                                Button("\(s)x") {
-                                    AppDelegate.shared?.active?.exportArtboards(format: f, scale: CGFloat(s))
+                        if f == .svg {
+                            Button(f.title) {
+                                AppDelegate.shared?.active?.exportArtboards(format: f)
+                            }
+                        } else {
+                            Menu(f.title) {
+                                ForEach([1, 2, 3], id: \.self) { s in
+                                    Button("\(s)x") {
+                                        AppDelegate.shared?.active?.exportArtboards(format: f, scale: CGFloat(s))
+                                    }
                                 }
                             }
                         }
