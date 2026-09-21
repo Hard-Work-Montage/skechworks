@@ -37,6 +37,30 @@ fi
 
 xcodegen generate
 
+# A Skechworks running out of build/ is about to have its bundle rebuilt under
+# it, which breaks its keychain access the same way swapping /Applications does
+# (the note above bin/install, further down, has the story). LaunchServices
+# launches this copy for a double-clicked document whenever it likes it better
+# than /Applications, so it happens without anyone choosing it (2026-09-21).
+# Renaming the bundle keeps the running process and its files on disk the same
+# files; the new build then lands at the old path beside it.
+PRODUCTS="$PWD/build/Build/Products"
+mkdir -p build/running
+for aside in build/running/*; do
+  [ -d "$aside" ] || continue
+  kill -0 "$(basename "$aside")" 2>/dev/null || rm -rf "$aside"
+done
+for pid in $(pgrep -x Skechworks || true); do
+  exe=$(ps -o comm= -p "$pid")
+  case "$exe" in
+    "$PRODUCTS"/*/Skechworks.app/Contents/MacOS/Skechworks)
+      mv "${exe%/Contents/MacOS/Skechworks}" "build/running/$pid"
+      echo "moved the running copy (pid $pid) aside before building" ;;
+  esac
+done
+# Spotlight is how LaunchServices finds the build copy again after lsclean.
+touch build/.metadata_never_index
+
 # The exit status has to be xcodebuild's, not grep's. Piped into a filter that
 # ends in `|| true`, a compile error printed its message and the script carried
 # straight on — signing, and then INSTALLING, the bundle left over from the last

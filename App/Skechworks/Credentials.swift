@@ -36,7 +36,15 @@ enum Credentials {
     // MainActor task — but the compiler can't see that from here.
     nonisolated(unsafe) private static var probedLegacy: Set<String> = []
 
+    /// Values the keychain refused, kept for this launch only. The keychain
+    /// checks a caller against the app file on disk, so an app that was updated
+    /// while it was open is turned away until it is reopened. Holding the token
+    /// in memory lets that session sign in and work; the next launch has a
+    /// keychain again and asks once more.
+    nonisolated(unsafe) private static var sessionOnly: [String: String] = [:]
+
     static func get(_ slot: Slot) -> String? {
+        if let s = sessionOnly[slot.rawValue] { return s }
         if let s = read(service: service, account: slot.rawValue) { return s }
         guard !probedLegacy.contains(slot.rawValue) else { return nil }
         probedLegacy.insert(slot.rawValue)
@@ -74,11 +82,14 @@ enum Credentials {
 
     private static let log = Logger(subsystem: "com.skechworks.Skechworks", category: "credentials")
 
-    /// True when the value is stored and reads back. Ignoring SecItemAdd's status
-    /// turned a failed store into a sign-in that silently bounced back to the
-    /// sign-in button — the server said 200, the app forgot the token.
+    /// True when the value is in the keychain. False means the keychain refused
+    /// and the value lives in this launch's memory instead, so `get` still
+    /// returns it and the caller is signed in either way. Ignoring SecItemAdd's
+    /// status turned a failed store into a sign-in that silently bounced back to
+    /// the sign-in button — the server said 200, the app forgot the token.
     @discardableResult
     static func set(_ slot: Slot, _ value: String?) -> Bool {
+        sessionOnly[slot.rawValue] = nil
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -100,10 +111,16 @@ enum Credentials {
             status = SecItemAdd(add as CFDictionary, nil)
         }
         if status != errSecSuccess {
-            log.error("keychain add for \(slot.rawValue, privacy: .public) failed: \(status)")
+            log.error("keychain add for \(slot.rawValue, privacy: .public) failed: \(status); keeping it for this launch only")
+            sessionOnly[slot.rawValue] = value
             return false
         }
-        return read(service: service, account: slot.rawValue) != nil
+        if read(service: service, account: slot.rawValue) == nil {
+            log.error("keychain read-back for \(slot.rawValue, privacy: .public) failed; keeping it for this launch only")
+            sessionOnly[slot.rawValue] = value
+            return false
+        }
+        return true
     }
 
     static func has(_ slot: Slot) -> Bool { get(slot) != nil }
