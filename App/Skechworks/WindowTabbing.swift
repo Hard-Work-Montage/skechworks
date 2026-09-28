@@ -39,6 +39,11 @@ struct WindowTabbing: NSViewRepresentable {
     private func configure(_ window: NSWindow?, coordinator: CloseGuard) {
         guard let window else { return }
         store.window = window
+        // The app reopens last session's files itself (AppDelegate.reopenLastSession).
+        // Left restorable, macOS brought back every window from the last quit as
+        // well, each one empty, so nine files open at quit came back as nine tabs
+        // of work and nine blank ones.
+        window.isRestorable = false
         window.tabbingMode = .preferred
         window.tabbingIdentifier = Self.identifier
         window.isDocumentEdited = store.isDirty

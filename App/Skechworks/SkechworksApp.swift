@@ -380,6 +380,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         anyWindowRegistered = true
         windowsOnTheWay = max(0, windowsOnTheWay - 1)
         flushPending()
+        closeSpareLaunchWindows()
+    }
+
+    /// Launch can end up with more windows than it has files for: macOS
+    /// restoring the windows from an older version's quit, or a window asked
+    /// for that a restored one got to first. Once every file has a window, the
+    /// blank ones left over are closed. Only in the first seconds after launch,
+    /// so a ⌘N of your own is never taken away.
+    private let launchedAt = Date()
+
+    private func closeSpareLaunchWindows() {
+        guard sessionRestoreComplete, Date().timeIntervalSince(launchedAt) < 10,
+              pendingURLs.isEmpty, pendingRecoveries.isEmpty,
+              stores.contains(where: { !$0.isVacant }) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for spare in self.stores where spare.isVacant {
+                spare.window?.close()
+            }
+        }
     }
 
     func unregister(_ s: DocumentStore) {
@@ -456,6 +476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let needed = max(0, jobs - empties - self.windowsOnTheWay)
             for _ in 0..<needed { self.newDocumentWindow() }
             self.flushPending()
+            self.closeSpareLaunchWindows()
             DispatchQueue.main.async { self.openWindowIfNoneRestored() }
         }
     }
