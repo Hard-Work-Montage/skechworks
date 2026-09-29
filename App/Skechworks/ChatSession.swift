@@ -150,6 +150,17 @@ final class ChatSession: ObservableObject {
         messages[i].steps.append(line)
     }
 
+    /// A running count, updated in place: one line that climbs rather than a
+    /// hundred that scroll. Replaces the last line when it was the same count.
+    func noteProgress(_ id: UUID, _ line: String, counting prefix: String) {
+        guard let i = messages.firstIndex(where: { $0.id == id }), !line.isEmpty else { return }
+        if let last = messages[i].steps.last, last.hasPrefix(prefix) {
+            messages[i].steps[messages[i].steps.count - 1] = line
+        } else {
+            messages[i].steps.append(line)
+        }
+    }
+
     /// Closes it out. The spinner stops and the log stays.
     func endActivity(_ id: UUID, text: String, applied: [String] = [],
                      noun: String = "changes", failed: Bool = false) {

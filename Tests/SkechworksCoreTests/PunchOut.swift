@@ -101,3 +101,68 @@ private func box(_ rect: CGRect, hex: String, name: String = "") -> Layer {
     let holed = (0..<80).contains { i in !p.contains(CGPoint(x: 60 + CGFloat(i), y: 100)) }
     #expect(holed, "the outlined text cut nothing")
 }
+
+/// The old chain fold, kept as the answer the bracket has to match.
+private func chainFold(_ pieces: [(path: CGPath, ink: Bool)]) -> CGPath? {
+    var acc: CGPath?
+    for piece in pieces {
+        let p = piece.path.normalized(using: .winding)
+        if piece.ink { acc = acc.map { $0.union(p, using: .winding) } ?? p }
+        else { acc = acc?.subtracting(p, using: .winding) }
+    }
+    return acc
+}
+
+/// Blobs scattered and stacked like a traced drawing's fur: dark and light,
+/// mostly small, overlapping their neighbours in the stack.
+private func furStack(_ count: Int, seed: UInt64) -> [(path: CGPath, ink: Bool)] {
+    var rng = seed
+    func next() -> CGFloat { rng = rng &* 6364136223846793005 &+ 1442695040888963407; return CGFloat(rng >> 33) / CGFloat(1 << 31) }
+    var out: [(path: CGPath, ink: Bool)] = [(CGPath(ellipseIn: CGRect(x: 0, y: 0, width: 400, height: 400), transform: nil), true)]
+    for i in 1..<count {
+        let r = 4 + next() * 18
+        let c = CGPoint(x: 20 + next() * 360, y: 20 + next() * 360)
+        let path = CGMutablePath()
+        let spikes = 5 + Int(next() * 4)
+        for k in 0..<(spikes * 2) {
+            let a = CGFloat(k) / CGFloat(spikes * 2) * 2 * .pi
+            let rr = k % 2 == 0 ? r : r * (0.4 + next() * 0.4)
+            let p = CGPoint(x: c.x + cos(a) * rr, y: c.y + sin(a) * rr)
+            if k == 0 { path.move(to: p) } else { path.addLine(to: p) }
+        }
+        path.closeSubpath()
+        out.append((path, i % 3 != 0))
+    }
+    return out
+}
+
+private func coverage(_ path: CGPath?) -> [Bool] {
+    let side = 200
+    let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+                        space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    ctx.setShouldAntialias(false)
+    ctx.scaleBy(x: 0.5, y: 0.5)
+    if let path { ctx.addPath(path); ctx.setFillColor(gray: 1, alpha: 1); ctx.fillPath() }
+    let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
+    return (0..<(side * side)).map { data[$0] > 127 }
+}
+
+@Test func theBracketFoldPaintsWhatTheChainDid() throws {
+    for seed in [1, 7, 42] as [UInt64] {
+        let pieces = furStack(120, seed: seed)
+        let prepared = PunchOut.Prepared(pieces: pieces, parent: nil, originals: [])
+        let fast = coverage(try prepared.fold())
+        let slow = coverage(chainFold(pieces))
+        let differ = zip(fast, slow).filter { $0 != $1 }.count
+        #expect(differ <= fast.count / 2000, "seed \(seed): \(differ) pixels differ")
+        #expect(fast.contains(true) && fast.contains(false))
+    }
+}
+
+@Test func theBracketFoldCountsItsProgress() throws {
+    let prepared = PunchOut.Prepared(pieces: furStack(50, seed: 3), parent: nil, originals: [])
+    final class Seen: @unchecked Sendable { var last = (0, 0); let lock = NSLock() }
+    let seen = Seen()
+    _ = try prepared.fold { done, total in seen.lock.lock(); if done > seen.last.0 { seen.last = (done, total) }; seen.lock.unlock() }
+    #expect(seen.last == (49, 49))
+}

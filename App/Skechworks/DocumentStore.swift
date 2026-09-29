@@ -1403,16 +1403,24 @@ final class DocumentStore: ObservableObject {
         let entry = chat.beginActivity("Punch Out") { [weak self] in
             self?.punchOutTask?.cancel()
         }
-        chat.note(entry, "Folding \(count) \(count == 1 ? "shape" : "shapes") into one" +
-                  (count > 100 ? " — a detailed trace can take a minute" : ""))
+        chat.note(entry, "Folding \(count) \(count == 1 ? "shape" : "shapes") into one")
         status = "Punching out \(count) shapes…"
         punchOutTask = Task { @MainActor [weak self] in
             do {
                 // CGPath is not Sendable as far as the compiler knows; it is
                 // immutable, and this one is only ever read after the task ends.
                 struct Folded: @unchecked Sendable { let path: CGPath? }
+                // A count that climbs, so a big trace never looks stuck. Every
+                // fiftieth of the way is plenty; each one is a hop to the main
+                // thread.
+                let log = self?.chat
                 let folded = try await Task.detached(priority: .userInitiated) {
-                    Folded(path: try prepared.fold())
+                    Folded(path: try prepared.fold { done, total in
+                        guard total > 50, done == total || done % max(1, total / 50) == 0 else { return }
+                        Task { @MainActor in
+                            log?.noteProgress(entry, "Folded \(done * 100 / total)%", counting: "Folded ")
+                        }
+                    })
                 }.value.path
                 guard let self else { return }
                 var outcome: PunchOut.Outcome?

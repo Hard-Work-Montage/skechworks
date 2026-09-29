@@ -44,47 +44,90 @@ public enum PunchOut {
         public var inks: Int { pieces.filter(\.ink).count }
         public var holes: Int { pieces.count - inks }
 
-        /// The fold. Runs of the same operation are stacked and applied in one
-        /// planar pass, since A − B − C is A − (B ∪ C), so a coin is a few
-        /// passes rather than one per glyph. Checks for cancellation between
-        /// passes; a single pass can't be interrupted.
-        public func fold() throws -> CGPath? {
-            var acc: CGPath?
-            var pending: [CGPath] = []
-            var cuts: [CGPath] = []
-            func stacked(_ paths: [CGPath]) -> CGPath {
-                let stack = CGMutablePath()
-                for p in paths { stack.addPath(p.normalized(using: .winding)) }
-                return stack.normalized(using: .winding)
+        /// The fold, as a bracket rather than a chain.
+        ///
+        /// Folding one piece at a time onto a growing result made every step
+        /// pay for the whole shape so far, so time grew with the square of the
+        /// piece count: a traced dog of 2,228 pieces ran for minutes with the
+        /// spinner the only sign of life. Here neighbours in the stack fold in
+        /// pairs, then pairs of pairs, each level in parallel. Each half knows
+        /// what it paints dark and what it covers, and an upper half hides the
+        /// lower one wherever it covers, which is the painting order exactly.
+        ///
+        /// `progress` hears (folds done, folds in all) from any thread.
+        /// Cancellation is checked between levels.
+        public func fold(progress: (@Sendable (Int, Int) -> Void)? = nil) throws -> CGPath? {
+            var level: [Half] = pieces.map { piece in
+                let path = piece.path.normalized(using: .winding)
+                return Half(ink: piece.ink ? path : nil, cover: path)
             }
-            func flushCuts() throws {
-                guard !cuts.isEmpty else { return }
+            let total = max(0, level.count - 1)
+            let counter = Counter()
+            while level.count > 1 {
                 try Task.checkCancellation()
-                let merged = stacked(cuts)
-                cuts = []
-                acc = acc?.subtracting(merged, using: .winding)
-            }
-            func flush() throws {
-                try flushCuts()
-                guard !pending.isEmpty else { return }
-                try Task.checkCancellation()
-                let merged = stacked(pending)
-                pending = []
-                acc = acc.map { $0.union(merged, using: .winding) } ?? merged
-            }
-            for piece in pieces {
-                if piece.ink {
-                    try flushCuts()
-                    pending.append(piece.path)
-                } else {
-                    if !pending.isEmpty { try flush() }
-                    cuts.append(piece.path)
+                let pairs = level.count / 2
+                let last = level.count == 2
+                var next = [Half](repeating: Half(ink: nil, cover: CGMutablePath()), count: pairs)
+                next.withUnsafeMutableBufferPointer { out in
+                    let out = UncheckedBuffer(base: out)
+                    DispatchQueue.concurrentPerform(iterations: pairs) { i in
+                        out.base[i] = Half.fold(level[2 * i], under: level[2 * i + 1], needCover: !last)
+                        progress?(counter.bump(), total)
+                    }
                 }
+                if level.count % 2 == 1 { next.append(level[level.count - 1]) }
+                level = next
             }
-            try flush()
-            return acc
+            return level.first?.ink
         }
     }
+
+    /// A run of the stack: what it paints dark, and everything it covers.
+    struct Half: @unchecked Sendable {
+        var ink: CGPath?
+        var cover: CGPath
+
+        /// `upper` painted over `lower`.
+        static func fold(_ lower: Half, under upper: Half, needCover: Bool) -> Half {
+            var ink = lower.ink
+            if let below = ink {
+                ink = overlaps(below, upper.cover) ? below.subtracting(upper.cover, using: .winding) : below
+            }
+            if let above = upper.ink {
+                ink = ink.map { join($0, above) } ?? above
+            }
+            let cover = needCover ? join(lower.cover, upper.cover) : upper.cover
+            return Half(ink: ink, cover: cover)
+        }
+
+        static func overlaps(_ a: CGPath, _ b: CGPath) -> Bool {
+            a.boundingBoxOfPath.intersects(b.boundingBoxOfPath)
+        }
+
+        /// Union, skipping the geometry when the two can't touch: side by side,
+        /// two clean shapes are already their own union.
+        static func join(_ a: CGPath, _ b: CGPath) -> CGPath {
+            if a.isEmpty { return b }
+            if b.isEmpty { return a }
+            guard overlaps(a, b) else {
+                let both = CGMutablePath()
+                both.addPath(a)
+                both.addPath(b)
+                return both
+            }
+            return a.union(b, using: .winding)
+        }
+    }
+
+    /// Folds finished, counted from every thread at once.
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = 0
+        func bump() -> Int { lock.lock(); defer { lock.unlock() }; done += 1; return done }
+    }
+
+    /// Each pair writes its own slot, so the threads never share one.
+    struct UncheckedBuffer<T>: @unchecked Sendable { let base: UnsafeMutableBufferPointer<T> }
 
     /// Darker than mid grey is ink. Rec. 709 luma, which is what a screen
     /// shows and close enough to what a trace produced: its fills are pure
