@@ -223,7 +223,11 @@ public enum EraseMask {
             return
         }
         // A selected area is its own outline, filled, minus any holes in it.
-        if let poly = stroke.polygon, poly.count >= 3 {
+        // One too thin to have an inside (a hairline simplified down to its
+        // two ends) erases nothing. It is still an outline, never a brush: read
+        // as a brush with no points it crashed the canvas on every redraw.
+        if let poly = stroke.polygon {
+            guard poly.count >= 3 else { return }
             ctx.setFillColor(gray: 0, alpha: 1)
             ctx.beginPath()
             ctx.addLines(between: poly)
@@ -243,6 +247,7 @@ public enum EraseMask {
     /// the points past it, so a stroke built up a few points a frame comes out
     /// the same as one drawn in one go.
     static func stampBrush(_ stroke: EraseStroke, in ctx: CGContext, from start: Int) {
+        guard !stroke.points.isEmpty, start < stroke.points.count else { return }
         let spacing = max(0.5, stroke.radius / 4)
         var dabs: [CGPoint] = []
         if stroke.points.count == 1 {

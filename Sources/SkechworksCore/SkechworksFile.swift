@@ -309,8 +309,11 @@ public struct SkechworksFile {
                         return EraseStroke(rect: CGRect(x: x, y: y, width: w, height: h))
                     }
                     guard let pts = e["points"] as? [[Double]], let r = dbl(e["radius"]) else { return nil }
-                    return EraseStroke(points: pts.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil },
-                                       radius: r, softness: dbl(e["softness"]) ?? 0.5)
+                    // A brush with nowhere to go is what a too-thin outline used
+                    // to be saved as, and it crashed the canvas on every draw.
+                    let at = pts.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+                    guard !at.isEmpty else { return nil }
+                    return EraseStroke(points: at, radius: r, softness: dbl(e["softness"]) ?? 0.5)
                 }
             }
             guard let ref = j["image"] as? String else { return nil }
@@ -510,7 +513,11 @@ public struct SkechworksFile {
         case .bitmap(let ref):
             d["type"] = "bitmap"; d["image"] = "assets/\(ref)"
             if !l.erased.isEmpty {
-                d["erased"] = l.erased.map { e -> [String: Any] in
+                d["erased"] = l.erased.compactMap { e -> [String: Any]? in
+                    // An outline too thin to have an inside erases nothing and
+                    // must not be written as the empty brush it would read back as.
+                    if let poly = e.polygon, poly.count < 3 { return nil }
+                    if e.polygon == nil, e.rect == nil, e.points.isEmpty { return nil }
                     if let poly = e.polygon, poly.count >= 3 {
                         var out: [String: Any] = ["polygon": poly.map { [$0.x, $0.y] }]
                         if !e.holes.isEmpty {

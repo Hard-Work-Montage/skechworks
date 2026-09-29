@@ -670,7 +670,9 @@ extension Page {
         let sx = l.frame.width / CGFloat(visible.width)
         let sy = l.frame.height / CGFloat(visible.height)
         updateLayer(id) { l in
-            for rings in found where !rings.isEmpty {
+            // An outline needs three points to have an inside. A hairline of
+            // a patch can simplify down to two, and erases nothing anyway.
+            for rings in found where (rings.first?.count ?? 0) >= 3 {
                 let scaled = rings.map { $0.map { CGPoint(x: $0.x * sx, y: $0.y * sy) } }
                 l.erased.append(EraseStroke(polygon: scaled[0], holes: Array(scaled.dropFirst())))
             }

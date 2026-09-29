@@ -168,3 +168,48 @@ private func paintedCoin(size: Int = 200) -> CGImage {
     #expect(rings.count == 1, "one piece of background")
     #expect(rings.first?.count == 2, "its edge, and the hole the dog sits in")
 }
+
+@Test func aHairlineOutlineNeverCrashesTheCanvasOrTheFile() throws {
+    // What a 1px-wide patch simplifies to: its two ends. Drawn as a brush with
+    // no points it trapped on every redraw, and saved it came back as one.
+    let hairline = EraseStroke(polygon: [CGPoint(x: 1, y: 1), CGPoint(x: 30, y: 1)])
+    var empty = EraseStroke(points: [CGPoint(x: 0, y: 0)], radius: 4)
+    empty.points = []
+    let good = EraseStroke(rect: CGRect(x: 0, y: 0, width: 5, height: 5))
+    _ = EraseMask.image(strokes: [hairline, empty, good], size: CGSize(width: 40, height: 40))
+
+    var layer = Layer(kind: .bitmap(imageRef: "hairline.png"))
+    layer.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+    layer.erased = [hairline, empty, good]
+    var page = Page(name: "p"); page.layers = [layer]
+    var doc = Document(); doc.pages = [page]
+    let data = try SkechworksFile.write(document: doc, images: [:])
+    let back = try SkechworksFile.read(data).document
+    let erased = try #require(back.pages.first?.layers.first?.erased)
+    #expect(erased.count == 1 && erased.first?.rect != nil, "only the real erase survives")
+
+    // And a file saved by 0.1.76 with the empty brush already in it still opens.
+    let poisoned = String(decoding: data, as: UTF8.self)
+    #expect(!poisoned.isEmpty)
+}
+
+@Test func takingEveryPatchStoresNoHairlines() throws {
+    // A 1px gold line beside a gold block, flat artwork, everywhere:true.
+    let ctx = CGContext(data: nil, width: 60, height: 60, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(device(1, 1, 1)); ctx.fill(CGRect(x: 0, y: 0, width: 60, height: 60))
+    ctx.setShouldAntialias(false)
+    ctx.setFillColor(device(1, 0.87, 0.57))
+    ctx.fill(CGRect(x: 5, y: 5, width: 30, height: 1))
+    ctx.fill(CGRect(x: 5, y: 20, width: 30, height: 30))
+    let img = ctx.makeImage()!
+    var layer = Layer(kind: .bitmap(imageRef: "hairline-run.png"))
+    layer.frame = CGRect(x: 0, y: 0, width: 60, height: 60)
+    var page = Page(name: "p"); page.layers = [layer]
+    _ = page.run([.eraseColor(LayerQuery(), hex: "#FFDE91", tolerance: nil, everywhere: true, exact: true, patches: nil)],
+                 selection: [layer.id]) { _ in img }
+    let erased = try #require(page.layer(layer.id)?.erased)
+    #expect(!erased.isEmpty)
+    #expect(erased.allSatisfy { ($0.polygon?.count ?? 3) >= 3 })
+    _ = EraseMask.image(strokes: erased, size: layer.frame.size)
+}
