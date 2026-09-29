@@ -14,7 +14,12 @@ import Foundation
 /// alone also catches a sunset, because a sunset is gold too. The second is the
 /// edge: a rim or a letter is PAINTED ON, so where it stops there is an outline,
 /// or white, or a different colour entirely. Gold in a sky fades into orange
-/// with no edge at all. A patch is kept only when most of its edge is hard.
+/// with no edge at all.
+///
+/// Every patch that passes a loose version of the edge test comes back as a
+/// candidate, with how outlined it is. The erase takes the well-outlined ones on
+/// its own; a model looking at the picture can pick instead, because a lit cloud
+/// against blue sky is outlined enough to fool a number and not a look.
 ///
 /// What comes back is outlines, one erase per patch, for the same reason the
 /// wand's are: an erase here is a stored decision that saves, reopens and undoes.
@@ -22,65 +27,100 @@ public enum KnockOut {
 
     public static let defaultTolerance = 20.0
 
-    /// The patches of `color` in `image` as rings, one list per patch, outside
-    /// edge first and then its holes. In image pixels, y down.
-    ///
-    /// `color` does not have to be exact. Whoever asked usually said "the gold"
-    /// and never saw the pixels, so the hue is moved to the strongest colour in
-    /// the picture near the one given before anything is matched.
-    ///
-    /// `everywhere` skips the edge test, for flat artwork where every patch of
-    /// the colour really is meant.
-    public static func rings(in image: CGImage, color: Color,
-                             tolerance: Double = defaultTolerance,
-                             everywhere: Bool = false) -> [[[CGPoint]]] {
-        guard let mask = mask(in: image, color: color, tolerance: tolerance,
-                              everywhere: everywhere) else { return [] }
-        return split(mask.bits, w: mask.w, h: mask.h)
+    /// How much of a patch's edge has to be a hard stop for it to be erased
+    /// without anyone choosing. Rims and lettering on real coins measure 85 to
+    /// 99 percent; a lit cloud and clumps of sunlit grass, 63 to 76.
+    public static let outlinedEnough = 0.8
+
+    /// Below this a patch isn't offered at all: it is part of the scenery.
+    static let worthOffering = 0.5
+
+    /// One patch of the colour.
+    public struct Patch: Sendable {
+        /// Each piece as rings, outside edge first, then its holes. Most
+        /// patches are one piece; a letter "i" is two. Image pixels, y down.
+        public var pieces: [[[CGPoint]]]
+        /// Image pixels, y down.
+        public var box: CGRect
+        public var area: Int
+        /// The share of its edge that is a hard stop, 0 to 1.
+        public var outlined: Double
     }
 
-    /// The erase as flags, one per pixel.
+    /// The patches of `color` in `image`, biggest first, at most `limit` of them.
+    ///
+    /// `exact` means the colour was sampled from the picture, by the wand, and
+    /// is used as it is. Otherwise it is a guess from a name, and the hue is
+    /// moved to the strongest colour in the picture near it first: "gold"
+    /// arrives as #FFD700 and the gold on a real coin sits ten degrees redder.
+    ///
+    /// `everywhere` drops the edge test, for flat artwork where every patch of
+    /// the colour really is meant.
+    public static func patches(in image: CGImage, color: Color,
+                               tolerance: Double = defaultTolerance,
+                               exact: Bool = false, everywhere: Bool = false,
+                               limit: Int = 40) -> [Patch] {
+        guard let found = labels(in: image, color: color, tolerance: tolerance,
+                                 exact: exact, everywhere: everywhere) else { return [] }
+        let order = found.outlined.indices.sorted { found.area[$0] > found.area[$1] }
+        var out: [Patch] = []
+        for k in order.prefix(limit) {
+            let pieces = split(found.label.map { $0 == Int32(k + 1) }, w: found.w, h: found.h,
+                               within: found.box[k])
+            guard !pieces.isEmpty else { continue }
+            out.append(Patch(pieces: pieces, box: found.box[k], area: found.area[k],
+                             outlined: everywhere ? 1 : found.outlined[k]))
+        }
+        return out
+    }
+
+    /// The patches the erase takes on its own: the outlined ones.
+    public static func rings(in image: CGImage, color: Color,
+                             tolerance: Double = defaultTolerance,
+                             exact: Bool = false, everywhere: Bool = false) -> [[[CGPoint]]] {
+        patches(in: image, color: color, tolerance: tolerance, exact: exact,
+                everywhere: everywhere, limit: .max)
+            .filter { $0.outlined >= outlinedEnough }
+            .flatMap(\.pieces)
+    }
+
+    /// The erase as flags, one per pixel: what `rings` would take.
     static func mask(in image: CGImage, color: Color, tolerance: Double,
-                     everywhere: Bool) -> (bits: [Bool], w: Int, h: Int)? {
-        let w = image.width, h = image.height, n = w * h
-        guard w > 2, h > 2 else { return nil }
+                     everywhere: Bool, exact: Bool = false) -> (bits: [Bool], w: Int, h: Int)? {
+        guard let found = labels(in: image, color: color, tolerance: tolerance,
+                                 exact: exact, everywhere: everywhere) else { return nil }
+        let taken = found.outlined.map { everywhere || $0 >= outlinedEnough }
+        let bits = found.label.map { $0 > 0 && taken[Int($0) - 1] }
+        guard bits.contains(true) else { return nil }
+        return (bits, found.w, found.h)
+    }
 
-        var bytes = [UInt8](repeating: 0, count: n * 4)
-        let drawn: Bool = bytes.withUnsafeMutableBytes { raw in
-            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
-                                      bitsPerComponent: 8, bytesPerRow: w * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            else { return false }
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            return true
-        }
-        guard drawn else { return nil }
-
-        var hue = [Float](repeating: 0, count: n)
-        var sat = [Float](repeating: 0, count: n)
-        var val = [Float](repeating: 0, count: n)
-        // Already erased, or never there. Never a match and always a hard edge.
-        var clear = [Bool](repeating: false, count: n)
-        for i in 0..<n {
-            let a = bytes[i * 4 + 3]
-            if a < 8 { clear[i] = true; continue }
-            let k = 255 / Float(a)
-            let (hh, ss, vv) = hsv(Float(bytes[i * 4]) * k / 255,
-                                   Float(bytes[i * 4 + 1]) * k / 255,
-                                   Float(bytes[i * 4 + 2]) * k / 255)
-            hue[i] = hh; sat[i] = ss; val[i] = vv
-        }
+    /// Every candidate patch as a number on each pixel, 0 for none, with each
+    /// patch's edge score, size and box. Patches keep their own numbers through
+    /// the clean-up, so a clump of grass that grows into the letter beside it
+    /// is still its own patch to leave out.
+    static func labels(in image: CGImage, color: Color, tolerance: Double,
+                       exact: Bool, everywhere: Bool)
+        -> (label: [Int32], outlined: [Double], area: [Int], box: [CGRect], w: Int, h: Int)? {
+        guard let px = Pixels(image) else { return nil }
+        let w = px.w, h = px.h, n = w * h
+        let hue = px.hue, sat = px.sat, val = px.val, clear = px.clear
 
         let target = hsv(Float(color.r), Float(color.g), Float(color.b))
         let chromatic = target.s >= 0.2
         let half = Float(2 + tolerance * 0.25)
         var centre = target.h
-        if chromatic { centre = strongestHue(near: target.h, hue: hue, sat: sat, val: val, clear: clear) }
+        if chromatic && !exact {
+            centre = strongestHue(near: target.h, hue: hue, sat: sat, val: val, clear: clear)
+        }
         func apart(_ a: Float) -> Float { let d = abs(a - centre); return d > 180 ? 360 - d : d }
 
-        // The paint itself.
-        let sMin = min(0.45, target.s * 0.6), vMin = min(0.45, target.v * 0.6)
+        // The paint itself. A sampled colour says how strong this picture's
+        // own version of it is, which a name can't: antique gold is half as
+        // saturated as leaflet gold, and a cut-off for one misses the other.
+        let loosen = Float(tolerance - defaultTolerance) * 0.01
+        let sMin = exact ? max(0.1, target.s * 0.6 - loosen) : min(0.45, target.s * 0.6)
+        let vMin = exact ? max(0.15, target.v * 0.55 - loosen) : min(0.45, target.v * 0.6)
         let vSpan = Float(0.08 + tolerance * 0.006)
         func strict(_ i: Int) -> Bool {
             if clear[i] { return false }
@@ -90,49 +130,43 @@ public enum KnockOut {
         // The same colour carrying on past the patch: what a soft edge is made of.
         func carriesOn(_ i: Int) -> Bool {
             if clear[i] { return false }
-            if chromatic { return val[i] > 0.3 && sat[i] >= 0.3 && apart(hue[i]) <= half + 25 }
+            if chromatic { return val[i] > 0.3 && sat[i] >= min(0.3, sMin) && apart(hue[i]) <= half + 25 }
             return sat[i] <= 0.3 && abs(val[i] - target.v) <= 0.35
         }
         // Its own shading and anti-aliasing, darker and paler than the paint.
         func fringe(_ i: Int) -> Bool {
             if clear[i] { return false }
-            if chromatic { return apart(hue[i]) <= half + 16 && sat[i] >= 0.2 && val[i] >= 0.2 }
+            if chromatic { return apart(hue[i]) <= half + 16 && sat[i] >= min(0.2, sMin) && val[i] >= 0.2 }
             return sat[i] <= 0.25 && abs(val[i] - target.v) <= vSpan + 0.1
         }
 
         var match = [Bool](repeating: false, count: n)
         for i in 0..<n { match[i] = strict(i) }
 
-        func neighbours(_ j: Int) -> [Int] {
-            let x = j % w, y = j / w
-            return [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1,
-                    y > 0 ? j - w : -1, y < h - 1 ? j + w : -1].filter { $0 >= 0 }
-        }
-
-        // Keep the patches with a hard edge. A stray grass blade is small, so
-        // size counts too, scaled so a bigger picture doesn't let more through.
-        var keep = [Bool](repeating: false, count: n)
+        var label = [Int32](repeating: 0, count: n)
+        var outlined: [Double] = []
         var seen = [Bool](repeating: false, count: n)
         var edgeMark = [Int32](repeating: 0, count: n)
         let minSize = everywhere ? max(4, n / 100_000) : max(30, n / 3000)
         let reach = max(4, w / 400)
         var patch: Int32 = 0
         var stack: [Int] = []
+        var members: [Int] = []
         for i in 0..<n where match[i] && !seen[i] {
             patch += 1
             seen[i] = true
             stack = [i]
-            var members: [Int] = []
+            members.removeAll(keepingCapacity: true)
             var edge = 0, hard = 0
             while let j = stack.popLast() {
                 members.append(j)
                 let x = j % w, y = j / w
-                for k in neighbours(j) {
+                forEachNeighbour(j, w: w, h: h) { k in
                     if match[k] {
                         if !seen[k] { seen[k] = true; stack.append(k) }
-                        continue
+                        return
                     }
-                    guard edgeMark[k] != patch else { continue }
+                    guard edgeMark[k] != patch else { return }
                     edgeMark[k] = patch
                     edge += 1
                     // Look a few pixels outward. Anything that isn't the
@@ -146,56 +180,135 @@ public enum KnockOut {
                 }
             }
             guard members.count >= minSize else { continue }
-            if everywhere || (edge > 0 && Double(hard) / Double(edge) >= 0.6) {
-                for j in members { keep[j] = true }
-            }
+            let score = edge > 0 ? Double(hard) / Double(edge) : 0
+            guard everywhere || score >= worthOffering else { continue }
+            outlined.append(score)
+            let mine = Int32(outlined.count)
+            for j in members { label[j] = mine }
         }
-        guard keep.contains(true) else { return nil }
+        guard !outlined.isEmpty else { return nil }
 
         // Grow into the colour's own fringe, so the bevel goes with the rim
-        // instead of staying behind as a brown hairline round it.
-        var frontier = (0..<n).filter { keep[$0] }
+        // instead of staying behind as a brown hairline round it. Each patch
+        // grows as itself and never into another.
+        var frontier = (0..<n).filter { label[$0] > 0 }
         for _ in 0..<max(3, w / 250) {
             var next: [Int] = []
             for j in frontier {
-                for k in neighbours(j) where !keep[k] && fringe(k) {
-                    keep[k] = true
-                    next.append(k)
+                forEachNeighbour(j, w: w, h: h) { k in
+                    if label[k] == 0 && fringe(k) { label[k] = label[j]; next.append(k) }
                 }
             }
             if next.isEmpty { break }
             frontier = next
         }
 
-        // Fill the small holes. On textured metal these are the cracks in the
-        // texture, and every one left behind is a speck to delete by hand.
+        // Fill the cracks. On textured metal every one left behind is a speck
+        // to delete by hand. Only thin ones: the hole in a letter "a" is a
+        // blob of whatever is behind the letter, and has to stay.
         let maxHole = max(16, n / 8000)
         var visited = [Bool](repeating: false, count: n)
-        for i in 0..<n where !keep[i] && !visited[i] {
+        for i in 0..<n where label[i] == 0 && !visited[i] {
             visited[i] = true
             stack = [i]
-            var members: [Int] = []
+            members.removeAll(keepingCapacity: true)
             var open = false
+            var around: Int32 = 0
+            var minX = w, minY = h, maxX = 0, maxY = 0
             while let j = stack.popLast() {
                 members.append(j)
                 let x = j % w, y = j / w
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
                 if x == 0 || y == 0 || x == w - 1 || y == h - 1 { open = true }
-                for k in neighbours(j) where !keep[k] && !visited[k] {
-                    visited[k] = true
-                    stack.append(k)
+                forEachNeighbour(j, w: w, h: h) { k in
+                    if label[k] > 0 { around = label[k]; return }
+                    if !visited[k] { visited[k] = true; stack.append(k) }
                 }
             }
-            if !open && members.count <= maxHole { for j in members { keep[j] = true } }
+            let long = max(maxX - minX, maxY - minY) + 1
+            let thin = members.count <= 12 || members.count <= 3 * long
+            if !open && around > 0 && members.count <= maxHole && thin {
+                for j in members { label[j] = around }
+            }
         }
 
         // One more pixel all round. The outline an erase stores runs through
         // the edge pixels' corners, and without this a half-pixel of the old
         // colour shows round everything.
-        let before = keep
-        for j in 0..<n where !before[j] && neighbours(j).contains(where: { before[$0] }) {
-            keep[j] = true
+        let before = label
+        for j in 0..<n where before[j] == 0 {
+            forEachNeighbour(j, w: w, h: h) { k in
+                if label[j] == 0 && before[k] > 0 { label[j] = before[k] }
+            }
         }
-        return (keep, w, h)
+
+        var area = [Int](repeating: 0, count: outlined.count)
+        var lo = [(Int, Int)](repeating: (w, h), count: outlined.count)
+        var hi = [(Int, Int)](repeating: (0, 0), count: outlined.count)
+        for i in 0..<n where label[i] > 0 {
+            let k = Int(label[i]) - 1, x = i % w, y = i / w
+            area[k] += 1
+            lo[k] = (min(lo[k].0, x), min(lo[k].1, y))
+            hi[k] = (max(hi[k].0, x), max(hi[k].1, y))
+        }
+        let box = outlined.indices.map {
+            CGRect(x: lo[$0].0, y: lo[$0].1, width: hi[$0].0 - lo[$0].0 + 1, height: hi[$0].1 - lo[$0].1 + 1)
+        }
+        return (label, outlined, area, box, w, h)
+    }
+
+    /// Flags to rings, one list per connected area. Each area is traced in its
+    /// own box, so twenty letters cost twenty small pictures rather than twenty
+    /// whole ones.
+    static func split(_ bits: [Bool], w: Int, h: Int, within: CGRect? = nil) -> [[[CGPoint]]] {
+        var label = [Int32](repeating: 0, count: w * h)
+        var next: Int32 = 0
+        var out: [[[CGPoint]]] = []
+        var stack: [Int] = []
+        let x0 = within.map { max(0, Int($0.minX)) } ?? 0
+        let y0 = within.map { max(0, Int($0.minY)) } ?? 0
+        let x1 = within.map { min(w, Int($0.maxX)) } ?? w
+        let y1 = within.map { min(h, Int($0.maxY)) } ?? h
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let i = y * w + x
+                guard bits[i] && label[i] == 0 else { continue }
+                next += 1
+                let mine = next
+                label[i] = mine
+                stack = [i]
+                var minX = w, minY = h, maxX = 0, maxY = 0
+                while let j = stack.popLast() {
+                    let jx = j % w, jy = j / w
+                    minX = min(minX, jx); maxX = max(maxX, jx)
+                    minY = min(minY, jy); maxY = max(maxY, jy)
+                    forEachNeighbour(j, w: w, h: h) { k in
+                        if bits[k] && label[k] == 0 { label[k] = mine; stack.append(k) }
+                    }
+                }
+                // A pixel of margin, so the box's edge is outside the area.
+                let bx = minX - 1, by = minY - 1
+                let bw = maxX - minX + 3, bh = maxY - minY + 3
+                var local = [Bool](repeating: false, count: bw * bh)
+                for yy in minY...maxY {
+                    for xx in minX...maxX where label[yy * w + xx] == mine {
+                        local[(yy - by) * bw + (xx - bx)] = true
+                    }
+                }
+                guard let rings = Wand.rings(bits: local, w: bw, h: bh) else { continue }
+                out.append(rings.map { $0.map { CGPoint(x: $0.x + CGFloat(bx), y: $0.y + CGFloat(by)) } })
+            }
+        }
+        return out
+    }
+
+    @inline(__always)
+    static func forEachNeighbour(_ j: Int, w: Int, h: Int, _ body: (Int) -> Void) {
+        let x = j % w
+        if x > 0 { body(j - 1) }
+        if x < w - 1 { body(j + 1) }
+        if j >= w { body(j - w) }
+        if j < w * (h - 1) { body(j + w) }
     }
 
     /// Hue, saturation and brightness, hue in degrees.
@@ -211,9 +324,7 @@ public enum KnockOut {
         return (h, mx > 0 ? d / mx : 0, mx)
     }
 
-    /// The most common strong hue within 15° of `near`. "Gold" arrives as
-    /// #FFD700 as often as anything, and the gold on a real coin sits ten
-    /// degrees redder than that.
+    /// The most common strong hue within 15° of `near`.
     static func strongestHue(near: Float, hue: [Float], sat: [Float], val: [Float],
                              clear: [Bool]) -> Float {
         var bins = [Int](repeating: 0, count: 360)
@@ -229,43 +340,42 @@ public enum KnockOut {
         return bestCount > 0 ? best : near
     }
 
-    /// Flags to rings, one list per connected patch. Each patch is traced in
-    /// its own box, so twenty letters cost twenty small pictures rather than
-    /// twenty whole ones.
-    static func split(_ bits: [Bool], w: Int, h: Int) -> [[[CGPoint]]] {
-        var label = [Int32](repeating: 0, count: w * h)
-        var next: Int32 = 0
-        var out: [[[CGPoint]]] = []
-        var stack: [Int] = []
-        for i in 0..<(w * h) where bits[i] && label[i] == 0 {
-            next += 1
-            let mine = next
-            label[i] = mine
-            stack = [i]
-            var minX = w, minY = h, maxX = 0, maxY = 0
-            while let j = stack.popLast() {
-                let x = j % w, y = j / w
-                minX = min(minX, x); maxX = max(maxX, x)
-                minY = min(minY, y); maxY = max(maxY, y)
-                for k in [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1,
-                          y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]
-                where k >= 0 && bits[k] && label[k] == 0 {
-                    label[k] = mine
-                    stack.append(k)
-                }
+    /// A picture read out as hue, saturation and brightness per pixel.
+    struct Pixels {
+        let w: Int, h: Int
+        var hue: [Float], sat: [Float], val: [Float]
+        /// Already erased, or never there.
+        var clear: [Bool]
+
+        init?(_ image: CGImage) {
+            w = image.width; h = image.height
+            let n = w * h
+            guard w > 2, h > 2 else { return nil }
+            var bytes = [UInt8](repeating: 0, count: n * 4)
+            let (cw, ch) = (w, h)
+            let drawn: Bool = bytes.withUnsafeMutableBytes { raw in
+                guard let ctx = CGContext(data: raw.baseAddress, width: cw, height: ch,
+                                          bitsPerComponent: 8, bytesPerRow: cw * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { return false }
+                ctx.draw(image, in: CGRect(x: 0, y: 0, width: cw, height: ch))
+                return true
             }
-            // A pixel of margin, so the box's edge is outside the patch.
-            let bx = minX - 1, by = minY - 1
-            let bw = maxX - minX + 3, bh = maxY - minY + 3
-            var local = [Bool](repeating: false, count: bw * bh)
-            for y in minY...maxY {
-                for x in minX...maxX where label[y * w + x] == mine {
-                    local[(y - by) * bw + (x - bx)] = true
-                }
+            guard drawn else { return nil }
+            hue = [Float](repeating: 0, count: n)
+            sat = [Float](repeating: 0, count: n)
+            val = [Float](repeating: 0, count: n)
+            clear = [Bool](repeating: false, count: n)
+            for i in 0..<n {
+                let a = bytes[i * 4 + 3]
+                if a < 8 { clear[i] = true; continue }
+                let k = 255 / Float(a)
+                let (hh, ss, vv) = KnockOut.hsv(Float(bytes[i * 4]) * k / 255,
+                                                Float(bytes[i * 4 + 1]) * k / 255,
+                                                Float(bytes[i * 4 + 2]) * k / 255)
+                hue[i] = hh; sat[i] = ss; val[i] = vv
             }
-            guard let rings = Wand.rings(bits: local, w: bw, h: bh) else { continue }
-            out.append(rings.map { $0.map { CGPoint(x: $0.x + CGFloat(bx), y: $0.y + CGFloat(by)) } })
         }
-        return out
     }
 }

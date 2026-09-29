@@ -122,12 +122,19 @@ struct ModelConnector {
     ///
     /// The document description is re-sent every turn rather than kept in history:
     /// it changes after every edit, and stale state is worse than no state.
+    ///
+    /// A picture being worked on rides along with its numbered brief. History
+    /// keeps the words only: last turn's picture is out of date by now.
     func converse(request: String,
                   document: String,
+                  picture: PictureBrief.Made? = nil,
                   history: [(role: String, content: String)]) async throws -> (turn: ModelTurn, raw: String) {
         var messages: [Message] = [.system(ModelPrompt.system)]
         for h in history { messages.append(Message(role: h.role, text: h.content)) }
-        messages.append(.user(ModelPrompt.user(document: document, request: request)))
+        var said = document
+        if let picture { said += "\n\n" + picture.text }
+        messages.append(.user(ModelPrompt.user(document: said, request: request),
+                              images: picture.map { [$0.png] } ?? []))
         let answer = try await respond(to: messages)
         return (answer.turn, answer.raw)
     }

@@ -231,11 +231,23 @@ final class ChatSession: ObservableObject {
         let document = store.describeDocument()
         let connector = ModelConnector(settings: settings)
         let priorTurns = history
+        let picture = store.chatPicture()
 
         Task { @MainActor in
             do {
+                // The picture goes along numbered, so "put back the cloud" and
+                // "everything but the dog" are a matter of pointing. Built off
+                // the main thread: finding subjects and patches takes a moment.
+                var brief: PictureBrief.Made?
+                if let picture {
+                    brief = await Task.detached(priority: .userInitiated) {
+                        PictureBrief.make(visible: picture.visible, layer: picture.layer,
+                                          name: picture.name, wandHex: picture.wandHex)
+                    }.value
+                }
                 let turn = try await connector.converse(request: text,
                                                         document: document,
+                                                        picture: brief,
                                                         history: priorTurns)
                 history.append((role: "user", content: text))
                 history.append((role: "assistant", content: turn.raw))

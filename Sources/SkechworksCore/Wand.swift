@@ -41,6 +41,34 @@ public enum Wand {
         return rings(bits: mask.bits, w: mask.w, h: mask.h)
     }
 
+    /// The average colour of the patch around `point`: what the wand hands
+    /// chat to erase. Textured gold is a different colour every few pixels,
+    /// so one pixel under the cursor says less than the patch it sits in.
+    public static func averageColor(in image: CGImage, at point: CGPoint,
+                                    tolerance: Int = defaultTolerance) -> Color? {
+        guard let mask = region(in: image, at: point, tolerance: tolerance) else { return nil }
+        let w = mask.w, h = mask.h
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn: Bool = bytes.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
+                                      bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return nil }
+        var r = 0.0, g = 0.0, b = 0.0, count = 0.0
+        for i in 0..<(w * h) where mask.bits[i] && bytes[i * 4 + 3] >= 8 {
+            let a = Double(bytes[i * 4 + 3])
+            r += Double(bytes[i * 4]) / a; g += Double(bytes[i * 4 + 1]) / a; b += Double(bytes[i * 4 + 2]) / a
+            count += 1
+        }
+        guard count > 0 else { return nil }
+        return Color(r: r / count, g: g / count, b: b / count, a: 1)
+    }
+
     /// Any one filled area as rings, outside edge first and then its holes.
     /// The flags are one connected area; a second one beside it is traced as
     /// nothing, so callers with several split them first.

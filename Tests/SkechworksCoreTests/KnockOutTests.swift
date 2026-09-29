@@ -82,7 +82,7 @@ private func paintedCoin(size: Int = 200) -> CGImage {
     let json = ##"{"op":"eraseColor","type":"image","color":"#FFD700"}"##
     let cmd = try #require(DocumentCommand.decode(
         try JSONSerialization.jsonObject(with: Data(json.utf8))))
-    guard case .eraseColor(let q, let hex, _, let everywhere) = cmd else {
+    guard case .eraseColor(let q, let hex, _, let everywhere, _, _) = cmd else {
         Issue.record("decoded as \(cmd)"); return
     }
     #expect(hex == "#FFD700" && q.type == "image" && !everywhere)
@@ -90,7 +90,7 @@ private func paintedCoin(size: Int = 200) -> CGImage {
     // "fill" is a selector key everywhere else, but a picture has no fill.
     let viaFill = try #require(DocumentCommand.decode(
         try JSONSerialization.jsonObject(with: Data(##"{"op":"knockout","fill":"#E8B040"}"##.utf8))))
-    guard case .eraseColor(let q2, "#E8B040", _, _) = viaFill else {
+    guard case .eraseColor(let q2, "#E8B040", _, _, _, _) = viaFill else {
         Issue.record("decoded as \(viaFill)"); return
     }
     #expect(q2.fill == nil)
@@ -111,4 +111,60 @@ private func paintedCoin(size: Int = 200) -> CGImage {
     var noPixels = Page(name: "Front")
     noPixels.layers = [layer]
     #expect(noPixels.run([cmd]).report.contains("needs the app"))
+}
+
+@Test func numberedPicksReadHoweverTheyArrive() throws {
+    for json in [##"{"op":"eraseColor","color":"#f2b448","exact":true,"patches":["C1","C3"]}"##,
+                 ##"{"op":"eraseColor","color":"#f2b448","exact":true,"patches":[1,3]}"##,
+                 ##"{"op":"eraseColor","color":"#f2b448","exact":true,"patches":"C1, C3"}"##] {
+        let cmd = try #require(DocumentCommand.decode(try JSONSerialization.jsonObject(with: Data(json.utf8))))
+        guard case .eraseColor(_, _, _, _, true, [1, 3]?) = cmd else { Issue.record("\(json) → \(cmd)"); continue }
+    }
+    let keep = try #require(DocumentCommand.decode(
+        try JSONSerialization.jsonObject(with: Data(##"{"op":"keepSubjects","subjects":["S2"]}"##.utf8))))
+    guard case .keepSubjects(_, [2]?) = keep else { Issue.record("\(keep)"); return }
+    let all = try #require(DocumentCommand.decode(
+        try JSONSerialization.jsonObject(with: Data(##"{"op":"removeBackground"}"##.utf8))))
+    guard case .keepSubjects(_, nil) = all else { Issue.record("\(all)"); return }
+    let back = try #require(DocumentCommand.decode(
+        try JSONSerialization.jsonObject(with: Data(##"{"op":"putBack","erases":["E9"]}"##.utf8))))
+    guard case .putBack(_, [9]) = back else { Issue.record("\(back)"); return }
+}
+
+@Test func picksComeFromTheSameListThePictureWasNumberedFrom() throws {
+    let img = paintedCoin()
+    let colour = Color(r: 1, g: 0.72, b: 0.2, a: 1)
+    let all = KnockOut.patches(in: img, color: colour, exact: true, everywhere: true)
+    #expect(all.count >= 2, "the ring and the sky's gold")
+    #expect(zip(all, all.dropFirst()).allSatisfy { $0.area >= $1.area }, "biggest first")
+
+    var layer = Layer(kind: .bitmap(imageRef: "knockout-picks.png"))
+    layer.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+    var page = Page(name: "p"); page.layers = [layer]
+    _ = page.run([.eraseColor(LayerQuery(), hex: colour.hex, tolerance: nil, everywhere: true,
+                              exact: true, patches: [2])],
+                 selection: [layer.id]) { _ in img }
+    let erased = try #require(page.layer(layer.id)?.erased)
+    #expect(erased.count == all[1].pieces.count)
+    #expect(erased.first?.bounds.intersects(all[1].box) == true)
+}
+
+@Test func puttingBackTakesThoseErasesOff() throws {
+    var layer = Layer(kind: .bitmap(imageRef: "knockout-back.png"))
+    layer.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+    layer.erased = (0..<4).map { EraseStroke(rect: CGRect(x: $0 * 20, y: 0, width: 10, height: 10)) }
+    var page = Page(name: "p"); page.layers = [layer]
+    let run = page.run([.putBack(LayerQuery(), erases: [2, 4, 9])], selection: [layer.id])
+    #expect(run.report.contains("put back 2"), "\(run.report)")
+    #expect(page.layer(layer.id)?.erased.map { $0.rect!.minX } == [0, 40])
+}
+
+@Test func keepingASubjectErasesEverythingRoundIt() throws {
+    let w = 40, h = 40
+    var bits = [Bool](repeating: false, count: w * h)
+    for y in 10..<30 { for x in 10..<30 { bits[y * w + x] = true } }
+    let dog = Subjects.Found(bits: bits, box: CGRect(x: 10, y: 10, width: 20, height: 20), area: 400)
+    let rings = Subjects.background(of: [dog], w: w, h: h)
+    #expect(rings.count == 1, "one piece of background")
+    #expect(rings.first?.count == 2, "its edge, and the hole the dog sits in")
 }

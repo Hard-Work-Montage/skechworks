@@ -271,7 +271,7 @@ extension Page {
             }
             return "\(ids.count) shapes into one"
 
-        case .eraseColor(_, let hex, let tolerance, let everywhere):
+        case .eraseColor(_, let hex, let tolerance, let everywhere, let exact, let picked):
             guard let col = SVGReader.color(hex, alpha: 1) else { return "couldn't read \(hex) as a colour" }
             guard let pixels else { return "needs the app open, to see the picture" }
             var pictures = 0, patches = 0
@@ -280,24 +280,59 @@ extension Page {
                       l.frame.width > 0, l.frame.height > 0,
                       let visible = pixels(l) else { continue }
                 pictures += 1
-                let found = KnockOut.rings(in: visible, color: col,
-                                           tolerance: tolerance ?? KnockOut.defaultTolerance,
-                                           everywhere: everywhere)
+                let tol = tolerance ?? KnockOut.defaultTolerance
+                let found: [[[CGPoint]]]
+                if let picked {
+                    // The same call the picture was numbered from, so C3 here
+                    // is C3 there.
+                    let all = KnockOut.patches(in: visible, color: col, tolerance: tol,
+                                               exact: exact, everywhere: everywhere)
+                    found = picked.flatMap { $0 >= 1 && $0 <= all.count ? all[$0 - 1].pieces : [] }
+                } else {
+                    found = KnockOut.rings(in: visible, color: col, tolerance: tol,
+                                           exact: exact, everywhere: everywhere)
+                }
                 guard !found.isEmpty else { continue }
                 patches += found.count
-                // The picture thinks in its pixels; erases live in layer points.
-                let sx = l.frame.width / CGFloat(visible.width)
-                let sy = l.frame.height / CGFloat(visible.height)
-                p.updateLayer(id) { l in
-                    for rings in found {
-                        let scaled = rings.map { $0.map { CGPoint(x: $0.x * sx, y: $0.y * sy) } }
-                        l.erased.append(EraseStroke(polygon: scaled[0], holes: Array(scaled.dropFirst())))
-                    }
-                }
+                p.eraseRings(found, on: id, from: visible)
             }
             if pictures == 0 { return "no pictures there — this only erases from an image layer" }
             if patches == 0 { return "found none of that colour with an outline round it; try everywhere:true or a higher tolerance" }
             return "\(patches) patch\(patches == 1 ? "" : "es") from \(pictures) picture\(pictures == 1 ? "" : "s")"
+
+        case .keepSubjects(_, let chosen):
+            guard let pixels else { return "needs the app open, to see the picture" }
+            var pictures = 0, kept = 0
+            for id in ids {
+                guard let l = p.layer(id), case .bitmap = l.kind,
+                      l.frame.width > 0, l.frame.height > 0,
+                      let visible = pixels(l) else { continue }
+                let subjects = Subjects.find(in: visible)
+                let keep = chosen.map { c in c.compactMap { $0 >= 1 && $0 <= subjects.count ? subjects[$0 - 1] : nil } }
+                    ?? subjects
+                guard !keep.isEmpty else { continue }
+                let clear = KnockOut.Pixels(visible)?.clear
+                let rings = Subjects.background(of: keep, w: visible.width, h: visible.height, clear: clear)
+                guard !rings.isEmpty else { continue }
+                p.eraseRings(rings, on: id, from: visible)
+                pictures += 1
+                kept += keep.count
+            }
+            if pictures == 0 { return "found nothing standing out in the picture to keep" }
+            return "kept \(kept) subject\(kept == 1 ? "" : "s"), erased the rest"
+
+        case .putBack(_, let which):
+            var restored = 0
+            for id in ids {
+                p.updateLayer(id) { l in
+                    guard case .bitmap = l.kind else { return }
+                    for i in Set(which).sorted(by: >) where i >= 1 && i <= l.erased.count {
+                        l.erased.remove(at: i - 1)
+                        restored += 1
+                    }
+                }
+            }
+            return restored == 0 ? "no erase with that number" : "put back \(restored) erase\(restored == 1 ? "" : "s")"
 
         case .distort(_, let corners):
             let quad = (corners?.count == 8) ? stride(from: 0, to: 8, by: 2)
@@ -624,5 +659,21 @@ extension Page {
             adoptIntoArtboard(l.id)
         }
         return l.id
+    }
+}
+
+extension Page {
+    /// Stores rings found in a picture's pixels as erases on its layer, one
+    /// per patch. The picture thinks in its pixels; erases live in layer points.
+    mutating func eraseRings(_ found: [[[CGPoint]]], on id: String, from visible: CGImage) {
+        guard let l = layer(id) else { return }
+        let sx = l.frame.width / CGFloat(visible.width)
+        let sy = l.frame.height / CGFloat(visible.height)
+        updateLayer(id) { l in
+            for rings in found where !rings.isEmpty {
+                let scaled = rings.map { $0.map { CGPoint(x: $0.x * sx, y: $0.y * sy) } }
+                l.erased.append(EraseStroke(polygon: scaled[0], holes: Array(scaled.dropFirst())))
+            }
+        }
     }
 }

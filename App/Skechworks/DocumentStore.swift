@@ -119,6 +119,10 @@ final class DocumentStore: ObservableObject {
     /// thing. Wide by default: the palette here is four colours a long way
     /// apart, so this only has to clear anti-aliasing.
     @Published var wandTolerance: Int = Wand.defaultTolerance
+    /// The colour the last wand click sampled, averaged over the patch it
+    /// picked, and the picture it came from. Chat erases this colour when told
+    /// "remove this color", and is shown it as the picture's C patches.
+    @Published var wandColor: (layerID: String, hex: String)?
 
     enum Tool: String, CaseIterable {
         case select, pen, erase, remove, extend, rect, oval, text, scissors
@@ -855,6 +859,42 @@ final class DocumentStore: ObservableObject {
     }
 
     // MARK: - Scripting
+
+    /// The picture chat is working on, if there is one to show it: the one the
+    /// wand last sampled, else a selected picture, else the only picture inside
+    /// what's selected, else the only picture on the page.
+    func chatPicture() -> (visible: CGImage, layer: Layer, name: String, wandHex: String?)? {
+        guard let page else { return nil }
+        func pictures(in layers: [Layer]) -> [Layer] {
+            layers.flatMap { l -> [Layer] in
+                switch l.kind {
+                case .bitmap: return [l]
+                case .group(let kids), .shapeGroup(let kids, _): return pictures(in: kids)
+                default: return []
+                }
+            }
+        }
+        var focus: Layer?
+        if let w = wandColor, let l = page.layer(w.layerID) { focus = l }
+        if focus == nil {
+            let picked = selection.compactMap { page.layer($0) }
+            focus = picked.first { if case .bitmap = $0.kind { return true } else { return false } }
+            if focus == nil {
+                let inside = pictures(in: picked)
+                if inside.count == 1 { focus = inside[0] }
+            }
+        }
+        if focus == nil {
+            let all = pictures(in: page.layers)
+            if all.count == 1 { focus = all[0] }
+        }
+        guard let l = focus, case .bitmap(let ref) = l.kind, let raw = images[ref],
+              let visible = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else { return nil }
+        let board = page.ancestors(of: l.id).compactMap { page.layer($0) }.first { $0.isArtboard }
+        let name = board.map { "\(l.name)” on “\($0.name)" } ?? l.name
+        let hex = wandColor?.layerID == l.id ? wandColor?.hex : nil
+        return (visible, l, name, hex)
+    }
 
     /// Runs a batch of commands as ONE undo step.
     ///
@@ -2676,6 +2716,9 @@ final class DocumentStore: ObservableObject {
         guard let rings = Wand.rings(in: visible, at: px, tolerance: wandTolerance) else {
             status = "Nothing to select there"
             return nil
+        }
+        if let average = Wand.averageColor(in: visible, at: px, tolerance: wandTolerance) {
+            wandColor = (id, average.hex)
         }
         let back = CGPoint(x: l.frame.width / CGFloat(visible.width),
                            y: l.frame.height / CGFloat(visible.height))

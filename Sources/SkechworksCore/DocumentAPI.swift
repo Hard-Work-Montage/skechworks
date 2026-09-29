@@ -295,7 +295,15 @@ public enum DocumentCommand: Sendable {
     /// Refit paths with fewer points. Tolerance is in page units.
     case simplify(LayerQuery, tolerance: Double?, detail: Double?)
     /// Erase every patch of one colour from a picture, as stored erases.
-    case eraseColor(LayerQuery, hex: String, tolerance: Double?, everywhere: Bool)
+    /// `exact` when the colour was sampled by the wand; `patches` picks
+    /// numbered candidates from the picture chat was shown, instead of the
+    /// outlined ones.
+    case eraseColor(LayerQuery, hex: String, tolerance: Double?, everywhere: Bool,
+                    exact: Bool, patches: [Int]?)
+    /// Erase everything in a picture but the numbered subjects; nil keeps them all.
+    case keepSubjects(LayerQuery, subjects: [Int]?)
+    /// Take back numbered erases on a picture, counted from 1 in the order made.
+    case putBack(LayerQuery, erases: [Int])
 
     public var query: LayerQuery {
         switch self {
@@ -312,7 +320,8 @@ public enum DocumentCommand: Sendable {
         case .distort(let q, _): return q
         case .duplicate(let q, _, _, _): return q
         case .simplify(let q, _, _): return q
-        case .eraseColor(let q, _, _, _): return q
+        case .eraseColor(let q, _, _, _, _, _): return q
+        case .keepSubjects(let q, _), .putBack(let q, _): return q
         case .add: return LayerQuery()
         case .combine(let q, _): return q
         }
@@ -345,7 +354,9 @@ public enum DocumentCommand: Sendable {
         case .sort(_, let by): return "Sort by \(by)"
         case .group: return "Group"
         case .ungroup: return "Ungroup"
-        case .eraseColor(_, let hex, _, _): return "Erase \(hex)"
+        case .eraseColor(_, let hex, _, _, _, _): return "Erase \(hex)"
+        case .keepSubjects: return "Erase Background"
+        case .putBack: return "Put Back"
         }
     }
 }
@@ -414,6 +425,25 @@ extension DocumentCommand {
         }
         func b(_ keys: String...) -> Bool? {
             for k in keys { if let v = d[k] as? Bool { return v } }
+            return nil
+        }
+        /// Numbered things off the picture chat was shown. They arrive as
+        /// [3, 5], ["C3", "C5"] and "C3, C5" alike; the letter is only a label.
+        func numbers(_ keys: String...) -> [Int]? {
+            for k in keys {
+                let items: [Any]
+                if let a = d[k] as? [Any] { items = a }
+                else if let s = d[k] as? String { items = s.split(whereSeparator: { $0 == "," || $0 == " " }).map(String.init) }
+                else if let i = d[k] as? Int { items = [i] }
+                else { continue }
+                let out = items.compactMap { v -> Int? in
+                    if let i = v as? Int { return i }
+                    if let d = v as? Double { return Int(d) }
+                    if let s = v as? String { return Int(s.filter(\.isNumber)) }
+                    return nil
+                }
+                return out
+            }
             return nil
         }
 
@@ -529,16 +559,25 @@ extension DocumentCommand {
                           flipped: b("flipped", "flip", "upright"))
         case "erasecolor", "erasecolour", "removecolor", "removecolour", "knockout":
             let everywhere = b("everywhere", "all") ?? false
+            let exact = b("exact", "sampled") ?? false
+            let picked = numbers("patches", "patch", "ids", "pick")
             if let hex = colour("hex", "color", "colour", "value", "target") {
-                return .eraseColor(q, hex: hex, tolerance: n("tolerance"), everywhere: everywhere)
+                return .eraseColor(q, hex: hex, tolerance: n("tolerance"), everywhere: everywhere,
+                                   exact: exact, patches: picked)
             }
             // Same trap as setFill: "fill" is a selector key, but a picture has
             // no fill to filter on, so here it can only mean the colour.
             if let hex = colour("fill") {
                 var q2 = q; q2.fill = nil
-                return .eraseColor(q2, hex: hex, tolerance: n("tolerance"), everywhere: everywhere)
+                return .eraseColor(q2, hex: hex, tolerance: n("tolerance"), everywhere: everywhere,
+                                   exact: exact, patches: picked)
             }
             return nil
+        case "keepsubjects", "keepsubject", "keeponly", "removebackground", "erasebackground":
+            return .keepSubjects(q, subjects: numbers("subjects", "subject", "keep", "ids"))
+        case "putback", "restore", "unerase", "restoreerase":
+            guard let which = numbers("erases", "erase", "patches", "ids"), !which.isEmpty else { return nil }
+            return .putBack(q, erases: which)
         case "distort", "skew", "perspective", "warp":
             if d["straighten"] as? Bool == true || d["reset"] as? Bool == true {
                 return .distort(q, corners: nil)
@@ -762,18 +801,28 @@ extension DocumentCommand {
                        {"op":"distort","straighten":true} takes it back off a
                        bitmap; on a shape the geometry is rewritten, so undo is
                        the way back. Aliases: skew, perspective, warp.
-          eraseColor   color (hex), tolerance (optional, default 20, higher
-                       takes more), everywhere (optional) — erases a colour out
-                       of a PICTURE (type image), leaving it see-through, e.g.
-                       the gold rims and lettering on a painted coin so the
-                       metal shows. Guess the hex from the colour's name; it
-                       doesn't have to match, the nearest strong colour in the
-                       picture is used. Only patches the artwork outlines are
-                       erased, so a gold sky next to gold lettering keeps its
-                       sky. everywhere:true drops that and takes every patch,
+          eraseColor   color (hex), exact, patches, tolerance (optional,
+                       default 20, higher takes more), everywhere — erases a
+                       colour out of a PICTURE (type image), leaving it
+                       see-through, e.g. the gold rims and lettering on a
+                       painted coin so the metal shows. "This color" means
+                       the colour the wand sampled: the PICTURE section names
+                       it; use that hex with exact:true. With no wand colour,
+                       guess the hex from the colour's name. When a PICTURE is
+                       attached with C patches, LOOK at it and list the ones
+                       that belong in patches:[numbers] — the rims, lettering
+                       and ornaments, not a lit cloud or sunny grass that
+                       happens to match. With no patches, the outlined ones
+                       (marked *) are taken. everywhere:true takes every patch,
                        for flat artwork. Stored as erases, so undo reverses it.
                        Use this, never delete, for colour inside a picture.
                        Aliases: removeColor, knockout.
+          keepSubjects subjects (optional, S numbers from the PICTURE) —
+                       erases everything in a picture except those subjects:
+                       "remove everything but the dog". Look at the picture to
+                       choose; leave subjects off to keep every one.
+          putBack      erases (E numbers from the PICTURE) — takes those erases
+                       back off a picture: "put the cloud back".
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",
@@ -782,6 +831,20 @@ extension DocumentCommand {
         Example — "remove the gold from the front picture":
         {"say":"Erased the gold rims and lettering. The coin will show through there.",
          "commands":[{"op":"eraseColor","type":"image","in":"front","color":"#E8B040"}]}
+
+        Example — "remove this color", with a PICTURE whose wand colour is
+        #f2b448 and whose C9 is a cloud in the sky:
+        {"say":"Erased the rims and the lettering. I left the cloud, it just matches the gold.",
+         "commands":[{"op":"eraseColor","type":"image","color":"#f2b448","exact":true,
+                      "patches":[1,2,3,4,5,7,8]}]}
+
+        Example — "put the cloud back", with E9 over the cloud:
+        {"say":"Put the cloud back.",
+         "commands":[{"op":"putBack","type":"image","erases":[9]}]}
+
+        Example — "remove everything but the dog", with S1 the dog:
+        {"say":"Kept the dog and erased everything around it.",
+         "commands":[{"op":"keepSubjects","type":"image","subjects":[1]}]}
 
         Example — "make a new artboard":
         {"say":"Added a 500×500 artboard.",
