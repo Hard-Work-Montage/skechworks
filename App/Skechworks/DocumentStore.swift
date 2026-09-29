@@ -866,8 +866,12 @@ final class DocumentStore: ObservableObject {
         guard !commands.isEmpty, page != nil else { return "Nothing to do." }
         let name = commands.count == 1 ? commands[0].summary : "\(commands.count) Changes"
         var outcome = CommandRun()
+        let images = self.images
         mutatePage(name) { p in
-            outcome = p.run(commands, selection: self.selection)
+            outcome = p.run(commands, selection: self.selection) { l in
+                guard case .bitmap(let ref) = l.kind, let raw = images[ref] else { return nil }
+                return BitmapWarp.visibleImage(data: raw, ref: ref, layer: l)
+            }
         }
         if let sel = outcome.selection { selection = sel }
         return outcome.report

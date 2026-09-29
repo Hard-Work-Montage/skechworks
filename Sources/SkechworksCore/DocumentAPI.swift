@@ -294,6 +294,8 @@ public enum DocumentCommand: Sendable {
     case duplicate(LayerQuery, dx: Double, dy: Double, times: Int)
     /// Refit paths with fewer points. Tolerance is in page units.
     case simplify(LayerQuery, tolerance: Double?, detail: Double?)
+    /// Erase every patch of one colour from a picture, as stored erases.
+    case eraseColor(LayerQuery, hex: String, tolerance: Double?, everywhere: Bool)
 
     public var query: LayerQuery {
         switch self {
@@ -310,6 +312,7 @@ public enum DocumentCommand: Sendable {
         case .distort(let q, _): return q
         case .duplicate(let q, _, _, _): return q
         case .simplify(let q, _, _): return q
+        case .eraseColor(let q, _, _, _): return q
         case .add: return LayerQuery()
         case .combine(let q, _): return q
         }
@@ -342,6 +345,7 @@ public enum DocumentCommand: Sendable {
         case .sort(_, let by): return "Sort by \(by)"
         case .group: return "Group"
         case .ungroup: return "Ungroup"
+        case .eraseColor(_, let hex, _, _): return "Erase \(hex)"
         }
     }
 }
@@ -523,6 +527,18 @@ extension DocumentCommand {
                           radius: straighten ? nil : n("radius", "r"),
                           angle: n("angle", "rotation"),
                           flipped: b("flipped", "flip", "upright"))
+        case "erasecolor", "erasecolour", "removecolor", "removecolour", "knockout":
+            let everywhere = b("everywhere", "all") ?? false
+            if let hex = colour("hex", "color", "colour", "value", "target") {
+                return .eraseColor(q, hex: hex, tolerance: n("tolerance"), everywhere: everywhere)
+            }
+            // Same trap as setFill: "fill" is a selector key, but a picture has
+            // no fill to filter on, so here it can only mean the colour.
+            if let hex = colour("fill") {
+                var q2 = q; q2.fill = nil
+                return .eraseColor(q2, hex: hex, tolerance: n("tolerance"), everywhere: everywhere)
+            }
+            return nil
         case "distort", "skew", "perspective", "warp":
             if d["straighten"] as? Bool == true || d["reset"] as? Bool == true {
                 return .distort(q, corners: nil)
@@ -746,10 +762,26 @@ extension DocumentCommand {
                        {"op":"distort","straighten":true} takes it back off a
                        bitmap; on a shape the geometry is rewritten, so undo is
                        the way back. Aliases: skew, perspective, warp.
+          eraseColor   color (hex), tolerance (optional, default 20, higher
+                       takes more), everywhere (optional) — erases a colour out
+                       of a PICTURE (type image), leaving it see-through, e.g.
+                       the gold rims and lettering on a painted coin so the
+                       metal shows. Guess the hex from the colour's name; it
+                       doesn't have to match, the nearest strong colour in the
+                       picture is used. Only patches the artwork outlines are
+                       erased, so a gold sky next to gold lettering keeps its
+                       sky. everywhere:true drops that and takes every patch,
+                       for flat artwork. Stored as erases, so undo reverses it.
+                       Use this, never delete, for colour inside a picture.
+                       Aliases: removeColor, knockout.
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",
          "commands":[{"op":"setOpacity","type":"path","fill":"#000000","value":0.5}]}
+
+        Example — "remove the gold from the front picture":
+        {"say":"Erased the gold rims and lettering. The coin will show through there.",
+         "commands":[{"op":"eraseColor","type":"image","in":"front","color":"#E8B040"}]}
 
         Example — "make a new artboard":
         {"say":"Added a 500×500 artboard.",

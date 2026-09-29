@@ -19,8 +19,12 @@ extension Page {
     /// This is the only thing that turns a model's output into document changes —
     /// the chat, the MCP server and the CLI all land here, so none of them can do
     /// something the others can't, and the scoping rule below is enforced once.
+    ///
+    /// `pixels` hands over a picture layer as it shows now, for the commands
+    /// that have to look at it. Without it they say so rather than guess.
     public mutating func run(_ commands: [DocumentCommand],
-                             selection: Set<String> = []) -> CommandRun {
+                             selection: Set<String> = [],
+                             pixels: ((Layer) -> CGImage?)? = nil) -> CommandRun {
         guard !commands.isEmpty else { return CommandRun(report: "Nothing to do.") }
         var report: [String] = []
         var pendingSelection: Set<String>?
@@ -72,7 +76,7 @@ extension Page {
                 pendingSelection = Set(ids)
                 scope = Set(ids)
             } else {
-                let detail = Page.perform(c, ids: ids, to: &self)
+                let detail = Page.perform(c, ids: ids, to: &self, pixels: pixels)
                 let count = "\(ids.count) layer\(ids.count == 1 ? "" : "s")"
                 report.append("\(c.summary): \(detail ?? count)")
                 continue
@@ -87,7 +91,8 @@ extension Page {
     /// with closures inline defeats it.
     /// Returns a line describing what it did, when a count alone would hide the point.
     @discardableResult
-    private static func perform(_ c: DocumentCommand, ids: [String], to p: inout Page) -> String? {
+    private static func perform(_ c: DocumentCommand, ids: [String], to p: inout Page,
+                                pixels: ((Layer) -> CGImage?)?) -> String? {
         let set = Set(ids)
         switch c {
         case .select:
@@ -265,6 +270,34 @@ extension Page {
                 return "couldn't combine those — they may be in different containers"
             }
             return "\(ids.count) shapes into one"
+
+        case .eraseColor(_, let hex, let tolerance, let everywhere):
+            guard let col = SVGReader.color(hex, alpha: 1) else { return "couldn't read \(hex) as a colour" }
+            guard let pixels else { return "needs the app open, to see the picture" }
+            var pictures = 0, patches = 0
+            for id in ids {
+                guard let l = p.layer(id), case .bitmap = l.kind,
+                      l.frame.width > 0, l.frame.height > 0,
+                      let visible = pixels(l) else { continue }
+                pictures += 1
+                let found = KnockOut.rings(in: visible, color: col,
+                                           tolerance: tolerance ?? KnockOut.defaultTolerance,
+                                           everywhere: everywhere)
+                guard !found.isEmpty else { continue }
+                patches += found.count
+                // The picture thinks in its pixels; erases live in layer points.
+                let sx = l.frame.width / CGFloat(visible.width)
+                let sy = l.frame.height / CGFloat(visible.height)
+                p.updateLayer(id) { l in
+                    for rings in found {
+                        let scaled = rings.map { $0.map { CGPoint(x: $0.x * sx, y: $0.y * sy) } }
+                        l.erased.append(EraseStroke(polygon: scaled[0], holes: Array(scaled.dropFirst())))
+                    }
+                }
+            }
+            if pictures == 0 { return "no pictures there — this only erases from an image layer" }
+            if patches == 0 { return "found none of that colour with an outline round it; try everywhere:true or a higher tolerance" }
+            return "\(patches) patch\(patches == 1 ? "" : "es") from \(pictures) picture\(pictures == 1 ? "" : "s")"
 
         case .distort(_, let corners):
             let quad = (corners?.count == 8) ? stride(from: 0, to: 8, by: 2)

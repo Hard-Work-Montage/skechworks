@@ -38,8 +38,13 @@ public enum Wand {
     public static func rings(in image: CGImage, at point: CGPoint,
                              tolerance: Int = defaultTolerance) -> [[CGPoint]]? {
         guard let mask = region(in: image, at: point, tolerance: tolerance) else { return nil }
-        let w = mask.w, h = mask.h, bits = mask.bits
+        return rings(bits: mask.bits, w: mask.w, h: mask.h)
+    }
 
+    /// Any one filled area as rings, outside edge first and then its holes.
+    /// The flags are one connected area; a second one beside it is traced as
+    /// nothing, so callers with several split them first.
+    static func rings(bits: [Bool], w: Int, h: Int) -> [[CGPoint]]? {
         // Whatever is not the area and can be reached from the picture's edge
         // without crossing it is outside. What is left of "not the area" is
         // inside it: the holes.
