@@ -59,3 +59,21 @@ private func stack(_ count: Int, tail: Int, colour: String, stroked: Bool = fals
     #expect(!text.contains("more layers not listed"))
     #expect(text.contains("12 layers in total"))
 }
+
+@Test func everyArtboardIsListedEvenWhenAnEarlierOneUsesUpTheBudget() {
+    // marines.sw: three traced artboards ate all 200 lines, so "front color", the
+    // seventh, never reached the model, and it told Adam the artboard didn't exist.
+    var page = Page(name: "p")
+    for name in ["front", "back", "front color"] {
+        var board = Layer(kind: .group(stack(250, tail: 0, colour: "#000000").layers))
+        board.isArtboard = true
+        board.name = name
+        page.layers.append(board)
+    }
+    let text = page.describe(maxLayers: 200)
+    #expect(text.contains("artboard “front”"))
+    #expect(text.contains("artboard “back”"))
+    #expect(text.contains("artboard “front color”"))
+    #expect(text.contains("… 51 more here not listed"))
+    #expect(text.contains("551 more layers not listed"))
+}

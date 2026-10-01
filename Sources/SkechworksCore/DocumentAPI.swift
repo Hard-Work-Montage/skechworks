@@ -180,9 +180,18 @@ extension Page {
     public func describe(maxLayers: Int = 200) -> String {
         var lines: [String] = ["page: \(name)"]
         var count = 0
+        // Artboards are listed whatever the budget. They're the map of the page,
+        // and a document whose first artboard holds 500 traced paths used to spend
+        // the whole budget there: the model was never told the later artboards
+        // existed, and insisted "front color" wasn't in a document that had it.
         func walk(_ ls: [Layer], _ depth: Int) {
-            for l in ls {
-                guard count < maxLayers else { return }
+            for (i, l) in ls.enumerated() {
+                let board = depth == 0 && l.isArtboard
+                guard board || count < maxLayers else {
+                    if depth == 0 { continue }   // a later artboard still gets its line
+                    lines.append("\(String(repeating: "  ", count: depth))… \(ls.count - i) more here not listed")
+                    return
+                }
                 count += 1
                 var bits = ["\(String(repeating: "  ", count: depth))- \(l.apiType) “\(l.name)”"]
                 bits.append("\(Int(l.frame.width))×\(Int(l.frame.height))")
@@ -230,7 +239,7 @@ extension Page {
         }
         census(layers)
 
-        if count >= maxLayers {
+        if everything > count {
             let rest = everything - count
             lines.append("… \(rest) more layers not listed.")
             lines.append("The counts below cover the WHOLE page, and select reaches all of it.")
