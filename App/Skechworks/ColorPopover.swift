@@ -268,7 +268,7 @@ private struct ColorPickerPane: View {
 }
 
 /// The classic transparency backdrop, sized for swatches and rails.
-private struct Checkerboard: Shape {
+struct Checkerboard: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let s: CGFloat = 5
@@ -285,5 +285,25 @@ private struct Checkerboard: Shape {
             row += 1
         }
         return p
+    }
+}
+
+/// The gradient as it will paint, over a checkerboard so a fade to clear
+/// reads as a fade and not as a fade to the panel's gray.
+struct GradientPreview: View {
+    let gradient: SkechworksCore.Gradient
+
+    var body: some View {
+        let stops = gradient.stops.map {
+            SwiftUI.Gradient.Stop(color: SwiftUI.Color(nsColor: $0.color.nsColor), location: $0.position)
+        }
+        let start = gradient.kind == .linear ? UnitPoint(x: gradient.from.x, y: gradient.from.y) : .leading
+        let end = gradient.kind == .linear ? UnitPoint(x: gradient.to.x, y: gradient.to.y) : .trailing
+        ZStack {
+            Checkerboard().fill(.quaternary)
+            LinearGradient(stops: stops, startPoint: start, endPoint: end)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
     }
 }

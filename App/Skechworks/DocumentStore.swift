@@ -1142,6 +1142,40 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Solid or gradient. A solid fill becomes its colour fading out; a
+    /// gradient becomes solid in its first stop's colour, so flipping back and
+    /// forth never lands on a colour you didn't pick.
+    func setFillIsGradient(_ id: String, at index: Int, _ gradient: Bool) {
+        edit(id, actionName: gradient ? "Gradient Fill" : "Solid Fill") { l in
+            guard l.style.fills.indices.contains(index) else { return }
+            switch (l.style.fills[index].paint, gradient) {
+            case (.color(let c), true):
+                l.style.fills[index].paint = .gradient(.fade(from: c))
+            case (.gradient(let g), false):
+                l.style.fills[index].paint = .color(g.stops.first?.color ?? Color(r: 0.5, g: 0.5, b: 0.5, a: 1))
+            default: break
+            }
+        }
+    }
+
+    func setGradientDirection(_ id: String, fill index: Int, to d: GradientDirection) {
+        editGradient(id, fill: index, actionName: "Gradient Direction") { $0.setDirection(d) }
+    }
+
+    func reverseGradient(_ id: String, fill index: Int) {
+        editGradient(id, fill: index, actionName: "Reverse Gradient") { $0.reverse() }
+    }
+
+    private func editGradient(_ id: String, fill index: Int, actionName: String,
+                              _ change: @escaping (inout Gradient) -> Void) {
+        edit(id, actionName: actionName) { l in
+            guard l.style.fills.indices.contains(index),
+                  case .gradient(var g) = l.style.fills[index].paint else { return }
+            change(&g)
+            l.style.fills[index].paint = .gradient(g)
+        }
+    }
+
     func setBorderColor(_ id: String, at index: Int, to c: Color) {
         edit(id, actionName: "Change Border", coalescingAs: "border:\(id):\(index)") { l in
             guard l.style.borders.indices.contains(index) else { return }

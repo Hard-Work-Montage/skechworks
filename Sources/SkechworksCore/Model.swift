@@ -517,6 +517,45 @@ public struct Gradient: Sendable {
     public init() {}
 }
 
+/// The two ways the Fill section lays a linear gradient across a shape.
+public enum GradientDirection: Sendable { case horizontal, vertical }
+
+extension Gradient {
+    /// A fresh gradient from a solid fill: the colour at the top fading to
+    /// nothing at the bottom. Fading a colour out is what a gradient over a
+    /// photo is nearly always for, and it is where Figma and Sketch start too.
+    public static func fade(from c: Color, direction: GradientDirection = .vertical) -> Gradient {
+        var g = Gradient()
+        g.setDirection(direction)
+        g.stops = [(0, c), (1, Color(r: c.r, g: c.g, b: c.b, a: 0))]
+        return g
+    }
+
+    /// Horizontal or vertical when the line runs that way, nil for any other
+    /// angle (an imported gradient can run at anything).
+    public var direction: GradientDirection? {
+        guard kind == .linear else { return nil }
+        let dx = abs(to.x - from.x), dy = abs(to.y - from.y)
+        if dy < 0.001 && dx > 0.001 { return .horizontal }
+        if dx < 0.001 && dy > 0.001 { return .vertical }
+        return nil
+    }
+
+    /// Left to right, or top to bottom, across the whole shape. Reverse
+    /// flips the stops, not the line, so the direction still reads plainly.
+    public mutating func setDirection(_ d: GradientDirection) {
+        kind = .linear
+        switch d {
+        case .horizontal: from = CGPoint(x: 0, y: 0.5); to = CGPoint(x: 1, y: 0.5)
+        case .vertical: from = CGPoint(x: 0.5, y: 0); to = CGPoint(x: 0.5, y: 1)
+        }
+    }
+
+    public mutating func reverse() {
+        stops = stops.map { (1 - $0.position, $0.color) }.sorted { $0.position < $1.position }
+    }
+}
+
 public enum Paint: Sendable {
     case color(Color)
     case gradient(Gradient)

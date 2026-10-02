@@ -401,7 +401,7 @@ public struct SkechworksFile {
                           let c = colorFrom(hex, dbl(st["alpha"]) ?? 1) else { return nil }
                     return (dbl(st["at"]) ?? 0, c)
                 }
-                if !g.stops.isEmpty { s.fills.append(Fill(paint: .gradient(g))) }
+                if !g.stops.isEmpty { s.fills.append(Fill(paint: .gradient(g), opacity: alpha)) }
             } else if let hex = f["color"] as? String, let c = colorFrom(hex, alpha) {
                 s.fills.append(Fill(paint: .color(c)))
             }
@@ -553,7 +553,7 @@ public struct SkechworksFile {
                 switch f.paint {
                 case .color(let c): return ["type": "color", "color": c.hex, "alpha": c.a * f.opacity]
                 case .gradient(let g):
-                    return ["type": "gradient",
+                    return ["type": "gradient", "alpha": f.opacity,
                             "kind": ["linear", "radial", "angular"][g.kind.rawValue],
                             "from": [g.from.x, g.from.y], "to": [g.to.x, g.to.y],
                             "stops": g.stops.map { ["at": $0.position, "color": $0.color.hex, "alpha": $0.color.a] }]

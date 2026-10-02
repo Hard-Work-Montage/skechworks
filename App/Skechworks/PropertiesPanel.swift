@@ -573,46 +573,77 @@ struct PropertiesPanel: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(Array(l.style.fills.enumerated()), id: \.offset) { i, f in
-                switch f.paint {
-                case .color(let c):
-                    HStack(spacing: 8) {
-                        ColorField(color: c) { store.setFillColor(l.id, at: i, to: $0) }
-                        removeButton("Remove fill") { store.removeFill(l.id, at: i) }
-                    }
-                case .gradient(let g):
-                    VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6) {
+                    switch f.paint {
+                    case .color(let c):
                         HStack(spacing: 8) {
-                            LinearGradient(colors: g.stops.map { SwiftUI.Color(nsColor: $0.color.nsColor) },
-                                           startPoint: .leading, endPoint: .trailing)
-                                .frame(width: 44, height: 20)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
-                            Text("\(["Linear", "Radial", "Angular"][g.kind.rawValue])")
-                                .font(.caption).foregroundStyle(.secondary)
+                            fillType(l, i, gradient: false)
+                            ColorField(color: c) { store.setFillColor(l.id, at: i, to: $0) }
+                            removeButton("Remove fill") { store.removeFill(l.id, at: i) }
+                        }
+                    case .gradient(let g):
+                        HStack(spacing: 8) {
+                            fillType(l, i, gradient: true)
+                            if g.kind == .linear {
+                                Picker("", selection: Binding(
+                                    get: { g.direction },
+                                    set: { if let d = $0 { store.setGradientDirection(l.id, fill: i, to: d) } }
+                                )) {
+                                    Image(systemName: "arrow.right").help("Horizontal").tag(GradientDirection?.some(.horizontal))
+                                    Image(systemName: "arrow.down").help("Vertical").tag(GradientDirection?.some(.vertical))
+                                }
+                                .labelsHidden().pickerStyle(.segmented).fixedSize()
+                            } else {
+                                Text(["Linear", "Radial", "Angular"][g.kind.rawValue])
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            iconButton("arrow.left.arrow.right", "Reverse gradient") {
+                                store.reverseGradient(l.id, fill: i)
+                            }
+                            .foregroundStyle(.secondary)
                             Spacer()
                             removeButton("Remove fill") { store.removeFill(l.id, at: i) }
                         }
-                        // One row per stop. Positions aren't draggable yet — this is
-                        // recolouring an existing gradient, not authoring a new one.
+                        GradientPreview(gradient: g)
+                            .frame(height: 16)
                         ForEach(Array(g.stops.enumerated()), id: \.offset) { j, stop in
                             HStack(spacing: 8) {
-                                Text("\(Int(stop.position * 100))%")
+                                Text(stopLabel(j, of: g))
                                     .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 34, alignment: .trailing)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 38, alignment: .leading)
                                 ColorField(color: stop.color) {
                                     store.setGradientStopColor(l.id, fill: i, stop: j, to: $0)
                                 }
                             }
                         }
-                        .padding(.leading, 4)
                     }
                 }
+                if i < l.style.fills.count - 1 { Divider() }
             }
             if l.style.fills.isEmpty {
                 Text("No fill").font(.caption).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// Solid or Gradient, at the front of each fill row.
+    private func fillType(_ l: Layer, _ i: Int, gradient: Bool) -> some View {
+        Picker("", selection: Binding(
+            get: { gradient },
+            set: { store.setFillIsGradient(l.id, at: i, $0) }
+        )) {
+            Text("Solid").tag(false)
+            Text("Gradient").tag(true)
+        }
+        .labelsHidden().pickerStyle(.menu).fixedSize()
+    }
+
+    /// Start and End for the usual two stops; an imported gradient with more
+    /// shows where each one sits.
+    private func stopLabel(_ j: Int, of g: SkechworksCore.Gradient) -> String {
+        if g.stops.count == 2 { return j == 0 ? "Start" : "End" }
+        return "\(Int((g.stops[j].position * 100).rounded()))%"
     }
 
     private func borders(_ l: Layer) -> some View {

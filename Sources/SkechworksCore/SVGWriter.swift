@@ -237,7 +237,7 @@ public struct SVGWriter {
             let id = "g\(abs(defs.hashValue &* 31 &+ defs.count))"
             var def = ""
             let stops = g.stops.map {
-                "      <stop offset=\"\(fmt($0.position))\" stop-color=\"\($0.color.hex)\" stop-opacity=\"\(fmt($0.color.a))\"/>\n"
+                "      <stop offset=\"\(fmt($0.position))\" stop-color=\"\($0.color.hex)\" stop-opacity=\"\(fmt($0.color.a * f.opacity))\"/>\n"
             }.joined()
             switch g.kind {
             case .radial:
