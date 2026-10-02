@@ -1599,7 +1599,8 @@ final class DocumentStore: ObservableObject {
             self?.vectorizeTask?.cancel()
         }
         chat.note(entry, "Tracing \(l.name.isEmpty ? "the picture" : l.name) — a minute or two")
-        chat.note(entry, style.hasPrefix("lineart") ? "Black and white" : "Full color")
+        chat.note(entry, style.hasPrefix("lineart") ? "Black and white"
+                  : style == "color_direct" ? "Full color (test)" : "Full color")
         status = "Vectorizing… this takes a minute or two"
         let frame = l.frame
         vectorizeTask = Task { @MainActor in

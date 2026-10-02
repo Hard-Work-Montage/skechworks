@@ -38,6 +38,7 @@ struct SkechworksApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.openWindow) private var openWindow
     @StateObject private var recents = RecentDocuments.shared
+    @AppStorage(ModelConnector.labsKey) private var labs = false
 
     var body: some Scene {
         WindowGroup(id: "document") {
@@ -259,6 +260,13 @@ struct SkechworksApp: App {
                         Button(ModelConnector.vectorizeLabel("Full Color")) {
                             AppDelegate.shared?.active?.vectorizeSelection(style: "color")
                         }
+                        // On trial: traces the picture's own colors with no
+                        // redraw. The service refuses it for anyone else too.
+                        if labs {
+                            Button(ModelConnector.vectorizeLabel("Full Color (test)")) {
+                                AppDelegate.shared?.active?.vectorizeSelection(style: "color_direct")
+                            }
+                        }
                     }
                     Button("AI Draw") { AppDelegate.shared?.active?.aiDrawSelection() }
                 }
@@ -442,6 +450,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppIconTheme.current.apply()
         ClickModifiers.start()
         TypingWins.start()
+        // Learns whether this account sees the menu items still on trial.
+        Task { _ = try? await ModelConnector.accountBalance() }
         if UserDefaults.standard.object(forKey: "mcp.enabled") as? Bool ?? true {
             MCPServer.shared.start()
         }

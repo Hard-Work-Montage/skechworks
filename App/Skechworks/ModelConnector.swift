@@ -271,6 +271,9 @@ struct ModelConnector {
         return content
     }
 
+    /// UserDefaults key: the signed-in account sees tools still on trial.
+    static let labsKey = "account.labs"
+
     /// Who's signed in and what they have to spend. Settings shows it; the app
     /// never needs more than this about the account.
     static func accountBalance() async throws -> (email: String, credits: Double) {
@@ -294,6 +297,10 @@ struct ModelConnector {
               let credits = json["credits"] as? Double else {
             throw Failure.badResponse(String(decoding: data.prefix(200), as: UTF8.self))
         }
+        // Tools still on trial show in the menus only for an account the
+        // service says can have them. Kept here so the menu can read it
+        // without asking the network every time it draws.
+        UserDefaults.standard.set(json["labs"] as? Bool ?? false, forKey: labsKey)
         return (email, credits)
     }
 
