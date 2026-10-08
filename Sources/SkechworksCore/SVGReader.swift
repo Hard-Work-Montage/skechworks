@@ -41,6 +41,8 @@ public final class SVGReader: NSObject {
     private var declaredSize: CGSize?
     private var gradients: [String: Gradient] = [:]
     private var pendingGradientID: String?
+    /// Attribute values too long for XMLParser, swapped out before parsing. See `stashingLongValues`.
+    private var longValues: [String] = []
     private var pendingStops: [(CGFloat, Color)] = []
     private var pendingGradientKind: GradientKind = .linear
     private var pendingGradientPoints: (from: CGPoint, to: CGPoint) = (.init(x: 0, y: 0), .init(x: 1, y: 0))
@@ -71,7 +73,8 @@ public final class SVGReader: NSObject {
 
     public func read(data: Data) throws -> Result {
         stack = [Frame(transform: .identity, style: InheritedStyle(), children: [], name: "root")]
-        let parser = XMLParser(data: data)
+        longValues = []
+        let parser = XMLParser(data: stashingLongValues(data))
         parser.delegate = self
         guard parser.parse(), let root = stack.first else { throw Failure.notSVG }
 
@@ -93,8 +96,9 @@ public final class SVGReader: NSObject {
 
     // MARK: - Element handling
 
-    fileprivate func begin(_ name: String, _ attrs: [String: String]) {
+    fileprivate func begin(_ name: String, _ rawAttrs: [String: String]) {
         if depthSkipped > 0 { depthSkipped += 1; return }
+        let attrs = longValues.isEmpty ? rawAttrs : rawAttrs.mapValues(restoringLongValue)
 
         switch name {
         case "svg":
@@ -454,6 +458,52 @@ public final class SVGReader: NSObject {
             scanner = scanner[scanner.index(after: close)...]
         }
         return t
+    }
+}
+
+// MARK: - Very long attribute values
+//
+// XMLParser sits on libxml2, which refuses any single attribute value over 10 MB and
+// fails the whole document. A traced picture saved as one compound path is exactly
+// that: an engraving with 17,000 subpaths came to a 25 MB `d` (Adam, 2026-10-07),
+// and so can a large embedded image. Splitting such a path is not an option, because
+// every hole has to stay in the same path as the shape it cuts. So the long values
+// are lifted out before parsing, a short placeholder parses in their place, and
+// `begin` puts them back.
+
+extension SVGReader {
+    static let longValueLimit = 1 << 20
+
+    func stashingLongValues(_ data: Data) -> Data {
+        guard data.count > Self.longValueLimit else { return data }
+        let bytes = [UInt8](data)
+        var out = [UInt8]()
+        out.reserveCapacity(min(bytes.count, 1 << 20))
+        var i = 0
+        var copiedTo = 0
+        let equals = UInt8(ascii: "="), dq = UInt8(ascii: "\""), sq = UInt8(ascii: "'")
+        while i < bytes.count - 1 {
+            guard bytes[i] == equals, bytes[i + 1] == dq || bytes[i + 1] == sq else { i += 1; continue }
+            let quote = bytes[i + 1]
+            let start = i + 2
+            guard let close = bytes[start...].firstIndex(of: quote) else { break }
+            if close - start > Self.longValueLimit {
+                out.append(contentsOf: bytes[copiedTo..<start])
+                let token = "skw-long-\(longValues.count)"
+                longValues.append(String(decoding: bytes[start..<close], as: UTF8.self))
+                out.append(contentsOf: Array(token.utf8))
+                copiedTo = close
+            }
+            i = close + 1
+        }
+        guard !longValues.isEmpty else { return data }
+        out.append(contentsOf: bytes[copiedTo...])
+        return Data(out)
+    }
+
+    func restoringLongValue(_ value: String) -> String {
+        guard value.hasPrefix("skw-long-"), let n = Int(value.dropFirst(9)), longValues.indices.contains(n) else { return value }
+        return longValues[n]
     }
 }
 
