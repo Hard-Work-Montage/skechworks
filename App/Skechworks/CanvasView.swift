@@ -450,6 +450,14 @@ final class PageCanvas: NSView {
     /// Brush size and softness, in page units, supplied by the store.
     var eraseRadius: CGFloat = 24
     var eraseSoftness: CGFloat = 0.5
+    /// The brush's, which are its own. The gesture is the eraser's: the tool
+    /// armed when the stroke lands says which of the two it was.
+    var onPaint: ((String, [CGPoint]) -> Void)?
+    var onBrushMiss: (() -> Void)?
+    var brushRadius: CGFloat = 4
+    var brushSoftness: CGFloat = 0
+    var brushColor: SkechworksCore.Color = .black
+    private var strokeRadius: CGFloat { tool == .brush ? brushRadius : eraseRadius }
 
     /// The stroke in progress, in the target layer's own coordinates.
     private var erasing: (layer: String, points: [CGPoint], transform: CGAffineTransform)?
@@ -629,7 +637,7 @@ final class PageCanvas: NSView {
             NSCursor.crosshair.set()
             return
         }
-        if tool == .erase {
+        if tool == .erase || tool == .brush {
             // The ring IS the size control: you can see how big the brush is before
             // committing a stroke you'd have to undo to judge.
             brushAt = eraseTarget(p) != nil ? p : nil
@@ -946,9 +954,9 @@ final class PageCanvas: NSView {
         guard let e = erasing else { return composed }
         var ds = composed
         for i in ds.indices where ds[i].layer.id == e.layer && ds[i].imageRef != nil {
-            ds[i].layer.erased.append(EraseStroke(points: e.points,
-                                                  radius: eraseRadius,
-                                                  softness: eraseSoftness))
+            ds[i].layer.erased.append(tool == .brush
+                ? EraseStroke(points: e.points, radius: brushRadius, softness: brushSoftness, paint: brushColor)
+                : EraseStroke(points: e.points, radius: eraseRadius, softness: eraseSoftness))
         }
         return ds
     }
@@ -1525,12 +1533,12 @@ final class PageCanvas: NSView {
 
     /// The brush outline, drawn in page space so it scales with the artwork.
     private func drawBrush(_ ctx: CGContext) {
-        guard tool == .erase, let p = brushAt else { return }
+        guard tool == .erase || tool == .brush, let p = brushAt else { return }
         ctx.saveGState()
         ctx.scaleBy(x: scale, y: scale)
         ctx.translateBy(x: -origin.x, y: -origin.y)
-        let ring = CGRect(x: p.x - eraseRadius, y: p.y - eraseRadius,
-                          width: eraseRadius * 2, height: eraseRadius * 2)
+        let ring = CGRect(x: p.x - strokeRadius, y: p.y - strokeRadius,
+                          width: strokeRadius * 2, height: strokeRadius * 2)
         ctx.setLineWidth(1 / max(0.01, scale))
         ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.7).cgColor)
         ctx.strokeEllipse(in: ring)
@@ -1953,6 +1961,16 @@ final class PageCanvas: NSView {
         if tool.draws {
             shapeDrag = (p, p)
             needsDisplay = true
+            return
+        }
+
+        if tool == .brush {
+            if let target = eraseTarget(p), let t = transformOf(target.id, in: page?.layers ?? [], base: .identity) {
+                erasing = (target.id, [p.applying(t.inverted())], t)
+                needsDisplay = true
+            } else {
+                onBrushMiss?()
+            }
             return
         }
 
@@ -2823,7 +2841,7 @@ final class PageCanvas: NSView {
         }
         if let stroke = erasing {
             erasing = nil
-            onErase?(stroke.layer, stroke.points)
+            if tool == .brush { onPaint?(stroke.layer, stroke.points) } else { onErase?(stroke.layer, stroke.points) }
             return
         }
         if let rot = rotating {
@@ -3158,6 +3176,11 @@ struct CanvasRepresentable: NSViewRepresentable {
         canvas.onErase = { id, points in store.erase(id, points: points) }
         canvas.eraseRadius = CGFloat(store.eraseRadius)
         canvas.eraseSoftness = CGFloat(store.eraseSoftness)
+        canvas.onPaint = { id, points in store.paint(id, points: points) }
+        canvas.onBrushMiss = { store.brushMissed() }
+        canvas.brushRadius = CGFloat(store.brushRadius)
+        canvas.brushSoftness = CGFloat(store.brushSoftness)
+        canvas.brushColor = store.brushColor
         canvas.onPointSelected = { i, m in
             store.editingPoint = i.flatMap { idx in m.map { DocumentStore.EditingPoint(index: idx, mode: $0) } }
         }
@@ -3178,6 +3201,7 @@ struct CanvasRepresentable: NSViewRepresentable {
             case "select": store.tool = .select
             case "vector": store.tool = .pen
             case "erase":  store.tool = .erase
+            case "brush":  store.beginBrush()
             case "insertRect": store.tool = .rect
             case "insertOval": store.tool = .oval
             case "insertText": store.tool = .text

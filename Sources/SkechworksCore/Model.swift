@@ -470,7 +470,7 @@ public struct Layer: @unchecked Sendable {
 
 // MARK: - Style
 
-public struct Color: Sendable {
+public struct Color: Sendable, Equatable {
     public var r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat
     public init(r: CGFloat, g: CGFloat, b: CGFloat, a: CGFloat) { (self.r, self.g, self.b, self.a) = (r, g, b, a) }
     public static let black = Color(r: 0, g: 0, b: 0, a: 1)

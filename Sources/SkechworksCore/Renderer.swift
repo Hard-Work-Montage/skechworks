@@ -197,6 +197,30 @@ public struct Renderer {
     /// Paints a bitmap layer in its frame: warped, erased, adjusted, or as it came.
     private func drawBitmap(_ d: Drawable, data: Data, loaded o: BitmapImage.Oriented, ref: String,
                             in ctx: CGContext) {
+        // Brush strokes go over the picture, outside the clip the erasing puts
+        // on it: paint in a rubbed-out hole has to show. A warped picture has
+        // them in its pixels already.
+        guard d.layer.warpCorners == nil, d.layer.erased.contains(where: { $0.paint != nil }),
+              let paint = PaintOverlay.image(strokes: d.layer.erased, size: d.layer.frame.size) else {
+            drawPicture(d, data: data, loaded: o, ref: ref, in: ctx)
+            return
+        }
+        // One layer for the two of them, so a see-through picture doesn't show
+        // its own pixels through its own paint.
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        drawPicture(d, data: data, loaded: o, ref: ref, in: ctx)
+        ctx.saveGState()
+        ctx.concatenate(d.transform)
+        let r = CGRect(origin: .zero, size: d.layer.frame.size)
+        ctx.translateBy(x: 0, y: r.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(paint, in: r)
+        ctx.restoreGState()
+        ctx.endTransparencyLayer()
+    }
+
+    private func drawPicture(_ d: Drawable, data: Data, loaded o: BitmapImage.Oriented, ref: String,
+                             in ctx: CGContext) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.concatenate(d.transform)

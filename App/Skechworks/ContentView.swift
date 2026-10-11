@@ -90,6 +90,8 @@ struct ContentView: View {
                     Divider()
                     Button("Vector") { store.tool = .pen }
                         .shortcut("vector")
+                    Button("Brush") { store.beginBrush() }
+                        .shortcut("brush")
                     Button("Text") { store.tool = .text }
                         .shortcut("insertText")
                     Button("Image…") { store.insertImage() }

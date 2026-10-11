@@ -996,7 +996,7 @@ extension Layer {
         // throws the stroke away. Sixth time, and the rule holds: if it can be edited
         // and isn't geometry, it belongs here.
         if !erased.isEmpty {
-            s += "|e" + erased.map { "\($0.points.count):\(whole($0.radius)):\(whole($0.softness * 100))" }
+            s += "|e" + erased.map { "\($0.points.count):\(whole($0.radius)):\(whole($0.softness * 100))\($0.paint?.hex ?? "")" }
                 .joined(separator: ",")
         }
         s += "|" + style.shadows.map {

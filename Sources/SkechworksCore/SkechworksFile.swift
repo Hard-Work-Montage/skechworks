@@ -313,7 +313,8 @@ public struct SkechworksFile {
                     // to be saved as, and it crashed the canvas on every draw.
                     let at = pts.compactMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
                     guard !at.isEmpty else { return nil }
-                    return EraseStroke(points: at, radius: r, softness: dbl(e["softness"]) ?? 0.5)
+                    return EraseStroke(points: at, radius: r, softness: dbl(e["softness"]) ?? 0.5,
+                                       paint: (e["paint"] as? String).flatMap { Color(hex: $0) })
                 }
             }
             guard let ref = j["image"] as? String else { return nil }
@@ -528,8 +529,13 @@ public struct SkechworksFile {
                     if let r = e.rect {
                         return ["rect": [r.minX, r.minY, r.width, r.height]]
                     }
-                    return ["points": e.points.map { [$0.x, $0.y] },
-                            "radius": e.radius, "softness": e.softness]
+                    var out: [String: Any] = ["points": e.points.map { [$0.x, $0.y] },
+                                              "radius": e.radius, "softness": e.softness]
+                    // #rrggbbaa, so a see-through stroke comes back see-through.
+                    if let c = e.paint {
+                        out["paint"] = c.hex + String(format: "%02x", max(0, min(255, Int((c.a * 255).rounded()))))
+                    }
+                    return out
                 }
             }
         }

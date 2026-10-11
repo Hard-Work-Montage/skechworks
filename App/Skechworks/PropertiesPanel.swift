@@ -28,6 +28,7 @@ struct PropertiesPanel: View {
                         if paintable(layer) { Divider(); borders(layer) }
                         if case .bitmap = layer.kind {
                             Divider(); imageSection(layer)
+                            Divider(); brush(layer)
                             Divider(); eraser(layer)
                         }
                         // Always, since adding one starts here — except artboards,
@@ -1018,6 +1019,39 @@ struct PropertiesPanel: View {
         }
     }
 
+    /// The brush's color, size and softness. Shown on every picture, armed or
+    /// not, the way the eraser's are: this is where you find out there is one.
+    private func brush(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                sectionTitle("Brush")
+                Spacer()
+                Button {
+                    store.selection = [l.id]
+                    if store.tool == .brush { store.tool = .select } else { store.beginBrush() }
+                } label: {
+                    Image(systemName: "paintbrush.pointed")
+                        .foregroundStyle(store.tool == .brush ? SwiftUI.Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Paint on this picture (B)")
+            }
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 7) {
+                GridRow {
+                    ColorPopoverButton(color: store.brushColor) { store.brushColor = $0 }
+                    NumberField(label: "Size", value: CGFloat(store.brushRadius)) {
+                        store.brushRadius = Double(max(0.5, $0))
+                    }
+                    NumberField(label: "Soft", value: CGFloat(store.brushSoftness * 100), suffix: "%") {
+                        store.brushSoftness = Double(min(100, max(0, $0)) / 100)
+                    }
+                }
+            }
+            Text("Press B, then paint on the picture.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
     private func eraser(_ l: Layer) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Eraser")
@@ -1057,9 +1091,10 @@ struct PropertiesPanel: View {
             }
             Text(store.pixelPick.hint)
                 .font(.caption).foregroundStyle(.tertiary)
-            if !l.erased.isEmpty {
+            let erases = l.erased.filter { $0.paint == nil }.count
+            if erases > 0 {
                 HStack {
-                    Text("\(l.erased.count) stroke\(l.erased.count == 1 ? "" : "s")")
+                    Text("\(erases) stroke\(erases == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Restore") {

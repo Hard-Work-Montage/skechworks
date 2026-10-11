@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.84 (October 11, 2026)
+
+- New Brush tool paints on a picture, press B or use Insert ▸ Brush
+
 ## 0.1.83 (October 11, 2026)
 
 - Remove ▸ Background makes a picture's background transparent

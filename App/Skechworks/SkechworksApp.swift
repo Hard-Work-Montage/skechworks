@@ -227,6 +227,8 @@ struct SkechworksApp: App {
                     .shortcut("select")
                 Button("Vector") { AppDelegate.shared?.active?.tool = .pen }
                     .shortcut("vector")
+                Button("Brush") { AppDelegate.shared?.active?.beginBrush() }
+                    .shortcut("brush")
                 Button("Erase") { AppDelegate.shared?.active?.tool = .erase }
                     .shortcut("erase")
                 Divider()

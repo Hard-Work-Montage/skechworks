@@ -29,6 +29,7 @@ public enum BitmapWarp {
         var e: CGFloat = 0
         for s in l.erased {
             e += (s.rect?.minX ?? 0) + (s.rect?.minY ?? 0) + s.radius
+            if let c = s.paint { e += c.r * 3 + c.g * 5 + c.b * 7 + c.a * 11 + 1 }
             for p in s.points { e += p.x + p.y }
         }
         return "\(ref)|warp|\(c)|e\(l.erased.count),\(e)|\(BitmapAdjust.key(ref: ref, l))" as NSString
@@ -45,13 +46,7 @@ public enum BitmapWarp {
         if let cacheKey, let hit = cache.object(forKey: cacheKey) {
             return (hit.image, hit.box)
         }
-        var source = baked
-        if !l.erased.isEmpty, l.frame.width > 0,
-           let mask = EraseMask.image(strokes: l.erased, size: l.frame.size),
-           let cut = masked(baked, with: mask) {
-            source = cut
-        }
-        return image(source, corners: corners, cacheKey: cacheKey)
+        return image(worked(baked, layer: l) ?? baked, corners: corners, cacheKey: cacheKey)
     }
 
     /// The pixels a layer actually shows: baked for orientation, adjustments
@@ -63,24 +58,31 @@ public enum BitmapWarp {
     /// height of what it used to be.
     public static func visibleImage(data: Data, ref: String, layer l: Layer) -> CGImage? {
         guard let baked = BitmapAdjust.displayImage(data: data, ref: ref, layer: l) else { return nil }
-        guard !l.erased.isEmpty, l.frame.width > 0,
-              let mask = EraseMask.image(strokes: l.erased, size: l.frame.size),
-              let cut = masked(baked, with: mask) else { return baked }
-        return cut
+        return worked(baked, layer: l) ?? baked
     }
 
-    /// Applies an erase mask (built in layer units) to a pixel-sized image.
-    /// clip(to:mask:) stretches the mask to the rect, which also absorbs any
-    /// difference between the frame's aspect and the pixels'.
-    private static func masked(_ src: CGImage, with mask: CGImage) -> CGImage? {
-        guard let ctx = CGContext(data: nil, width: src.width, height: src.height,
+    /// A pixel-sized image with the layer's strokes in it: the erasing cut out
+    /// and the brush painted on. Nil when there is nothing to do.
+    ///
+    /// Both are built in layer units. clip(to:mask:) and draw(_:in:) stretch
+    /// them to the rect, which also absorbs any difference between the frame's
+    /// aspect and the pixels'.
+    private static func worked(_ src: CGImage, layer l: Layer) -> CGImage? {
+        guard !l.erased.isEmpty, l.frame.width > 0, l.frame.height > 0 else { return nil }
+        let mask = EraseMask.image(strokes: l.erased, size: l.frame.size)
+        let paint = PaintOverlay.image(strokes: l.erased, size: l.frame.size)
+        guard mask != nil || paint != nil,
+              let ctx = CGContext(data: nil, width: src.width, height: src.height,
                                   bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         let r = CGRect(x: 0, y: 0, width: src.width, height: src.height)
-        ctx.clip(to: r, mask: mask)
+        ctx.saveGState()
+        if let mask { ctx.clip(to: r, mask: mask) }
         ctx.draw(src, in: r)
+        ctx.restoreGState()
+        if let paint { ctx.draw(paint, in: r) }
         return ctx.makeImage()
     }
 

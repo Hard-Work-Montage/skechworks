@@ -63,11 +63,11 @@ public enum PictureBrief {
         let lime = CGColor(red: 0.2, green: 0.9, blue: 0.1, alpha: 1)
 
         // What's already gone, to put back.
-        if !layer.erased.isEmpty, layer.frame.width > 0, layer.frame.height > 0 {
+        if layer.erased.contains(where: { $0.paint == nil }), layer.frame.width > 0, layer.frame.height > 0 {
             let sx = w / layer.frame.width, sy = h / layer.frame.height
             lines.append("")
             lines.append("E: erases already on it, in the order made. putBack takes these numbers.")
-            for (i, stroke) in layer.erased.enumerated() {
+            for (i, stroke) in layer.erased.enumerated() where stroke.paint == nil {
                 let b = stroke.bounds
                 let box = CGRect(x: b.minX * sx, y: b.minY * sy, width: b.width * sx, height: b.height * sy)
                 if let poly = stroke.polygon {

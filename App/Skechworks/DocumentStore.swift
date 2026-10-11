@@ -111,7 +111,7 @@ final class DocumentStore: ObservableObject {
         }
         // The brush cursor over a picture you're about to box is a lie about
         // what the next drag does.
-        if tool == .erase { tool = .select }
+        if tool == .erase || tool == .brush { tool = .select }
         if pixelSelectID != id { enterPixelSelect(id) }
         status = pick.hint
     }
@@ -125,12 +125,13 @@ final class DocumentStore: ObservableObject {
     @Published var wandColor: (layerID: String, hex: String)?
 
     enum Tool: String, CaseIterable {
-        case select, pen, erase, remove, extend, rect, oval, text, scissors
+        case select, pen, brush, erase, remove, extend, rect, oval, text, scissors
         var symbol: String {
             switch self {
             case .select: return "cursorarrow"
             case .pen: return "pencil.tip"
             case .scissors: return "scissors"
+            case .brush: return "paintbrush.pointed"
             case .erase: return "eraser"
             case .remove: return "wand.and.stars"
             case .extend: return "arrow.up.left.and.arrow.down.right"
@@ -144,6 +145,7 @@ final class DocumentStore: ObservableObject {
             case .select: return "Select"
             case .pen: return "Vector"
             case .scissors: return "Scissors"
+            case .brush: return "Brush"
             case .erase: return "Erase"
             case .remove: return "Remove"
             case .extend: return "Extend"
@@ -285,6 +287,25 @@ final class DocumentStore: ObservableObject {
     var eraseSoftness: Double {
         get { UserDefaults.standard.object(forKey: "eraseSoftness") as? Double ?? 0.5 }
         set { UserDefaults.standard.set(newValue, forKey: "eraseSoftness"); objectWillChange.send() }
+    }
+    /// The brush's own size, softness and color. Not the eraser's: a brush is
+    /// a fine hard line most of the time and an eraser is a wide soft one, and
+    /// sharing them meant setting both every time you changed tools.
+    var brushRadius: Double {
+        get { UserDefaults.standard.object(forKey: "brushRadius") as? Double ?? 4 }
+        set { UserDefaults.standard.set(newValue, forKey: "brushRadius"); objectWillChange.send() }
+    }
+    var brushSoftness: Double {
+        get { UserDefaults.standard.object(forKey: "brushSoftness") as? Double ?? 0 }
+        set { UserDefaults.standard.set(newValue, forKey: "brushSoftness"); objectWillChange.send() }
+    }
+    var brushColor: SkechworksCore.Color {
+        get { UserDefaults.standard.string(forKey: "brushColor").flatMap { SkechworksCore.Color(hex: $0) } ?? .black }
+        set {
+            let alpha = String(format: "%02x", max(0, min(255, Int((newValue.a * 255).rounded()))))
+            UserDefaults.standard.set(newValue.hex + alpha, forKey: "brushColor")
+            objectWillChange.send()
+        }
     }
     /// Zoom is a request, not a value — the canvas owns the magnification because
     /// only it knows the viewport. See ZoomIntent.
@@ -2824,6 +2845,31 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Records a brush stroke against a bitmap layer. Stored the way an erase
+    /// is, so the picture's own pixels are never touched.
+    func paint(_ id: String, points: [CGPoint]) {
+        guard points.count >= 1 else { return }
+        edit(id, actionName: "Brush") { l in
+            guard case .bitmap = l.kind else { return }
+            l.erased.append(EraseStroke(points: points,
+                                        radius: CGFloat(self.brushRadius),
+                                        softness: CGFloat(self.brushSoftness),
+                                        paint: self.brushColor))
+        }
+    }
+
+    /// Insert ▸ Brush. Arms it, and says what it needs when there is no
+    /// picture for it to land on.
+    func beginBrush() {
+        tool = .brush
+        status = "Paint on a picture. Escape when you're done."
+    }
+
+    /// The brush came down on something that isn't a picture.
+    func brushMissed() {
+        status = "Brush paints on a picture. Click one first, or use Vector to draw a shape."
+    }
+
     /// Pulls a bitmap's frame in to whatever it still shows.
     ///
     /// Erasing here is a stored decision rather than a cut, so rubbing out the
@@ -2905,7 +2951,8 @@ final class DocumentStore: ObservableObject {
     func clearErasing() {
         let ids = selection
         mutatePage("Restore Erased") { page in
-            for id in ids { page.updateLayer(id) { $0.erased = [] } }
+            // The list holds brush strokes too, and those were never erased.
+            for id in ids { page.updateLayer(id) { $0.erased.removeAll { $0.paint == nil } } }
         }
     }
 

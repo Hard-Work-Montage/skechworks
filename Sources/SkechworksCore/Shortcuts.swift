@@ -112,6 +112,8 @@ public enum Shortcuts {
                group: "Insert"),
         .init(id: "erase", title: "Erase", key: "E", context: .canvas, keyCodes: [14],
                group: "Insert"),
+        .init(id: "brush", title: "Brush", key: "B", context: .canvas, keyCodes: [11],
+               group: "Insert"),
 
         // Arrange
         .init(id: "bringForward", title: "Bring Forward", key: "]", modifiers: .command, group: "Arrange"),

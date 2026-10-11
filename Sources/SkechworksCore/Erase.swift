@@ -32,11 +32,19 @@ public struct EraseStroke: Sendable, Equatable {
     /// Rings inside `polygon` that the erase leaves alone, filled even-odd. The
     /// wand's answer to a background with something in the middle of it.
     public var holes: [[CGPoint]] = []
+    /// The color a brush stroke puts down. Nil is an erase, which is every
+    /// stroke there was before the brush.
+    ///
+    /// Paint lives in the same list as the erasing because the two are one
+    /// history: a stroke rubbed out afterwards has to go, and one painted into
+    /// a hole has to show. Two lists could not say which came first.
+    public var paint: Color?
 
-    public init(points: [CGPoint], radius: CGFloat, softness: CGFloat = 0.5) {
+    public init(points: [CGPoint], radius: CGFloat, softness: CGFloat = 0.5, paint: Color? = nil) {
         self.points = points
         self.radius = max(0.5, radius)
         self.softness = min(1, max(0, softness))
+        self.paint = paint
     }
 
     /// A marquee erase: one hard-edged rectangle.
@@ -101,6 +109,8 @@ public enum EraseMask {
     /// will be seen at, or zooming in shows the mask's own resolution rather than the
     /// blur it stands for.
     public static func image(strokes: [EraseStroke], size: CGSize, scale: CGFloat = 2) -> CGImage? {
+        // Paint takes nothing out. PaintOverlay draws it, over whatever this leaves.
+        let strokes = strokes.contains { $0.paint != nil } ? strokes.filter { $0.paint == nil } : strokes
         guard !strokes.isEmpty, size.width > 0, size.height > 0 else { return nil }
         // The canvas asks for this on every frame a picture with erasing on it
         // is in view. The strokes only change while the brush is down.
@@ -193,14 +203,17 @@ public enum EraseMask {
         return "\(h.finalize())" as NSString
     }
 
-    static func context(size: CGSize, scale: CGFloat) -> CGContext? {
+    /// `paper` is what an untouched pixel reads: white for the mask, where
+    /// white keeps, and black for one stroke's own coverage, where white is
+    /// the stroke.
+    static func context(size: CGSize, scale: CGFloat, paper: CGFloat = 1) -> CGContext? {
         let w = max(1, Int((size.width * scale).rounded()))
         let h = max(1, Int((size.height * scale).rounded()))
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(),
                                   bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
 
-        ctx.setFillColor(gray: 1, alpha: 1)      // keep everything by default
+        ctx.setFillColor(gray: paper, alpha: 1)      // keep everything by default
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         ctx.scaleBy(x: scale, y: scale)
         // Layer coordinates are y-down; the mask is drawn y-up.
@@ -215,10 +228,13 @@ public enum EraseMask {
     /// stroked line can only have one colour. Spacing is a quarter of the radius,
     /// which is close enough that the dabs read as a line rather than a string of
     /// beads, without costing a stamp per pixel.
-    static func stamp(_ stroke: EraseStroke, in ctx: CGContext) {
+    ///
+    /// `ink` is the gray a stroke leaves: black on the mask, white on a
+    /// stroke's own coverage.
+    static func stamp(_ stroke: EraseStroke, in ctx: CGContext, ink: CGFloat = 0) {
         // A marquee patch is one hard-edged rectangle, not a run of dabs.
         if let r = stroke.rect {
-            ctx.setFillColor(gray: 0, alpha: 1)
+            ctx.setFillColor(gray: ink, alpha: 1)
             ctx.fill(r)
             return
         }
@@ -228,7 +244,7 @@ public enum EraseMask {
         // as a brush with no points it crashed the canvas on every redraw.
         if let poly = stroke.polygon {
             guard poly.count >= 3 else { return }
-            ctx.setFillColor(gray: 0, alpha: 1)
+            ctx.setFillColor(gray: ink, alpha: 1)
             ctx.beginPath()
             ctx.addLines(between: poly)
             ctx.closePath()
@@ -239,14 +255,14 @@ public enum EraseMask {
             ctx.fillPath(using: .evenOdd)
             return
         }
-        stampBrush(stroke, in: ctx, from: 0)
+        stampBrush(stroke, in: ctx, from: 0, ink: ink)
     }
 
     /// Stamps a brush stroke's dabs from point `start` on. Zero draws the whole
     /// stroke. A later start draws exactly the dabs a full draw would add for
     /// the points past it, so a stroke built up a few points a frame comes out
     /// the same as one drawn in one go.
-    static func stampBrush(_ stroke: EraseStroke, in ctx: CGContext, from start: Int) {
+    static func stampBrush(_ stroke: EraseStroke, in ctx: CGContext, from start: Int, ink: CGFloat = 0) {
         guard !stroke.points.isEmpty, start < stroke.points.count else { return }
         let spacing = max(0.5, stroke.radius / 4)
         var dabs: [CGPoint] = []
@@ -268,7 +284,7 @@ public enum EraseMask {
         }
 
         if stroke.softness <= 0.001 {
-            ctx.setFillColor(gray: 0, alpha: 1)
+            ctx.setFillColor(gray: ink, alpha: 1)
             for p in dabs {
                 ctx.fillEllipse(in: CGRect(x: p.x - stroke.radius, y: p.y - stroke.radius,
                                            width: stroke.radius * 2, height: stroke.radius * 2))
@@ -277,11 +293,13 @@ public enum EraseMask {
         }
         let solid = 1 - stroke.softness      // the fraction of the radius left hard
         guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
-                                        colors: [CGColor(gray: 0, alpha: 1),
-                                                 CGColor(gray: 0, alpha: 0)] as CFArray,
+                                        colors: [CGColor(gray: ink, alpha: 1),
+                                                 CGColor(gray: ink, alpha: 0)] as CFArray,
                                         locations: [solid, 1]) else { return }
         ctx.saveGState()
-        ctx.setBlendMode(.multiply)      // overlapping dabs deepen rather than reset
+        // Overlapping dabs deepen rather than reset: toward black on the mask,
+        // toward white on a stroke's coverage.
+        ctx.setBlendMode(ink < 0.5 ? .multiply : .screen)
         // No .drawsAfterEndLocation: past the radius the gradient is clear, and
         // extending clear paint to infinity multiplied every pixel of the mask
         // once per dab. A long soft stroke took 23 seconds to draw that way.
