@@ -2077,7 +2077,39 @@ final class DocumentStore: ObservableObject {
                             : "Box the thing that should go"
     }
 
-    /// Which way the box that comes next should be worked.
+    /// Tools ▸ Remove ▸ Background. Keeps whatever stands out in the picture
+    /// and leaves the rest clear, the way Photos lifts a subject.
+    ///
+    /// It runs here and costs nothing. A model that paints was tried on paper
+    /// and ruled out: it hands back a picture it drew again, so the lettering
+    /// on a coin comes back as different lettering with a hole round it.
+    ///
+    /// The pixels are swapped, not erased. An erase is an outline and has a
+    /// hard edge; this keeps the soft one, and Undo is the way back.
+    func removeBackground() {
+        let picked = pixelSelectID ?? selectedLayerID
+        guard let id = picked, let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref] else {
+            refuse("Remove Background", needs: "a picture")
+            return
+        }
+        guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else {
+            refuse(saying: "Remove Background can't read that picture.")
+            return
+        }
+        status = "Removing the background…"
+        Task { @MainActor in
+            let cut = await Task.detached(priority: .userInitiated) { Subjects.lifted(from: baked) }.value
+            guard source != nil, self.page?.layer(id) != nil else { return }
+            guard let cut, let png = Renderer.png(cut) else {
+                refuse(saying: "Nothing in that picture stands out from its background.")
+                return
+            }
+            swapPixels(id, png: png, actionName: "Remove Background")
+            status = "Background removed"
+        }
+    }
+
     ///
     /// The free pass runs first and offers the model afterwards, which is right
     /// when you don't know whether it will do. When you already know it won't,

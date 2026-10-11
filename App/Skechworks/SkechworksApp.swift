@@ -242,6 +242,9 @@ struct SkechworksApp: App {
                     Menu("Remove") {
                         Button("Simple") { AppDelegate.shared?.active?.beginRemove() }
                         Button(ModelConnector.paidLabel) { AppDelegate.shared?.active?.beginRemove(usingModel: true) }
+                        Divider()
+                        // Not a box and not a model: the whole picture, here.
+                        Button("Background") { AppDelegate.shared?.active?.removeBackground() }
                     }
                     Menu("Extend Image") {
                         Button("Simple") { AppDelegate.shared?.active?.beginExtend() }

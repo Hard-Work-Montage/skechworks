@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import CoreVideo
 import Foundation
 import Vision
@@ -35,6 +36,26 @@ public enum Subjects {
             out.append(found)
         }
         return out.sorted { $0.area > $1.area }
+    }
+
+    /// The picture with its background gone: every subject kept, at the
+    /// picture's own size, and everything else clear.
+    ///
+    /// The edge is Vision's soft one, left soft. `background(of:)` cuts it at
+    /// half because an erase is an outline; this hands back pixels, so a rim
+    /// can fade out over the two or three pixels it really takes. Nil on a Mac
+    /// too old to have the request, and on a picture with nothing standing out.
+    public static func lifted(from image: CGImage) -> CGImage? {
+        guard #available(macOS 14.0, *) else { return nil }
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: image)
+        guard (try? handler.perform([request])) != nil,
+              let result = request.results?.first, !result.allInstances.isEmpty,
+              let buffer = try? result.generateMaskedImage(ofInstances: result.allInstances, from: handler,
+                                                           croppedToInstancesExtent: false) else { return nil }
+        let cut = CIImage(cvPixelBuffer: buffer)
+        return CIContext().createCGImage(cut, from: cut.extent, format: .RGBA8,
+                                         colorSpace: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB))
     }
 
     /// A soft mask to hard flags, at the picture's own size.
