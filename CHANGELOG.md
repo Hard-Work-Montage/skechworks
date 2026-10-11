@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.83 (October 11, 2026)
+
+- Remove ▸ Background makes a picture's background transparent
+
 ## 0.1.67 (September 11, 2026)
 
 - Text you are typing on the canvas now zooms and pans with the canvas
