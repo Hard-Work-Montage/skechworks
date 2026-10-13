@@ -88,14 +88,23 @@ public enum Zip {
     public static func write(_ entries: [ZipEntry], offsetBase: Int = 0) -> Data {
         var body = Data(), central = Data()
         var n = 0
-        for e in entries {
-            let nameBytes = Array(e.name.utf8)
-            let crc = crc32(e.data)
-            var payload = e.data
+        // Squeezing is the slow part and no entry depends on another, so every
+        // entry is packed at once and only the stitching below runs in order.
+        // A big drawing is two large entries, its page and its export, and a
+        // save waited for one and then the other.
+        let packed = Packed(count: entries.count)
+        DispatchQueue.concurrentPerform(iterations: entries.count) { i in
+            let data = entries[i].data
+            var payload = data
             var method: UInt16 = 0
-            if e.data.count > 64, let z = deflate(e.data), z.count < e.data.count {
+            if data.count > 64, !isAlreadySqueezed(data), let z = deflate(data), z.count < data.count {
                 payload = z; method = 8
             }
+            packed.set(i, (crc32(data), payload, method))
+        }
+        for (i, e) in entries.enumerated() {
+            let nameBytes = Array(e.name.utf8)
+            let (crc, payload, method) = packed.get(i)
             let localOffset = offsetBase + body.count
 
             var lh = Data()
@@ -202,7 +211,28 @@ public enum Zip {
 
     public static func crc32(_ d: Data) -> UInt32 {
         var c: UInt32 = 0xFFFF_FFFF
-        for b in d { c = crcTable[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8) }
+        // Over the raw bytes: stepping a Data one element at a time goes through
+        // its iterator, which cost more than the table lookup it was feeding.
+        d.withUnsafeBytes { raw in
+            crcTable.withUnsafeBufferPointer { table in
+                for b in raw { c = table[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8) }
+            }
+        }
         return c ^ 0xFFFF_FFFF
+    }
+
+    /// PNG and JPEG bytes are compressed already; deflating them again spends
+    /// time to save nothing and the result was thrown away for being no smaller.
+    private static func isAlreadySqueezed(_ d: Data) -> Bool {
+        d.starts(with: [0x89, 0x50, 0x4E, 0x47]) || d.starts(with: [0xFF, 0xD8, 0xFF])
+    }
+
+    /// Where the concurrent packers leave their results, one slot per entry.
+    private final class Packed: @unchecked Sendable {
+        private var slots: [(UInt32, Data, UInt16)]
+        private let lock = NSLock()
+        init(count: Int) { slots = Array(repeating: (0, Data(), 0), count: count) }
+        func set(_ i: Int, _ v: (UInt32, Data, UInt16)) { lock.lock(); slots[i] = v; lock.unlock() }
+        func get(_ i: Int) -> (UInt32, Data, UInt16) { lock.lock(); defer { lock.unlock() }; return slots[i] }
     }
 }

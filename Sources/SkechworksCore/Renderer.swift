@@ -128,7 +128,7 @@ public struct Renderer {
     /// too big is a few wasted paths, too small is artwork missing at the edges.
     static func roughBounds(of d: Drawable) -> CGRect {
         var b: CGRect
-        if let p = d.path { b = p.boundingBoxOfPath }
+        if let box = d.pathBounds { b = box }
         else { b = CGRect(origin: .zero, size: d.layer.frame.size).applying(d.transform) }
         if let c = d.clip { b = b.intersection(c.boundingBoxOfPath) }
         var grow: CGFloat = 2
@@ -140,6 +140,24 @@ public struct Renderer {
         }
         if d.text != nil { grow = max(grow, 100) }
         return b.insetBy(dx: -grow, dy: -grow)
+    }
+
+    /// True when a clip cannot cut anything off: it is a plain rectangle and the
+    /// whole drawable, strokes and shadows included, already sits inside it.
+    /// Everything on an artboard carries the board's rectangle as its clip, so a
+    /// traced coin was setting up sixteen thousand clips that changed no pixel.
+    static func clipIsMoot(_ clip: CGPath, for d: Drawable) -> Bool {
+        guard d.pathBounds != nil, d.text == nil, d.imageRef == nil else { return false }
+        var rect = CGRect.zero
+        guard clip.isRect(&rect) else { return false }
+        var b = d.pathBounds!
+        var grow: CGFloat = 2
+        for border in d.style.borders { grow = max(grow, border.thickness * 2) }
+        for s in d.style.shadows {
+            grow = max(grow, s.blur * 3 + abs(s.spread) + max(abs(s.offset.width), abs(s.offset.height)))
+        }
+        b = b.insetBy(dx: -grow, dy: -grow)
+        return rect.contains(b)
     }
 
     /// `box` grown by everything a shadow can paint outside it: the offset, and
@@ -178,10 +196,19 @@ public struct Renderer {
         return outline.contains(point)
     }
 
+    /// The cheap half of a hit-test: is the point even near this drawable's box?
+    /// `pathHit` strokes the whole outline to test a miss, which is a real cost on
+    /// a path with a hundred thousand segments and pure waste a screen away from it.
+    public static func mayHit(_ d: Drawable, at point: CGPoint, slop: CGFloat) -> Bool {
+        guard let box = d.pathBounds else { return true }
+        let reach = max(d.style.borders.map(\.thickness).max() ?? 0, slop * 2)
+        return box.insetBy(dx: -reach, dy: -reach).contains(point)
+    }
+
     /// Hit-test: the topmost drawable whose geometry contains `point` (page space).
     public func hitTest(page: Page, at point: CGPoint) -> Layer? {
         for d in Compose.flatten(page.layers).reversed() {
-            if let p = d.path,
+            if let p = d.path, Self.mayHit(d, at: point, slop: 3),
                Renderer.pathHit(p, at: point, borders: d.style.borders, slop: 3) {
                 return d.layer
             }
@@ -312,7 +339,7 @@ public struct Renderer {
         ctx.saveGState()
         defer { ctx.restoreGState() }
 
-        if let clip = d.clip {
+        if let clip = d.clip, !Self.clipIsMoot(clip, for: d) {
             ctx.addPath(clip)
             ctx.clip()
         }

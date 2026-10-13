@@ -6,7 +6,7 @@ import SwiftUI
 /// Screen and output can't disagree, which is the whole reason geometry lives in one place.
 final class PageCanvas: NSView {
 
-    var page: Page? { didSet { adoptPage(); needsDisplay = true } }
+    var page: Page? { didSet { selectionBoxCache = nil; lockedCache = nil; adoptPage(); needsDisplay = true } }
 
     /// Content revision. Changing it forces a recomposition — see DocumentStore.revision.
     var revision = 0 {
@@ -522,11 +522,41 @@ final class PageCanvas: NSView {
     /// Union of the selected layers' boxes, in page space.
     var selectionBounds: CGRect? {
         guard let page, !selected.isEmpty else { return nil }
+        if let c = selectionBoxCache, c.revision == revision, c.selected == selected { return c.box }
         var r = CGRect.null
-        for id in selected {
-            if let f = frameOf(id, in: page.layers, base: .identity) { r = r.union(f) }
+        if selected.count == 1 {
+            if let f = frameOf(selected.first!, in: page.layers, base: .identity) { r = r.union(f) }
+        } else {
+            // One walk for the lot. Looking each layer up on its own is a walk of
+            // the whole tree per layer, and a marquee over a traced coin selects
+            // thousands of them.
+            var left = selected.count
+            unionFrames(of: selected, in: page.layers, base: .identity, into: &r, left: &left)
         }
-        return r.isNull ? nil : r
+        let box: CGRect? = r.isNull ? nil : r
+        selectionBoxCache = (revision, selected, box)
+        return box
+    }
+
+    /// The last answer `selectionBounds` gave. The canvas asks on every draw and
+    /// every mouse move, and measuring a selected group means composing everything
+    /// inside it. Dropped whenever the page is handed over again.
+    private var selectionBoxCache: (revision: Int, selected: Set<String>, box: CGRect?)?
+
+    private func unionFrames(of ids: Set<String>, in layers: [Layer], base: CGAffineTransform,
+                             into r: inout CGRect, left: inout Int) {
+        for l in layers where left > 0 {
+            let t = Compose.transform(l).concatenating(base)
+            if ids.contains(l.id) {
+                r = r.union(frame(of: l, t: t, base: base))
+                left -= 1
+            }
+            switch l.kind {
+            case .group(let k), .shapeGroup(let k, _):
+                unionFrames(of: ids, in: k, base: t, into: &r, left: &left)
+            default: break
+            }
+        }
     }
 
     /// The selection, for zoom-to-selection. Empty when nothing is selected, which
@@ -739,9 +769,21 @@ final class PageCanvas: NSView {
 
     private func updateDragSet() {
         guard let page else { dragSet = []; return }
-        dragSet = selected.reduce(into: Set<String>()) { acc, id in
-            if let l = page.layer(id) { acc.formUnion(l.subtreeIDs) }
+        guard !selected.isEmpty else { dragSet = []; return }
+        // One walk, not one per selected layer.
+        var acc = Set<String>()
+        func walk(_ layers: [Layer], under: Bool) {
+            for l in layers {
+                let on = under || selected.contains(l.id)
+                if on { acc.insert(l.id) }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _): walk(k, under: on)
+                default: break
+                }
+            }
         }
+        walk(page.layers, under: false)
+        dragSet = acc
     }
 
     /// Rubber-band rect while marquee-selecting, in page space.
@@ -1675,25 +1717,28 @@ final class PageCanvas: NSView {
              around: pagePoint(convert(event.locationInWindow, from: nil)))
     }
 
+    /// A layer's canvas frame, given the transforms that lead to it.
+    private func frame(of l: Layer, t: CGAffineTransform, base: CGAffineTransform) -> CGRect {
+        // An artboard's edge IS its geometry — Sketch highlights the frame,
+        // not the artwork. Union-of-children here made a selected artboard
+        // wear its content's handles, which read as the child being selected.
+        if l.isArtboard { return CGRect(origin: .zero, size: l.frame.size).applying(t) }
+        // Groups measure what they PAINT. resolvedPath only merges vector
+        // children, so a group holding a bitmap and a rect wore a selection
+        // box around just the rect. visibleBounds walks the same drawables
+        // the renderer does — bitmaps and text included — and respects masks.
+        if case .group = l.kind {
+            return Compose.visibleBounds(of: l, base: base)
+        }
+        if let p = Compose.resolvedPath(l) { return p.transformed(by: t).boundingBoxOfPath }
+        return CGRect(origin: .zero, size: l.frame.size).applying(t)
+    }
+
     /// Walks to the selected layer, accumulating transforms, and returns its canvas frame.
     private func frameOf(_ id: String, in layers: [Layer], base: CGAffineTransform) -> CGRect? {
         for l in layers {
             let t = Compose.transform(l).concatenating(base)
-            if l.id == id {
-                // An artboard's edge IS its geometry — Sketch highlights the frame,
-                // not the artwork. Union-of-children here made a selected artboard
-                // wear its content's handles, which read as the child being selected.
-                if l.isArtboard { return CGRect(origin: .zero, size: l.frame.size).applying(t) }
-                // Groups measure what they PAINT. resolvedPath only merges vector
-                // children, so a group holding a bitmap and a rect wore a selection
-                // box around just the rect. visibleBounds walks the same drawables
-                // the renderer does — bitmaps and text included — and respects masks.
-                if case .group = l.kind {
-                    return Compose.visibleBounds(of: l, base: base)
-                }
-                if let p = Compose.resolvedPath(l) { return p.transformed(by: t).boundingBoxOfPath }
-                return CGRect(origin: .zero, size: l.frame.size).applying(t)
-            }
+            if l.id == id { return frame(of: l, t: t, base: base) }
             let kids: [Layer]
             switch l.kind {
             case .group(let k): kids = k
@@ -1796,9 +1841,27 @@ final class PageCanvas: NSView {
     /// A layer is untouchable when it, or anything above it, is locked.
     private func lockedDeep(_ id: String) -> Bool {
         guard let page else { return false }
-        if page.layer(id)?.isLocked == true { return true }
-        return page.ancestors(of: id).contains { page.layer($0)?.isLocked == true }
+        if let c = lockedCache { return c.contains(id) }
+        // Every layer that is locked or sits under one, gathered in a single walk.
+        // A click asks this of each shape it falls through, and answering by
+        // searching the tree each time made a click on a traced coin a search of
+        // sixteen thousand layers, sixteen thousand times over.
+        var locked = Set<String>()
+        func walk(_ layers: [Layer], under: Bool) {
+            for l in layers {
+                let on = under || l.isLocked
+                if on { locked.insert(l.id) }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _): walk(k, under: on)
+                default: break
+                }
+            }
+        }
+        walk(page.layers, under: false)
+        lockedCache = locked
+        return locked.contains(id)
     }
+    private var lockedCache: Set<String>?
 
     func layerHit(_ point: CGPoint) -> Layer? {
         // Labels win over content: they sit outside the board, and they're the only
@@ -1809,6 +1872,9 @@ final class PageCanvas: NSView {
         }
         for d in composed.reversed() {
             // Locked means the click sails through to whatever is underneath.
+            // Nowhere near it: the cheapest question first, since a click falls
+            // through nearly every shape on the page before it lands.
+            if d.path != nil, !Renderer.mayHit(d, at: point, slop: 4 / max(0.01, currentScale)) { continue }
             if lockedDeep(d.layer.id) { continue }
             // Clipped away is gone: art overflowing its artboard (or mask) can't be
             // hit where it isn't painted, so a click on one panel can never select
@@ -2289,6 +2355,7 @@ final class PageCanvas: NSView {
             var stack: [Layer] = []
             var seen = Set<String>()
             for d in composed.reversed() {
+                if let box = d.pathBounds, !box.contains(p) { continue }
                 if lockedDeep(d.layer.id) { continue }
                 if let c = d.clip, !c.contains(p) { continue }
                 let contains: Bool

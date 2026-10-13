@@ -320,7 +320,13 @@ extension CGPath {
 }
 
 public struct Drawable {
-    public var path: CGPath?
+    /// Setting the path measures it once, here, so nothing downstream has to.
+    /// `boundingBoxOfPath` walks every segment, and culling and hit-testing each
+    /// asked for it again per shape, per frame and per click. On a traced coin
+    /// with sixteen thousand shapes that was most of a click.
+    public var path: CGPath? { didSet { pathBounds = path?.boundingBoxOfPath } }
+    /// The box around `path`, in page space. Nil when there is no path.
+    public private(set) var pathBounds: CGRect?
     public var style: Style
     public var layer: Layer
     public var transform: CGAffineTransform
@@ -344,4 +350,12 @@ public struct Drawable {
 
     /// Markers exist to bracket a range; they draw nothing themselves.
     public var isMarker: Bool { groupShadows != nil || endsGroup }
+
+    public init(path: CGPath?, style: Style, layer: Layer, transform: CGAffineTransform) {
+        self.path = path
+        self.pathBounds = path?.boundingBoxOfPath   // didSet stays quiet inside an init
+        self.style = style
+        self.layer = layer
+        self.transform = transform
+    }
 }

@@ -3838,6 +3838,8 @@ final class DocumentStore: ObservableObject {
 
     private let autosaveID = UUID().uuidString
     private var autosaveTask: Task<Void, Never>?
+    /// How long the last recovery snapshot took to write, which sets the pace of the next.
+    private var lastSnapshotSeconds: TimeInterval = 0
     /// Seconds of quiet after the last edit before a snapshot is written.
     static var autosaveDelay: TimeInterval = 3
 
@@ -3903,7 +3905,11 @@ final class DocumentStore: ObservableObject {
         // editing with the net never once touching the ground.
         guard autosaveTask == nil else { return }
         autosaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.autosaveDelay * 1_000_000_000))
+            // A drawing that takes a second to snapshot would otherwise spend a
+            // third of every editing minute writing snapshots. Wait at least four
+            // times as long as the last one took, and never more than half a minute.
+            let wait = min(30, max(Self.autosaveDelay, (self?.lastSnapshotSeconds ?? 0) * 4))
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.autosaveTask = nil
             self?.autosaveNow()
@@ -3927,15 +3933,22 @@ final class DocumentStore: ObservableObject {
         let bookmark = urlBookmark
         var opts = SkechworksFile.Options()
         opts.coverPage = coverPage
+        // A snapshot exists to be reopened, and reopening reads the pages. The
+        // flattened SVG is for other programs, costs as much again to write on a
+        // big drawing, and comes back the next time the document is really saved.
+        opts.includeExports = false
         let options = opts
-        Self.recoveryQueue.async {
+        Self.recoveryQueue.async { [weak self] in
             let dir = Self.recoveryDir
+            let began = Date()
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 // Full document, same as a real save — untouched lazy pages included.
                 let doc = src.fullDocument()
                 let data = try SkechworksFile.write(document: doc, images: src.images, options: options)
                 try data.write(to: dir.appendingPathComponent("\(id).\(SkechworksFile.suffix)"), options: .atomic)
+                let took = Date().timeIntervalSince(began)
+                DispatchQueue.main.async { self?.lastSnapshotSeconds = took }
                 var note: [String: Any] = ["original": original?.path as Any]
                 if let b = bookmark { note["bookmark"] = b.base64EncodedString() }
                 let side = try JSONSerialization.data(withJSONObject: note)

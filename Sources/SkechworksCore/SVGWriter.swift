@@ -353,5 +353,23 @@ public struct SVGWriter {
 /// Three decimals: below engraver resolution, and keeps files small.
 func fmt(_ v: CGFloat) -> String {
     if v == v.rounded() && abs(v) < 1e9 { return String(Int(v)) }
-    return String(format: "%.3f", v)
+    // By hand, because this runs once per coordinate and `String(format:)` goes
+    // through CFString's formatter every time. A traced coin is a million
+    // coordinates a save, and that formatter was the largest single cost in one.
+    guard v.isFinite, abs(v) < 1e12 else { return String(format: "%.3f", v) }
+    let x = abs(v) * 1000
+    // A value sitting on a half is the one place rounding here could part ways
+    // with printf, so those few go the slow way and the output stays identical.
+    if abs(x - x.rounded(.down) - 0.5) < 1e-6 { return String(format: "%.3f", v) }
+    var n = UInt64(x.rounded())
+    return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 24) { buf in
+        var i = 24
+        for k in 0..<3 {
+            i -= 1; buf[i] = UInt8(48 + n % 10); n /= 10
+            if k == 2 { i -= 1; buf[i] = 46 }
+        }
+        repeat { i -= 1; buf[i] = UInt8(48 + n % 10); n /= 10 } while n > 0
+        if v < 0 { i -= 1; buf[i] = 45 }
+        return String(decoding: UnsafeBufferPointer(rebasing: buf[i..<24]), as: UTF8.self)
+    }
 }
