@@ -147,7 +147,7 @@ private func coverage(_ path: CGPath?) -> [Bool] {
     return (0..<(side * side)).map { data[$0] > 127 }
 }
 
-@Test func theBracketFoldPaintsWhatTheChainDid() throws {
+@Test func theFoldPaintsWhatTheChainDid() throws {
     for seed in [1, 7, 42] as [UInt64] {
         let pieces = furStack(120, seed: seed)
         let prepared = PunchOut.Prepared(pieces: pieces, parent: nil, originals: [])
@@ -159,10 +159,98 @@ private func coverage(_ path: CGPath?) -> [Bool] {
     }
 }
 
-@Test func theBracketFoldCountsItsProgress() throws {
+@Test func theFoldCountsItsProgress() throws {
     let prepared = PunchOut.Prepared(pieces: furStack(50, seed: 3), parent: nil, originals: [])
     final class Seen: @unchecked Sendable { var last = (0, 0); let lock = NSLock() }
     let seen = Seen()
     _ = try prepared.fold { done, total in seen.lock.lock(); if done > seen.last.0 { seen.last = (done, total) }; seen.lock.unlock() }
-    #expect(seen.last == (49, 49))
+    // Every piece is one job now, dark or light.
+    #expect(seen.last == (50, 50))
+}
+
+/// Dark on dark: both pieces keep the overlap, and the result still has to be
+/// one outline there. Two outlines crossing fill fine on screen and engrave as
+/// a hole, so the test fills even-odd, the way a laser reads it.
+@Test func darkPiecesThatOverlapComeOutAsOneOutline() throws {
+    func mask(_ path: CGPath, _ rule: CGPathFillRule) -> [Bool] {
+        let side = 240
+        let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+        ctx.setShouldAntialias(false)
+        ctx.addPath(path); ctx.setFillColor(gray: 1, alpha: 1); ctx.fillPath(using: rule)
+        let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        return (0..<(side * side)).map { data[$0] > 127 }
+    }
+    let pieces: [(path: CGPath, ink: Bool)] = [
+        (CGPath(ellipseIn: CGRect(x: 20, y: 20, width: 140, height: 140), transform: nil), true),
+        (CGPath(rect: CGRect(x: 60, y: 60, width: 60, height: 60), transform: nil), false),
+        (CGPath(ellipseIn: CGRect(x: 100, y: 100, width: 110, height: 110), transform: nil), true),   // over disc, hole and bare page
+        (CGPath(rect: CGRect(x: 30, y: 150, width: 40, height: 40), transform: nil), true),           // clips the disc's edge
+    ]
+    let folded = try #require(try PunchOut.Prepared(pieces: pieces, parent: nil, originals: []).fold())
+    #expect(mask(folded, .evenOdd) == mask(folded, .winding))
+    #expect(folded.contains(CGPoint(x: 130, y: 130)))    // dark on dark stays dark
+    #expect(!folded.contains(CGPoint(x: 70, y: 70)))     // the hole the second disc does not reach
+    #expect(folded.contains(CGPoint(x: 118, y: 118)))    // the corner of the hole it does
+}
+
+/// A fur stack again, big enough that pieces get sifted before the boolean,
+/// and filled even-odd so a crossing outline would show.
+@Test func aBigStackFoldsToWhatTheChainDid() throws {
+    var pieces = furStack(900, seed: 11)
+    // A light shape with an outline complicated enough to be worth sifting.
+    let star = CGMutablePath()
+    for k in 0..<5000 {
+        let a = CGFloat(k) / 5000 * 2 * .pi, r: CGFloat = k % 2 == 0 ? 120 : 112
+        let p = CGPoint(x: 200 + cos(a) * r, y: 200 + sin(a) * r)
+        if k == 0 { star.move(to: p) } else { star.addLine(to: p) }
+    }
+    star.closeSubpath()
+    pieces.insert((star, false), at: 400)
+    let fast = coverage(try PunchOut.Prepared(pieces: pieces, parent: nil, originals: []).fold())
+    let slow = coverage(chainFold(pieces))
+    let differ = zip(fast, slow).filter { $0 != $1 }.count
+    #expect(differ <= fast.count / 2000, "\(differ) pixels differ")
+}
+
+/// Select All inside the group picks every shape, not the group. Same answer,
+/// and the pieces go in one pass.
+@Test func everyShapeSelectedIsTheSameAsTheGroup() throws {
+    var kids: [Layer] = [disc(CGRect(x: 0, y: 0, width: 200, height: 200), hex: "#000000")]
+    for i in 0..<40 {
+        kids.append(box(CGRect(x: 20 + CGFloat(i % 8) * 20, y: 20 + CGFloat(i / 8) * 30, width: 12, height: 12),
+                        hex: i % 2 == 0 ? "#ffffff" : "#000000"))
+    }
+    var group = Layer(kind: .group(kids))
+    group.frame = CGRect(x: 10, y: 10, width: 200, height: 200)
+    var byGroup = Page(name: "P"); byGroup.layers = [group]
+    var byShapes = byGroup
+
+    guard case .made(let a, _, _) = byGroup.punchOut([group.id]),
+          case .made(let b, _, _) = byShapes.punchOut(kids.map(\.id)) else {
+        Issue.record("refused"); return
+    }
+    let pa = try #require(byGroup.layer(a)), pb = try #require(byShapes.layer(b))
+    func placed(_ page: Page, _ l: Layer) -> CGPath? {
+        var t = Compose.transform(l)
+        for id in page.ancestors(of: l.id).reversed() { t = t.concatenating(Compose.transform(page.layer(id)!)) }
+        return Compose.resolvedPath(l)?.transformed(by: t)
+    }
+    #expect(coverage(placed(byGroup, pa)) == coverage(placed(byShapes, pb)))
+    // The shapes are gone and the group they were in holds the one path.
+    #expect(byShapes.layer(kids[3].id) == nil)
+    #expect(byShapes.children(of: group.id).map(\.id) == [b])
+}
+
+@Test func layersComeOffThePageInOneWalk() {
+    let a = box(CGRect(x: 0, y: 0, width: 10, height: 10), hex: "#000000")
+    let b = box(CGRect(x: 20, y: 0, width: 10, height: 10), hex: "#000000")
+    let c = box(CGRect(x: 40, y: 0, width: 10, height: 10), hex: "#000000")
+    var inner = Layer(kind: .group([b, c]))
+    inner.frame = CGRect(x: 0, y: 0, width: 50, height: 10)
+    var page = Page(name: "P"); page.layers = [a, inner]
+    #expect(page.countLayers(in: [a.id, c.id, "nobody"]) == 2)
+    page.removeLayers([a.id, c.id])
+    #expect(page.layers.map(\.id) == [inner.id])
+    #expect(page.children(of: inner.id).map(\.id) == [b.id])
 }
