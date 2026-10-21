@@ -295,6 +295,11 @@ final class DocumentStore: ObservableObject {
         get { UserDefaults.standard.object(forKey: "brushRadius") as? Double ?? 4 }
         set { UserDefaults.standard.set(newValue, forKey: "brushRadius"); objectWillChange.send() }
     }
+    /// Remove Specks' size, pixels across, kept between pictures.
+    var speckSize: Int {
+        get { UserDefaults.standard.object(forKey: "speckSize") as? Int ?? Specks.defaultSize }
+        set { UserDefaults.standard.set(newValue, forKey: "speckSize"); objectWillChange.send() }
+    }
     var brushSoftness: Double {
         get { UserDefaults.standard.object(forKey: "brushSoftness") as? Double ?? 0 }
         set { UserDefaults.standard.set(newValue, forKey: "brushSoftness"); objectWillChange.send() }
@@ -925,6 +930,17 @@ final class DocumentStore: ObservableObject {
     @discardableResult
     func run(_ commands: [DocumentCommand]) -> String {
         guard !commands.isEmpty, page != nil else { return "Nothing to do." }
+        // Remove Specks changes a picture's pixels, which the page can't do on
+        // its own. Done here, each as its own undo step, then the rest.
+        var specks: [String] = []
+        let rest = commands.filter { c in
+            guard case .removeSpecks(let q, let size) = c else { return true }
+            let ids = q.isEmpty ? Array(selection) : page?.find(q, selection: selection) ?? []
+            specks.append("Remove Specks: " + removeSpecks(in: ids, size: size ?? speckSize))
+            return false
+        }
+        guard !rest.isEmpty else { return specks.joined(separator: "\n") }
+        if !specks.isEmpty { return (specks + [run(rest)]).joined(separator: "\n") }
         let name = commands.count == 1 ? commands[0].summary : "\(commands.count) Changes"
         var outcome = CommandRun()
         let images = self.images
@@ -2129,6 +2145,45 @@ final class DocumentStore: ObservableObject {
             swapPixels(id, png: png, actionName: "Remove Background")
             status = "Background removed"
         }
+    }
+
+    /// Tools ▸ Remove Specks, and the Remove button in a picture's Specks
+    /// section: the selected picture, or the box drawn on it.
+    func removeSpecks() {
+        let picked = pixelSelectID ?? selectedLayerID
+        guard let id = picked, let page, let l = page.layer(id), case .bitmap = l.kind else {
+            refuse("Remove Specks", needs: "a picture")
+            return
+        }
+        status = removeSpecks(in: [id], size: speckSize)
+    }
+
+    /// Paints out the dark dots no more than `size` pixels across in each
+    /// picture, inside the box drawn on it if there is one. One undo step per
+    /// picture. Says what it did.
+    @discardableResult
+    func removeSpecks(in ids: [String], size: Int) -> String {
+        var pictures = 0, dots = 0
+        for id in ids {
+            guard let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+                  let raw = images[ref],
+                  let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else { continue }
+            pictures += 1
+            // The box, from layer space to the picture's pixels.
+            let box = (pixelSelectID == id ? pixelSelectRect : nil).map { r in
+                CGRect(x: r.minX / l.frame.width * CGFloat(baked.width),
+                       y: r.minY / l.frame.height * CGFloat(baked.height),
+                       width: r.width / l.frame.width * CGFloat(baked.width),
+                       height: r.height / l.frame.height * CGFloat(baked.height))
+            }
+            guard let result = Specks.remove(from: baked, size: size, within: box), result.removed > 0,
+                  let png = Renderer.png(result.image) else { continue }
+            swapPixels(id, png: png, actionName: "Remove Specks")
+            dots += result.removed
+        }
+        if pictures == 0 { return "Remove Specks needs a picture" }
+        if dots == 0 { return "No dots \(size) px or smaller" }
+        return "Removed \(dots) dot\(dots == 1 ? "" : "s") up to \(size) px"
     }
 
     /// Tools ▸ Make Black and White. A colour coin's linework as black ink on

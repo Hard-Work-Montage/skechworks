@@ -30,6 +30,7 @@ struct PropertiesPanel: View {
                             Divider(); imageSection(layer)
                             Divider(); brush(layer)
                             Divider(); eraser(layer)
+                            Divider(); specks(layer)
                         }
                         // Always, since adding one starts here — except artboards,
                         // which don't cast shadows.
@@ -1048,6 +1049,27 @@ struct PropertiesPanel: View {
                 }
             }
             Text("Press B, then paint on the picture.")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    /// Remove Specks: a size and a button, pressed as many times as it takes.
+    /// Each press is its own undo (Adam, 2026-10-21: "run it over and over
+    /// until it's cleaned").
+    private func specks(_ l: Layer) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Specks")
+            HStack(spacing: 12) {
+                NumberField(label: "Size", value: CGFloat(store.speckSize), suffix: "px") {
+                    store.speckSize = Int(min(200, max(1, $0.rounded())))
+                }
+                // The panel is the selected picture's, so the box drawn on it
+                // (if any) still stands; reselecting here would clear it.
+                Button("Remove") { store.removeSpecks() }
+            }
+            Text(store.pixelSelectID == l.id && store.pixelSelectRect != nil
+                 ? "Removes dark dots up to this size inside the box."
+                 : "Removes dark dots up to this size. Box part of the picture to clean only there.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
     }

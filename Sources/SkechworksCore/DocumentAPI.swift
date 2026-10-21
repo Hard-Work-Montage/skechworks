@@ -313,6 +313,9 @@ public enum DocumentCommand: Sendable {
     case keepSubjects(LayerQuery, subjects: [Int]?)
     /// Take back numbered erases on a picture, counted from 1 in the order made.
     case putBack(LayerQuery, erases: [Int])
+    /// Paint out dark dots no more than `size` pixels across. Swaps the
+    /// picture's pixels, so it needs the app: the page alone can't.
+    case removeSpecks(LayerQuery, size: Int?)
 
     public var query: LayerQuery {
         switch self {
@@ -331,6 +334,7 @@ public enum DocumentCommand: Sendable {
         case .simplify(let q, _, _): return q
         case .eraseColor(let q, _, _, _, _, _): return q
         case .keepSubjects(let q, _), .putBack(let q, _): return q
+        case .removeSpecks(let q, _): return q
         case .add: return LayerQuery()
         case .combine(let q, _): return q
         }
@@ -366,6 +370,7 @@ public enum DocumentCommand: Sendable {
         case .eraseColor(_, let hex, _, _, _, _): return "Erase \(hex)"
         case .keepSubjects: return "Erase Background"
         case .putBack: return "Put Back"
+        case .removeSpecks: return "Remove Specks"
         }
     }
 }
@@ -584,6 +589,8 @@ extension DocumentCommand {
             return nil
         case "keepsubjects", "keepsubject", "keeponly", "removebackground", "erasebackground":
             return .keepSubjects(q, subjects: numbers("subjects", "subject", "keep", "ids"))
+        case "removespecks", "removespeck", "despeckle", "removedots", "cleanspecks":
+            return .removeSpecks(q, size: n("size", "max", "pixels", "px").map { Int($0.rounded()) })
         case "putback", "restore", "unerase", "restoreerase":
             guard let which = numbers("erases", "erase", "patches", "ids"), !which.isEmpty else { return nil }
             return .putBack(q, erases: which)
@@ -832,6 +839,16 @@ extension DocumentCommand {
                        choose; leave subjects off to keep every one.
           putBack      erases (E numbers from the PICTURE) — takes those erases
                        back off a picture: "put the cloud back".
+          removeSpecks size (optional, pixels across, default 6) — paints out
+                       the small dark dots in a picture and leaves anything
+                       bigger: grit or noise left by Make Black and White,
+                       "remove the black dots in the border". Size is what
+                       tells a dot from a letter, so use this, not eraseColor,
+                       for dots the same color as the lettering. If the user
+                       has boxed part of the picture, only the box is cleaned.
+                       Dots still there? Run it again with a bigger size, a
+                       few pixels at a time, staying well under the stroke
+                       width of the lettering. Aliases: despeckle, removeDots.
 
         Example — "make every black path 50% opacity":
         {"say":"Dropped the black paths to 50%.",

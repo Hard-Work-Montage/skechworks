@@ -321,6 +321,11 @@ extension Page {
             if pictures == 0 { return "found nothing standing out in the picture to keep" }
             return "kept \(kept) subject\(kept == 1 ? "" : "s"), erased the rest"
 
+        case .removeSpecks:
+            // The app catches this one before it gets here: it changes the
+            // picture's pixels, which live outside the page.
+            return "needs the app open, to change the picture"
+
         case .putBack(_, let which):
             var restored = 0
             for id in ids {

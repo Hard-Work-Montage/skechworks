@@ -236,6 +236,8 @@ struct SkechworksApp: App {
                 Button("Flatten to Image") { AppDelegate.shared?.active?.flattenToImage() }
                 // A colour coin's own linework as black on white, for the laser.
                 Button("Make Black and White") { AppDelegate.shared?.active?.makeBlackAndWhite() }
+                // Its size is in the picture's Specks section.
+                Button("Remove Specks") { AppDelegate.shared?.active?.removeSpecks() }
                 Divider()
                 Section("AI Tools") {
                     // Both of these can run here for nothing or go to the
