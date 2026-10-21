@@ -51,7 +51,7 @@ targets:
       properties:
         CFBundleDisplayName: Skechworks
         CFBundleIconFile: AppIcon
-        CFBundleShortVersionString: "0.1.86"
+        CFBundleShortVersionString: "0.1.87"
         CFBundleVersion: "77"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
@@ -125,7 +125,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skechworks.Skechworks
-        MARKETING_VERSION: "0.1.86"
+        MARKETING_VERSION: "0.1.87"
         SWIFT_VERSION: "6.0"
         # Required by Developer ID signing (and by notarization later). bin/build
         # re-signs the whole bundle afterwards with one identity, which is what keeps

@@ -2131,6 +2131,37 @@ final class DocumentStore: ObservableObject {
         }
     }
 
+    /// Tools ▸ Make Black and White. A colour coin's linework as black ink on
+    /// white, every line exactly where it was, for engraving (Adam,
+    /// 2026-10-21). A model asked for the same thing redraws the coin, and the
+    /// lines come back close but never in place.
+    ///
+    /// Runs here and costs nothing. The pixels are swapped, so Undo is the way
+    /// back.
+    func makeBlackAndWhite() {
+        let picked = pixelSelectID ?? selectedLayerID
+        guard let id = picked, let page, let l = page.layer(id), case .bitmap(let ref) = l.kind,
+              let raw = images[ref] else {
+            refuse("Make Black and White", needs: "a picture")
+            return
+        }
+        guard let baked = BitmapWarp.visibleImage(data: raw, ref: ref, layer: l) else {
+            refuse(saying: "Make Black and White can't read that picture.")
+            return
+        }
+        status = "Making it black and white…"
+        Task { @MainActor in
+            let ink = await Task.detached(priority: .userInitiated) { BlackAndWhite.make(from: baked) }.value
+            guard source != nil, self.page?.layer(id) != nil else { return }
+            guard let ink, let png = Renderer.png(ink) else {
+                refuse(saying: "Make Black and White couldn't read that picture.")
+                return
+            }
+            swapPixels(id, png: png, actionName: "Make Black and White")
+            status = "Black and white"
+        }
+    }
+
     ///
     /// The free pass runs first and offers the model afterwards, which is right
     /// when you don't know whether it will do. When you already know it won't,

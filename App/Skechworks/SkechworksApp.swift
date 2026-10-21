@@ -234,6 +234,8 @@ struct SkechworksApp: App {
                 Divider()
                 // The two that call a model, set apart the way Adam asked.
                 Button("Flatten to Image") { AppDelegate.shared?.active?.flattenToImage() }
+                // A colour coin's own linework as black on white, for the laser.
+                Button("Make Black and White") { AppDelegate.shared?.active?.makeBlackAndWhite() }
                 Divider()
                 Section("AI Tools") {
                     // Both of these can run here for nothing or go to the
