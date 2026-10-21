@@ -52,7 +52,7 @@ targets:
         CFBundleDisplayName: Skechworks
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: "0.1.87"
-        CFBundleVersion: "77"
+        CFBundleVersion: "78"
         LSApplicationCategoryType: public.app-category.graphics-design
         LSMinimumSystemVersion: "14.0"
         NSHighResolutionCapable: true
