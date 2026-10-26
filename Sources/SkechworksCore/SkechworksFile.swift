@@ -388,6 +388,7 @@ public struct SkechworksFile {
         s.opacity = dbl(j["opacity"]) ?? 1
         for f in j["fills"] as? [[String: Any]] ?? [] {
             let alpha = dbl(f["alpha"]) ?? 1
+            let brushed = f["brushed"] as? Bool ?? false
             if (f["type"] as? String) == "gradient" {
                 var g = Gradient()
                 switch f["kind"] as? String {
@@ -402,9 +403,9 @@ public struct SkechworksFile {
                           let c = colorFrom(hex, dbl(st["alpha"]) ?? 1) else { return nil }
                     return (dbl(st["at"]) ?? 0, c)
                 }
-                if !g.stops.isEmpty { s.fills.append(Fill(paint: .gradient(g), opacity: alpha)) }
+                if !g.stops.isEmpty { s.fills.append(Fill(paint: .gradient(g), opacity: alpha, brushed: brushed)) }
             } else if let hex = f["color"] as? String, let c = colorFrom(hex, alpha) {
-                s.fills.append(Fill(paint: .color(c)))
+                s.fills.append(Fill(paint: .color(c), brushed: brushed))
             }
         }
         for b in j["borders"] as? [[String: Any]] ?? [] {
@@ -556,14 +557,18 @@ public struct SkechworksFile {
         if s.opacity != 1 { d["opacity"] = s.opacity }
         if !s.fills.isEmpty {
             d["fills"] = s.fills.map { f -> [String: Any] in
+                var o: [String: Any]
                 switch f.paint {
-                case .color(let c): return ["type": "color", "color": c.hex, "alpha": c.a * f.opacity]
+                case .color(let c): o = ["type": "color", "color": c.hex, "alpha": c.a * f.opacity]
                 case .gradient(let g):
-                    return ["type": "gradient", "alpha": f.opacity,
-                            "kind": ["linear", "radial", "angular"][g.kind.rawValue],
-                            "from": [g.from.x, g.from.y], "to": [g.to.x, g.to.y],
-                            "stops": g.stops.map { ["at": $0.position, "color": $0.color.hex, "alpha": $0.color.a] }]
+                    o = ["type": "gradient", "alpha": f.opacity,
+                         "kind": ["linear", "radial", "angular"][g.kind.rawValue],
+                         "from": [g.from.x, g.from.y], "to": [g.to.x, g.to.y],
+                         "stops": g.stops.map { ["at": $0.position, "color": $0.color.hex, "alpha": $0.color.a] }]
                 }
+                // Only when on, so files without it stay byte-identical.
+                if f.brushed { o["brushed"] = true }
+                return o
             }
         }
         if !s.borders.isEmpty {

@@ -406,6 +406,7 @@ public struct Renderer {
                 drawGradient(g, in: p.boundingBoxOfPath, ctx: ctx, alpha: f.opacity)
                 ctx.restoreGState()
             }
+            if f.brushed { Brushed.draw(over: p, opacity: f.opacity, in: ctx) }
         }
 
         for b in d.style.borders {

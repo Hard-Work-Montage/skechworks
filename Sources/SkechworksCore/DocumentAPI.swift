@@ -995,7 +995,7 @@ extension Layer {
                     + g.stops.map { "\(whole($0.position * 1000))@\($0.color.hex)\(whole($0.color.a * 1000))" }
                         .joined(separator: "/")
             }
-            return "\(paint)x\(whole(f.opacity * 1000))"
+            return "\(paint)x\(whole(f.opacity * 1000))\(f.brushed ? "b" : "")"
         }.joined(separator: ",")
         s += "|" + style.borders.map {
             "\($0.color.hex)\(whole($0.color.a * 1000)):\(whole($0.thickness * 100)):\($0.position.rawValue)"

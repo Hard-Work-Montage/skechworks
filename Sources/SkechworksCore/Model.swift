@@ -564,7 +564,11 @@ public enum Paint: Sendable {
 public struct Fill: Sendable {
     public var paint: Paint
     public var opacity: CGFloat = 1
-    public init(paint: Paint, opacity: CGFloat = 1) { self.paint = paint; self.opacity = opacity }
+    /// Brushed metal streaks over the paint. See `Brushed`.
+    public var brushed = false
+    public init(paint: Paint, opacity: CGFloat = 1, brushed: Bool = false) {
+        self.paint = paint; self.opacity = opacity; self.brushed = brushed
+    }
 }
 
 public enum BorderPosition: Int, Sendable { case center = 0, inside = 1, outside = 2 }

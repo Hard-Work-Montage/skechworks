@@ -579,13 +579,13 @@ struct PropertiesPanel: View {
                     switch f.paint {
                     case .color(let c):
                         HStack(spacing: 8) {
-                            fillType(l, i, gradient: false)
+                            fillType(l, i, f)
                             ColorField(color: c) { store.setFillColor(l.id, at: i, to: $0) }
                             removeButton("Remove fill") { store.removeFill(l.id, at: i) }
                         }
                     case .gradient(let g):
                         HStack(spacing: 8) {
-                            fillType(l, i, gradient: true)
+                            fillType(l, i, f)
                             if g.kind == .linear {
                                 Picker("", selection: Binding(
                                     get: { g.direction },
@@ -629,14 +629,15 @@ struct PropertiesPanel: View {
         }
     }
 
-    /// Solid or Gradient, at the front of each fill row.
-    private func fillType(_ l: Layer, _ i: Int, gradient: Bool) -> some View {
+    /// Solid, Gradient or Brushed, at the front of each fill row.
+    private func fillType(_ l: Layer, _ i: Int, _ f: Fill) -> some View {
         Picker("", selection: Binding(
-            get: { gradient },
-            set: { store.setFillIsGradient(l.id, at: i, $0) }
+            get: { DocumentStore.FillKind.of(f) },
+            set: { store.setFillKind(l.id, at: i, $0) }
         )) {
-            Text("Solid").tag(false)
-            Text("Gradient").tag(true)
+            Text("Solid").tag(DocumentStore.FillKind.solid)
+            Text("Gradient").tag(DocumentStore.FillKind.gradient)
+            Text("Brushed").tag(DocumentStore.FillKind.brushed)
         }
         .labelsHidden().pickerStyle(.menu).fixedSize()
     }

@@ -49,6 +49,7 @@ public struct SVGWriter {
         var clipID = 0
         var filterID = 0
         var openGroups = 0
+        var brushedDefined = false
 
         for d in drawables {
             // A group's shadow becomes an SVG filter around the range, rather than
@@ -168,6 +169,20 @@ public struct SVGWriter {
                 let (fillAttr, extraDefs) = paintFill(f, &defs)
                 _ = extraDefs
                 body += "  <path\(attrs) \(fillAttr) d=\"\(dstr)\"/>\n"
+                // The streaks go on as a second path over the fill, painted with
+                // the tile. Anchored where the canvas anchors it, at the page origin.
+                if f.brushed, let png = Brushed.tilePNG {
+                    if !brushedDefined {
+                        let n = Brushed.tileSize
+                        let deg = Brushed.angle * 180 / .pi
+                        defs += "  <pattern id=\"brushed\" patternUnits=\"userSpaceOnUse\" width=\"\(n)\" height=\"\(n)\" "
+                            + "patternTransform=\"translate(\(fmt(-b.minX)) \(fmt(-b.minY))) rotate(\(fmt(deg)))\">"
+                            + "<image width=\"\(n)\" height=\"\(n)\" xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/></pattern>\n"
+                        brushedDefined = true
+                    }
+                    let op = f.opacity < 1 ? " fill-opacity=\"\(fmt(f.opacity))\"" : ""
+                    body += "  <path\(attrs) fill=\"url(#brushed)\"\(op) d=\"\(dstr)\"/>\n"
+                }
             }
             for b2 in d.style.borders {
                 // Inside/outside strokes need a clip to fake the half we keep; SVG has

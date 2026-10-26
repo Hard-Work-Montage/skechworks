@@ -1179,19 +1179,38 @@ final class DocumentStore: ObservableObject {
         }
     }
 
-    /// Solid or gradient. A solid fill becomes its colour fading out; a
-    /// gradient becomes solid in its first stop's colour, so flipping back and
-    /// forth never lands on a colour you didn't pick.
-    func setFillIsGradient(_ id: String, at index: Int, _ gradient: Bool) {
-        edit(id, actionName: gradient ? "Gradient Fill" : "Solid Fill") { l in
+
+    /// What the Fill menu offers. Brushed is a solid color with metal streaks
+    /// over it (Adam, 2026-10-26), so the color stays the one you picked.
+    enum FillKind: Hashable {
+        case solid, gradient, brushed
+        static func of(_ f: Fill) -> FillKind {
+            if case .gradient = f.paint { return .gradient }
+            return f.brushed ? .brushed : .solid
+        }
+    }
+
+    /// One undo step either way. A solid fill becomes its color fading out;
+    /// a gradient becomes solid in its first stop's color, so flipping back
+    /// and forth never lands on a color you didn't pick.
+    func setFillKind(_ id: String, at index: Int, _ kind: FillKind) {
+        guard let f = page?.layer(id)?.style.fills[safe: index], FillKind.of(f) != kind else { return }
+        let name = switch kind {
+        case .solid: "Solid Fill"
+        case .gradient: "Gradient Fill"
+        case .brushed: "Brushed Fill"
+        }
+        edit(id, actionName: name) { l in
             guard l.style.fills.indices.contains(index) else { return }
-            switch (l.style.fills[index].paint, gradient) {
-            case (.color(let c), true):
-                l.style.fills[index].paint = .gradient(.fade(from: c))
-            case (.gradient(let g), false):
-                l.style.fills[index].paint = .color(g.stops.first?.color ?? Color(r: 0.5, g: 0.5, b: 0.5, a: 1))
+            var f = l.style.fills[index]
+            switch (f.paint, kind) {
+            case (.color(let c), .gradient): f.paint = .gradient(.fade(from: c))
+            case (.gradient(let g), .solid), (.gradient(let g), .brushed):
+                f.paint = .color(g.stops.first?.color ?? Color(r: 0.5, g: 0.5, b: 0.5, a: 1))
             default: break
             }
+            f.brushed = kind == .brushed
+            l.style.fills[index] = f
         }
     }
 

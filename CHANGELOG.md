@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.89 (October 26, 2026)
+
+- Fills can now be Brushed, which lays brushed metal lines over any color
+
 ## 0.1.88 (October 21, 2026)
 
 - New Remove Specks cleans small dots out of a picture, in the picture's Specks section or Tools ▸ Remove Specks, and the chat can do it too
