@@ -169,19 +169,27 @@ public struct SVGWriter {
                 let (fillAttr, extraDefs) = paintFill(f, &defs)
                 _ = extraDefs
                 body += "  <path\(attrs) \(fillAttr) d=\"\(dstr)\"/>\n"
-                // The streaks go on as a second path over the fill, painted with
+                // The streaks and the shine go on as more paths over the fill, a
+                // multiply to darken and a color dodge to lighten, painted with
                 // the tile. Anchored where the canvas anchors it, at the page origin.
-                if f.brushed, let png = Brushed.tilePNG {
+                if f.brushed, let streaks = Brushed.streaks, let shine = Brushed.shine {
+                    let gains = [streaks, shine]
                     if !brushedDefined {
-                        let n = Brushed.tileSize
-                        let deg = Brushed.angle * 180 / .pi
-                        defs += "  <pattern id=\"brushed\" patternUnits=\"userSpaceOnUse\" width=\"\(n)\" height=\"\(n)\" "
-                            + "patternTransform=\"translate(\(fmt(-b.minX)) \(fmt(-b.minY))) rotate(\(fmt(deg)))\">"
-                            + "<image width=\"\(n)\" height=\"\(n)\" xlink:href=\"data:image/png;base64,\(png.base64EncodedString())\"/></pattern>\n"
+                        let transform = "translate(\(fmt(-b.minX)) \(fmt(-b.minY))) rotate(\(fmt(Brushed.angle * 180 / .pi)))"
+                        for g in gains {
+                            for (suffix, png) in [("dark", g.darkenPNG), ("light", g.lightenPNG)] {
+                                let w = fmt(g.size.width), h = fmt(g.size.height)
+                                defs += "  <pattern id=\"\(g.id)-\(suffix)\" patternUnits=\"userSpaceOnUse\" width=\"\(w)\" height=\"\(h)\" patternTransform=\"\(transform)\">"
+                                    + "<image width=\"\(w)\" height=\"\(h)\" preserveAspectRatio=\"none\" xlink:href=\"data:image/png;base64,\((png ?? Data()).base64EncodedString())\"/></pattern>\n"
+                            }
+                        }
                         brushedDefined = true
                     }
                     let op = f.opacity < 1 ? " fill-opacity=\"\(fmt(f.opacity))\"" : ""
-                    body += "  <path\(attrs) fill=\"url(#brushed)\"\(op) d=\"\(dstr)\"/>\n"
+                    for g in gains {
+                        body += "  <path\(attrs) fill=\"url(#\(g.id)-dark)\"\(op) style=\"mix-blend-mode:multiply\" d=\"\(dstr)\"/>\n"
+                        body += "  <path\(attrs) fill=\"url(#\(g.id)-light)\"\(op) style=\"mix-blend-mode:color-dodge\" d=\"\(dstr)\"/>\n"
+                    }
                 }
             }
             for b2 in d.style.borders {

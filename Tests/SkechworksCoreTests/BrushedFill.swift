@@ -14,9 +14,9 @@ private func brushedSquare(_ brushed: Bool) -> Page {
 }
 
 @Test func theTileIsTheSameEveryTime() throws {
-    let a = try #require(Brushed.makeTile()), b = try #require(Brushed.makeTile())
-    #expect(a.width == Brushed.tileSize)
-    #expect(Renderer.png(a) == Renderer.png(b), "a fixed seed, so a file looks the same wherever it opens")
+    let a = try #require(Brushed.makeStreaks()), b = try #require(Brushed.makeStreaks())
+    #expect(a.darken.width == Brushed.tilePixels)
+    #expect(a.darkenPNG == b.darkenPNG && a.lightenPNG == b.lightenPNG, "a fixed seed, so a file looks the same wherever it opens")
 }
 
 @Test func aBrushedFillSurvivesSaveAndOnlyWritesTheKeyWhenOn() throws {
@@ -34,9 +34,11 @@ private func brushedSquare(_ brushed: Bool) -> Page {
 
 @Test func brushedExportsAsAPatternOverTheFill() {
     let svg = SVGWriter(images: [:]).svg(page: brushedSquare(true))
-    #expect(svg.contains("<pattern id=\"brushed\""))
+    #expect(svg.contains("<pattern id=\"brushed-dark\""))
     #expect(svg.contains("rotate(-45)"))
-    #expect(svg.components(separatedBy: "<path").count - 1 == 2, "the fill, then the streaks over it")
+    #expect(svg.contains("<pattern id=\"brushed-shine-light\""))
+    #expect(svg.contains("mix-blend-mode:color-dodge"))
+    #expect(svg.components(separatedBy: "<path").count - 1 == 5, "the fill, then the streaks and the shine over it")
     #expect(!SVGWriter(images: [:]).svg(page: brushedSquare(false)).contains("pattern"))
 }
 
@@ -55,6 +57,24 @@ private func brushedSquare(_ brushed: Bool) -> Page {
     #expect(spread > 30, "streaks lighten and darken the gray (spread \(spread))")
     let mean = brushed.map(Int.init).reduce(0, +) / brushed.count
     #expect(abs(mean - Int(flat[flat.count / 2])) < 25, "and it still reads as the same gray overall")
+}
+
+// Adam, 10-26: the first cut lightened dark grays far more than light ones,
+// so the trees on Jerry flared. The change is a fraction of the color now.
+@Test func darkGraysChangeLessThanLightOnes() throws {
+    func spread(_ v: CGFloat) throws -> Int {
+        var page = brushedSquare(true)
+        page.layers[0].style.fills[0].paint = .color(Color(r: v, g: v, b: v, a: 1))
+        let img = try #require(Renderer(images: [:]).render(page: page, maxDimension: 200))
+        let ctx = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        let p = ctx.data!.bindMemory(to: UInt8.self, capacity: img.width * img.height * 4)
+        let r = (0..<(img.width * img.height)).map { Int(p[$0 * 4]) }.sorted()
+        return r[r.count * 95 / 100] - r[r.count * 5 / 100]
+    }
+    let dark = try spread(0.16), light = try spread(0.67)
+    #expect(dark < light, "dark \(dark), light \(light)")
 }
 
 @Test func theEditSignatureSeesBrushed() {

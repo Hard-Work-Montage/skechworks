@@ -3,6 +3,10 @@
 Short notes on every release. Also published at [skechworks.com/whats-new](https://skechworks.com/whats-new),
 which is the fuller record: 0.1.18 through 0.1.23 were written up there and never made it back here.
 
+## 0.1.90 (October 26, 2026)
+
+- Brushed fills are subtler and look more like real brushed metal
+
 ## 0.1.89 (October 26, 2026)
 
 - Fills can now be Brushed, which lays brushed metal lines over any color
