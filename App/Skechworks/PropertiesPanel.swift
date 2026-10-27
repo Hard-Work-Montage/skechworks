@@ -220,6 +220,7 @@ struct PropertiesPanel: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 8) {
                     sectionTitle("Fill")
+                    multiFillKind(layers)
                     if common({ solidFill($0).map { "\($0.hex)/\($0.a)" } }) != nil,
                        let c = layers.first.flatMap(solidFill) {
                         ColorField(color: c) { applyFill($0) }
@@ -286,6 +287,29 @@ struct PropertiesPanel: View {
     private func solidFill(_ l: Layer) -> SkechworksCore.Color? {
         guard let f = l.style.fills.first, case .color(let c) = f.paint else { return nil }
         return c
+    }
+
+    /// Solid or Brushed for the whole selection at once. Adam, 10-26: brushing
+    /// every gray on a coin one shape at a time was the slow part.
+    private func multiFillKind(_ layers: [Layer]) -> some View {
+        let brushed = common { $0.style.fills.first?.brushed ?? false }
+        return Picker("", selection: Binding<Bool?>(
+            get: { brushed },
+            set: { if let b = $0 { applyBrushed(b) } }
+        )) {
+            if brushed == nil { Text("Mixed").tag(Bool?.none) }
+            Text("Solid").tag(Bool?.some(false))
+            Text("Brushed").tag(Bool?.some(true))
+        }
+        .labelsHidden().pickerStyle(.menu).fixedSize()
+        .accessibilityIdentifier("multi-fill-kind")
+    }
+
+    private func applyBrushed(_ on: Bool) {
+        store.edit(Array(store.selection), actionName: on ? "Brushed Fill" : "Solid Fill") { l in
+            guard !l.style.fills.isEmpty, case .color = l.style.fills[0].paint else { return }
+            l.style.fills[0].brushed = on
+        }
     }
 
     private func applyFill(_ c: SkechworksCore.Color) {
