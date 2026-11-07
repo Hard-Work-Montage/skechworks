@@ -4179,16 +4179,24 @@ final class DocumentStore: ObservableObject {
     }
 
     func openPanel() {
+        guard let u = Self.chooseDocument() else { return }
+        // Open opens a document. It has no business closing one, and replacing
+        // what this window is showing is closing one.
+        if isVacant { open(u) } else { AppDelegate.shared?.openInNewWindow(u) }
+    }
+
+    /// The Open panel on its own, so File > Open works with no window open too
+    /// (Adam, 2026-11-07: with only the menu bar up it did nothing, because there
+    /// was no document to ask).
+    static func chooseDocument() -> URL? {
         let p = NSOpenPanel()
         p.allowedContentTypes = []
         p.allowsOtherFileTypes = true
         p.canChooseDirectories = false
         p.allowsMultipleSelection = false
         p.message = "Open a Skechworks document (.sw) or a Sketch file"
-        guard p.runModal() == .OK, let u = p.url else { return }
-        // Open opens a document. It has no business closing one, and replacing
-        // what this window is showing is closing one.
-        if isVacant { open(u) } else { AppDelegate.shared?.openInNewWindow(u) }
+        guard p.runModal() == .OK else { return nil }
+        return p.url
     }
 
     // MARK: - Export

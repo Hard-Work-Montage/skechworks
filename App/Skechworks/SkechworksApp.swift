@@ -51,7 +51,7 @@ struct SkechworksApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New") { openWindow(id: "document") }
                     .shortcut("new")
-                Button("Open…") { AppDelegate.shared?.active?.openPanel() }
+                Button("Open…") { AppDelegate.shared?.openFromMenu() }
                     .shortcut("open")
                 Menu("Open Recent") {
                     ForEach(recents.urls, id: \.self) { url in
@@ -438,6 +438,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Puts a document on screen without taking one off. The window in front
     /// takes it only if it is a blank slate; otherwise the file gets its own
     /// tab. Every menu that opens something goes through here.
+    /// File > Open: the frontmost document's panel, or, with no window open at
+    /// all, the panel straight from here and the file in a new window.
+    func openFromMenu() {
+        if let store = active {
+            store.openPanel()
+        } else if let url = DocumentStore.chooseDocument() {
+            openInNewWindow(url)
+        }
+    }
+
     func openSomewhere(_ url: URL) {
         if let store = active, store.isVacant {
             store.open(url)
