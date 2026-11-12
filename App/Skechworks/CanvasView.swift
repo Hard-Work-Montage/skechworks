@@ -1088,15 +1088,7 @@ final class PageCanvas: NSView {
         ctx.translateBy(x: -origin.x, y: -origin.y)
 
         let sc = max(0.01, currentScale)
-        for id in selected {
-            guard let raw = frameOf(id, in: page.layers, base: .identity) else { continue }
-            let rect = previewed(raw)
-            ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
-            ctx.setLineWidth(1.5 / sc)
-            ctx.setLineDash(phase: 0, lengths: [4 / sc, 3 / sc])
-            ctx.stroke(rect.insetBy(dx: -1, dy: -1))
-        }
-        ctx.setLineDash(phase: 0, lengths: [])
+        drawSelectionOutlines(ctx, page: page)
 
         if let m = marquee {
             ctx.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor)
@@ -1261,6 +1253,94 @@ final class PageCanvas: NSView {
             ctx.fill(box); ctx.stroke(box)
         }
     }
+
+    /// What a selection looks like: a line round each selected shape, following
+    /// the shape itself, and one faint box round the lot for the handles to sit on.
+    ///
+    /// Each layer used to wear its own dashed box. On a traced coin the boxes of
+    /// neighbouring shapes overlap so heavily that you could not tell which shapes
+    /// were selected, or see the art you were aiming at through them.
+    private func drawSelectionOutlines(_ ctx: CGContext, page: Page) {
+        guard !selected.isEmpty else { return }
+        let sc = max(0.01, currentScale)
+        let accent = NSColor.controlAccentColor
+        let gesture = liveGesture
+        var visible = CGRect(x: origin.x, y: origin.y,
+                             width: bounds.width / scale, height: bounds.height / scale)
+        if let g = gesture { visible = visible.applying(g.inverted()) }
+
+        // Points go in under the gesture, the line is stroked without it: the
+        // outline follows a resize while its width stays one hairline.
+        if let g = gesture { ctx.concatenate(g) }
+        var any = false
+        for o in selectionOutlines(page) where o.box.intersects(visible) {
+            ctx.addPath(o.path)
+            any = true
+        }
+        if let g = gesture { ctx.concatenate(g.inverted()) }
+        if any {
+            ctx.setStrokeColor(accent.cgColor)
+            ctx.setLineWidth(1.5 / sc)
+            ctx.setLineJoin(.round)
+            ctx.strokePath()
+            ctx.setLineJoin(.miter)
+        }
+
+        // Handles with nothing joining them read as eight loose squares.
+        if tool == .select, editPath == nil, rotating == nil, let b = selectionBounds {
+            ctx.setStrokeColor(accent.withAlphaComponent(0.45).cgColor)
+            ctx.setLineWidth(1 / sc)
+            ctx.stroke(previewed(b))
+        }
+    }
+
+    /// The outline of everything selected, in page space, with each piece's box
+    /// so a draw can skip what is off screen.
+    ///
+    /// Read from the composition the canvas already holds, in one walk of the
+    /// tree and one of the drawables, and kept until either changes: this is
+    /// asked on every frame of a pan, and a marquee over a traced coin selects
+    /// thousands of shapes.
+    private func selectionOutlines(_ page: Page) -> [(path: CGPath, box: CGRect)] {
+        if let c = outlineCache, c.gen == composedGen, c.selected == selected { return c.outlines }
+        var out: [(path: CGPath, box: CGRect)] = []
+        // A selected group is outlined by what is inside it. An artboard is not:
+        // its edge is its geometry, and outlining its art would read as the art
+        // being selected.
+        var inside = Set<String>()
+        func walk(_ layers: [Layer], base: CGAffineTransform, under: Bool) {
+            for l in layers {
+                let t = Compose.transform(l).concatenating(base)
+                let picked = selected.contains(l.id)
+                if picked, l.isArtboard {
+                    let p = CGPath(rect: CGRect(origin: .zero, size: l.frame.size), transform: nil)
+                        .transformed(by: t)
+                    out.append((p, p.boundingBoxOfPath))
+                }
+                let on = (under || picked) && !l.isArtboard
+                if on { inside.insert(l.id) }
+                switch l.kind {
+                case .group(let k), .shapeGroup(let k, _): walk(k, base: t, under: on)
+                default: break
+                }
+            }
+        }
+        walk(page.layers, base: .identity, under: false)
+        for d in composed where inside.contains(d.layer.id) {
+            if let p = d.path, let box = d.pathBounds {
+                out.append((p, box))
+            } else if d.text != nil || d.imageRef != nil {
+                // Words and pictures have no outline of their own; they get
+                // their frame, turned with them.
+                let p = CGPath(rect: CGRect(origin: .zero, size: d.layer.frame.size), transform: nil)
+                    .transformed(by: d.transform)
+                out.append((p, p.boundingBoxOfPath))
+            }
+        }
+        outlineCache = (composedGen, selected, out)
+        return out
+    }
+    private var outlineCache: (gen: Int, selected: Set<String>, outlines: [(path: CGPath, box: CGRect)])?
 
     /// Applies whatever gesture is in flight to a rect.
     ///
